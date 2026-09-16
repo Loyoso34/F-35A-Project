@@ -55,7 +55,7 @@ class App {
     this.physics = new FlightModel(this.world);
     this.hud = new HUD(this.hudCanvas);
     this.audio = new AudioEngine();
-    this.cameraRig = new CameraRig(this.camera, this.aircraft);
+    this.cameraRig = new CameraRig(this.camera, this.aircraft, this.world);
     this.cameraRig.applyMode();
     this.controls = new Controls({
       onGear: () => this.toggleGear(),
@@ -64,6 +64,7 @@ class App {
       onCamera: () => this.cycleCamera(),
       onSound: () => this.toggleSound(),
       onPause: () => this.togglePause(),
+      onLights: () => this.toggleLights(),
       onViewDrag: (dx, dy) => this.cameraRig.drag(dx, dy),
       onViewPinch: (f) => this.cameraRig.zoom(f),
     });
@@ -163,7 +164,7 @@ class App {
   applySound() {
     const muted = !this.settings.sound;
     this.audio.setMuted(muted);
-    this.ui.el.btnSound.textContent = muted ? '🔇 Ses' : '🔊 Ses';
+    const ic = this.ui.el.btnSound.querySelector('.i'); if (ic) ic.textContent = muted ? '🔇' : '🔊';
     this.ui.setToggle(this.ui.el.btnSound, !muted);
   }
 
@@ -266,6 +267,7 @@ class App {
   }
   restart() {
     this.physics.reset();
+    this.lightsOn = false; this.aircraft.setLandingLights(false); this.ui.setToggle(this.ui.el.btnLights, false);
     this.controls.resetLever(0);
     this.controls.setEnabled(true);
     this.cameraRig.reset();
@@ -299,6 +301,13 @@ class App {
     ui.setToggle(ui.el.btnFlap, p.flapsCmd > 0.5);
     ui.setToggle(ui.el.btnBrake, p.brakes);
   }
+  toggleLights() {
+    if (this.state !== 'running') return;
+    this.lightsOn = !this.lightsOn;
+    this.aircraft.setLandingLights(this.lightsOn);
+    this.ui.setToggle(this.ui.el.btnLights, this.lightsOn);
+    this.ui.message(this.lightsOn ? 'İniş ışıkları açık' : 'İniş ışıkları kapalı', 1200);
+  }
   cycleCamera() {
     this.cameraRig.next();
     this.ui.message('Kamera: ' + CAMERA_NAMES[this.cameraRig.mode], 1200);
@@ -324,6 +333,7 @@ class App {
     this.world.dispose();
     this.world = new World(this.scene, this.renderer, q);
     this.physics.world = this.world;
+    this.cameraRig.world = this.world;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, preset.pixelRatio));
     this.renderer.shadowMap.enabled = preset.shadows;
     this.scene.traverse((o) => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach((m) => { m.needsUpdate = true; }); } });
@@ -416,11 +426,14 @@ class App {
     if (running || this.needsRender) {
       this.world.update(running ? dt : 0, this.camera, this.physics.pos);
       this.renderer.render(this.scene, this.camera);
+      const cockpit = this.cameraRig.mode === 'cockpit';
       this.hud.draw(this.physics.telemetry, this.camera, this.physics, {
-        visible: this.state !== 'start', dt, safe: this.safe, cameraName: CAMERA_NAMES[this.cameraRig.mode],
+        visible: this.state !== 'start' && cockpit, externalOnly: this.state !== 'start' && !cockpit,
+        dt, safe: this.safe, cameraName: CAMERA_NAMES[this.cameraRig.mode],
       });
       this.needsRender = false;
     }
+    this.audio.setListener(this.cameraRig.mode === 'cockpit' ? 'cockpit' : 'external', this.cameraRig.doppler, this.cameraRig.distance);
     this.audio.update(dt, this.physics.telemetry, running);
     // FPS göstergesi
     if (this.settings.fps) {

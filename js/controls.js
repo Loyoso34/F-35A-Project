@@ -15,7 +15,10 @@ export class Controls {
     this.stickOrigin = { x: 0, y: 0 };
     this.stickVec = { x: 0, y: 0 };
     this.throttlePointer = null;
-    this.rudderTouch = 0;
+    this.rudder = 0;           // -1..1 (kaydırıcı)
+    this.rudderHeld = false;
+    this.rudderPointer = null;
+    this.rudderKey = 0;
     this.tiltEnabled = false;
     this.tilt = { beta: 0, gamma: 0, has: false };
     this.tiltZero = { beta: 0, gamma: 0 };
@@ -31,9 +34,12 @@ export class Controls {
       throttleKnob: document.getElementById('throttle-knob'),
       throttleFill: document.getElementById('throttle-fill'),
       touch: document.getElementById('touch'),
+      rudder: document.getElementById('rudder'),
+      rudderKnob: document.getElementById('rudder-knob'),
     };
     this.bindStick();
     this.bindThrottle();
+    this.bindRudder();
     this.bindButtons();
     this.bindKeyboard();
     this.bindView();
@@ -49,7 +55,7 @@ export class Controls {
 
   setEnabled(v) {
     this.enabled = v;
-    if (!v) { this.releaseStick(); this.rudderTouch = 0; this.keys.clear(); }
+    if (!v) { this.releaseStick(); this.rudderHeld = false; this.rudderPointer = null; this.keys.clear(); }
   }
 
   // ---- Joystick ----
@@ -125,20 +131,40 @@ export class Controls {
     this.els.throttleKnob.style.borderColor = ab ? '#ff9a3a' : '';
   }
 
+  // ---- Yaylı analog rudder kaydırıcısı ----
+  bindRudder() {
+    const r = this.els.rudder;
+    if (!r) return;
+    const setFrom = (e) => {
+      const rect = r.getBoundingClientRect();
+      const half = rect.width / 2 - 22;
+      this.rudder = clamp((e.clientX - (rect.left + rect.width / 2)) / half, -1, 1);
+      this.updateRudderUI();
+    };
+    r.addEventListener('pointerdown', (e) => {
+      if (!this.enabled) return;
+      this.rudderPointer = e.pointerId;
+      this.rudderHeld = true;
+      r.setPointerCapture && r.setPointerCapture(e.pointerId);
+      setFrom(e);
+      e.preventDefault();
+    });
+    r.addEventListener('pointermove', (e) => { if (e.pointerId === this.rudderPointer && this.rudderHeld) setFrom(e); });
+    const end = (e) => { if (e.pointerId === this.rudderPointer) { this.rudderHeld = false; this.rudderPointer = null; } };
+    r.addEventListener('pointerup', end);
+    r.addEventListener('pointercancel', end);
+    r.addEventListener('lostpointercapture', end);
+    r.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+  updateRudderUI() {
+    const r = this.els.rudder;
+    if (!r) return;
+    const half = r.clientWidth / 2 - 22;
+    this.els.rudderKnob.style.transform = `translateX(${this.rudder * half}px)`;
+  }
+
   // ---- Düğmeler ----
   bindButtons() {
-    const hold = (id, on, off) => {
-      const el = document.getElementById(id);
-      const down = (e) => { if (!this.enabled) return; el.classList.add('pressed'); on(); e.preventDefault(); };
-      const up = () => { el.classList.remove('pressed'); off(); };
-      el.addEventListener('pointerdown', down);
-      el.addEventListener('pointerup', up);
-      el.addEventListener('pointercancel', up);
-      el.addEventListener('pointerleave', up);
-      el.addEventListener('contextmenu', (e) => e.preventDefault());
-    };
-    hold('btn-rudder-l', () => { this.rudderTouch = -1; }, () => { if (this.rudderTouch === -1) this.rudderTouch = 0; });
-    hold('btn-rudder-r', () => { this.rudderTouch = 1; }, () => { if (this.rudderTouch === 1) this.rudderTouch = 0; });
     const tap = (id, fn) => {
       const el = document.getElementById(id);
       let lastT = 0;
@@ -157,6 +183,7 @@ export class Controls {
     tap('btn-camera', () => this.cb.onCamera && this.cb.onCamera());
     tap('btn-sound', () => this.cb.onSound && this.cb.onSound());
     tap('btn-pause', () => this.cb.onPause && this.cb.onPause());
+    tap('btn-lights', () => this.cb.onLights && this.cb.onLights());
   }
 
   // ---- Serbest kamera için sürükleme / pinch (merkez bölge) ----
@@ -205,6 +232,7 @@ export class Controls {
         case 'KeyB': this.cb.onBrake && this.cb.onBrake(); break;
         case 'KeyC': this.cb.onCamera && this.cb.onCamera(); break;
         case 'KeyM': this.cb.onSound && this.cb.onSound(); break;
+        case 'KeyL': this.cb.onLights && this.cb.onLights(); break;
         case 'KeyP': case 'Escape': this.cb.onPause && this.cb.onPause(); break;
         default: return;
       }
@@ -275,8 +303,7 @@ export class Controls {
       if (k.has('KeyW') || k.has('ArrowUp')) pitch -= 1;
       if (k.has('KeyD') || k.has('ArrowRight')) roll += 1;
       if (k.has('KeyA') || k.has('ArrowLeft')) roll -= 1;
-      if (k.has('KeyE')) yaw += 1;
-      if (k.has('KeyQ')) yaw -= 1;
+      if (k.has('KeyE')) this.rudderKey = 1; else if (k.has('KeyQ')) this.rudderKey = -1; else this.rudderKey = 0;
       if (k.has('ShiftLeft') || k.has('ShiftRight')) { this.lever = Math.min(1.15, this.lever + dt * 0.5); this.setThrottleUI(); }
       if (k.has('ControlLeft') || k.has('ControlRight')) { this.lever = Math.max(0, this.lever - dt * 0.5); this.setThrottleUI(); }
     }
@@ -286,7 +313,15 @@ export class Controls {
     } else if (this.tiltEnabled) {
       pitch = this.tiltOut.pitch; roll = this.tiltOut.roll;
     }
-    yaw += this.rudderTouch;
+    // Rudder: kaydırıcı basılıysa doğrudan; klavye basılıysa hedefe yaklaş; bırakılınca yay ile tam ortaya dön
+    if (this.rudderHeld) { /* pointermove ayarlar */ }
+    else if (this.rudderKey !== 0) { this.rudder += (this.rudderKey - this.rudder) * (1 - Math.exp(-dt * 10)); this.updateRudderUI(); }
+    else if (this.rudder !== 0) {
+      this.rudder *= Math.exp(-dt * 14);
+      if (Math.abs(this.rudder) < 0.004) this.rudder = 0;
+      this.updateRudderUI();
+    }
+    yaw += this.rudder;
     // Yumuşatma: ani sıçramaları azalt
     const s = this.state;
     const sm = 1 - Math.exp(-dt * 14);

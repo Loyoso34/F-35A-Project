@@ -473,3 +473,79 @@ export function makeWindowsTexture(w = 512, h = 256, cols = 12, rows = 3) {
   }
   return finishTexture(new THREE.CanvasTexture(c));
 }
+
+// Alev/ısı türbülansı için döşenebilir gürültü dokusu (tek kanal, kırmızıda)
+export function makeFlameNoiseTexture(size = 128) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const n1 = periodicNoise(size, 4, 811, 4, 0.5);
+  const n2 = periodicNoise(size, 3, 812, 12, 0.5);
+  for (let i = 0; i < size * size; i++) {
+    const v = Math.min(255, Math.max(0, (n1[i] * 0.65 + n2[i] * 0.35) * 255));
+    img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return finishTexture(new THREE.CanvasTexture(c), { srgb: false });
+}
+
+// Işık parıltısı (radyal gradyan, alfa)
+export function makeGlowTexture(size = 64) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.25, 'rgba(255,255,255,0.7)');
+  g.addColorStop(0.6, 'rgba(255,255,255,0.18)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.needsUpdate = true;
+  return t;
+}
+
+// Tel örgü (chain-link) dokusu: şeffaf zemin üzerinde baklava deseni
+export function makeChainLinkTexture(size = 64) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  ctx.strokeStyle = 'rgba(190,196,200,0.95)';
+  ctx.lineWidth = 2.2;
+  const s = size / 2;
+  for (let i = -1; i <= 2; i++) {
+    ctx.beginPath(); ctx.moveTo(i * s, 0); ctx.lineTo(i * s + size, size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(i * s + size, 0); ctx.lineTo(i * s, size); ctx.stroke();
+  }
+  const t = finishTexture(new THREE.CanvasTexture(c));
+  return t;
+}
+
+// Dikenli tel şeridi: 3 yatay tel + dikenler, şeffaf zemin
+export function makeBarbedWireTexture(w = 128, h = 32) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(170,176,180,0.95)';
+  ctx.lineWidth = 1.5;
+  for (const y of [6, 16, 26]) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    for (let x = 6; x < w; x += 16) { ctx.beginPath(); ctx.moveTo(x - 3, y - 3); ctx.lineTo(x + 3, y + 3); ctx.moveTo(x + 3, y - 3); ctx.lineTo(x - 3, y + 3); ctx.stroke(); }
+  }
+  return finishTexture(new THREE.CanvasTexture(c));
+}
+
+// Kamuflaj/zeytin araç boyası için hafif gürültü dokusu
+export function makeOliveTexture(size = 128) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const n = periodicNoise(size, 3, 901, 4, 0.5);
+  for (let i = 0; i < size * size; i++) {
+    const v = (n[i] - 0.5) * 30;
+    img.data[i * 4] = 96 + v; img.data[i * 4 + 1] = 102 + v; img.data[i * 4 + 2] = 72 + v; img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return finishTexture(new THREE.CanvasTexture(c));
+}

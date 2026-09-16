@@ -57,9 +57,10 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 ## Kontroller
 
 - **Sol joystick:** yunuslama ve yatış. **Sağ kaydırıcı:** gaz kolu; üstteki turuncu bölge art yakıcı.
-- **Rudder Sol/Sağ:** dümen ve burun tekeri. **İniş Takımı / Flap / Fren:** aç-kapat.
-- **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır). **Ses:** sessize al. **Duraklat:** menü.
-- **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, M ses, P/Esc duraklat.
+- **RUDDER kaydırıcısı (alt orta):** yaylı analog dümen ve burun tekeri; parmağı/fareyi bırakınca tam merkeze döner. **Takım / Flap / Fren:** aç-kapat.
+- **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır) → uçuş geçişi (sabit dış kamera, Doppler sesi). HUD yalnızca kokpit görünümünde çizilir; dış görünümlerde yalnızca kısa uyarılar (STALL, İNİŞ TAKIMI) görünür.
+- **Işık:** iniş ışıkları (takım açıkken burun önünü aydınlatır). Seyir ışıkları (kırmızı/yeşil/beyaz), flaşörler ve dönen ikaz ışıkları her zaman açıktır.
+- **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, L ışıklar, M ses, P/Esc duraklat.
 - **Kalkış:** Fren'i kapatın, gazı sonuna kadar itin, ~145 kt'ta burnu kaldırın, tırmanışta takımı toplayın.
 - **Stall:** Hücum açısı 19°'de uyarı (HUD ve ses), 24°'nin üzerinde taşıma hızla düşer; burun düşer, kanat sallanır. Toparlamak için çubuğu ileri itip hız kazanın.
 - **Eğim kontrolü:** Ayarlar → Eğim kontrolü → Açık. Telefonu rahat tuttuğunuz açıda **Kalibre Et**'e basın.
@@ -79,7 +80,14 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 | Orta (varsayılan) | 1.5 | 1024 | 21 km | 13 000 | 70 | tam |
 | Yüksek | 2 | 2048 | 34 km | 24 000 | 110 | tam |
 
-Dünya 40 × 40 km'dir: kenarlarda dağlar, ortada düzlükler ve tarlalar, dört göl, bir nehir, yollar, bir kasaba ve genişletilmiş hava üssü (paralel taksi yolları, apron, güneşlikler, hangarlar, korumalı sığınaklar, kule, park halinde F-35'ler).
+Dünya 40 × 40 km'dir: kenarlarda dağlar, ortada düzlükler ve tarlalar, dört göl, bir nehir, yollar, bir kasaba ve askeri hava üssü (paralel taksi yolları, apron, güneşlikler, hangarlar, korumalı sığınaklar, kule, park halinde F-35'ler, bakım atölyeleri, kışla ve filo binaları, yakıt sahası, mühimmat igloları, dikenli telli çevre çiti, nöbetçi kulübeli kapılar, çevre/servis yolları, otoparklar, askeri araçlar ve bitki örtüsü). Su yüzeyleri derinliğe göre renklenir (sığ turkuaz → derin koyu), kıyılar yumuşak geçişlidir ve gökyüzü/güneş yansıması Fresnel ile hesaplanır.
+
+## Uçuş modeli
+
+- Hız vektörü gerçek ivmelenmeden gelir; dikey hız (VS) doğrudan hız vektörünün düşey bileşenidir. Burun aşağıdayken irtifa kaybı kaçınılmazdır; yapay irtifa tutucu yoktur.
+- Kontrol kanunu yük katsayısı (g) komutludur; düşük hızda hücum açısı komutuna geçer. Çubuk merkezdeyken uçak trim durumuna yakın kalır, ancak hız düştükçe burun düşer.
+- Taşıma/sürükleme: CL eğrisi stall sonrası düşer, indüklenmiş sürükleme (Oswald), ayrılma sürüklemesi, takım/flap sürüklemesi, yer etkisi (h/b oranına göre) ve ISA atmosferi.
+- Motor: yavaş tepkili itki (spool), art yakıcı ayrı kademe, yakıt tüketimi; ses motoru rumble/türbin/egzoz/art yakıcı katmanlarını buna göre karıştırır.
 
 Eski cihazlarda veya Düşük Güç Modu'nda takılma olursa **Düşük** seçin.
 

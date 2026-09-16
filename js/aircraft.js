@@ -2,7 +2,7 @@
 // Eksenler: burun -Z, üst +Y, sağ kanat +X. Uzunluk 15.7 m, açıklık 10.7 m, yükseklik 4.4 m.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { makeStealthPanelTexture, makeRoughnessTexture, makeInsigniaTexture, makeTextTexture, makeCockpitDisplayTexture, makeBayDoorTexture } from './textures.js';
+import { makeStealthPanelTexture, makeRoughnessTexture, makeInsigniaTexture, makeTextTexture, makeCockpitDisplayTexture, makeBayDoorTexture, makeFlameNoiseTexture, makeGlowTexture } from './textures.js';
 
 const DEG = Math.PI / 180;
 export const F35 = {
@@ -414,7 +414,8 @@ export class F35A {
         const hingeS = leM + (teM - leM) * P.hinge;
         const f0 = (sf.x0 - P.rootX) / (P.tipX - P.rootX), f1 = (sf.x1 - P.rootX) / (P.tipX - P.rootX);
         const hs = (f) => { const le = P.leRoot + (P.leTip - P.leRoot) * f, te = P.teRoot + (P.teTip - P.teRoot) * f; return le + (te - le) * P.hinge; };
-        const axis = new THREE.Vector3(side * (sf.x1 - sf.x0), 0, hs(f1) - hs(f0)).normalize();
+        // Menteşe ekseni her iki kanatta +x yönlü: pozitif açı = firar kenarı aşağı (simetrik)
+        const axis = new THREE.Vector3(sf.x1 - sf.x0, 0, side * (hs(f1) - hs(f0))).normalize();
         const geo = this.buildWingPanel(side, sf.x0, sf.x1, P, { cStart: P.hinge - 0.01, cEnd: 1, K: 5, N: 3 });
         geo.translate(-side * xm, -P.y, -st(hingeS));
         geo.computeVertexNormals();
@@ -539,32 +540,72 @@ export class F35A {
     const turbine = new THREE.CircleGeometry(0.5, 24);
     turbine.translate(0, y0, z0 + 0.05);
     this.group.add(new THREE.Mesh(this.track(turbine), this.m.dark));
+    // Nozul içi parıltı (askeri güçte kızıl, art yakıcıda parlak beyaz-mavi)
     const glow = new THREE.CircleGeometry(0.44, 20);
     glow.translate(0, y0, z0 + 0.12);
-    this.matGlow = this.track(new THREE.MeshBasicMaterial({ color: 0xff5a10, transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.matGlow = this.track(new THREE.MeshBasicMaterial({ color: 0xff6a20, transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.group.add(new THREE.Mesh(this.track(glow), this.matGlow));
-    // Art yakıcı alevi
-    this.matFlameOuter = this.track(new THREE.MeshBasicMaterial({ color: 0xff6a10, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-    this.matFlameInner = this.track(new THREE.MeshBasicMaterial({ color: 0x88b8ff, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }));
+    // Yaprakların iç yüzü: art yakıcıda ısınır
+    this.matNozzleInner = innerMat;
+    innerMat.emissive = new THREE.Color(0xff4a10);
+    innerMat.emissiveIntensity = 0;
+    // Art yakıcı alevi: üç katmanlı tüp (çekirdek, orta, dış ısı bulanıklığı) – özel shader
+    const noiseTex = this.track(makeFlameNoiseTexture(128));
+    const mkFlameMat = (params) => this.track(new THREE.ShaderMaterial({
+      uniforms: {
+        time: { value: 0 }, intensity: { value: 0 }, noiseTex: { value: noiseTex },
+        colorA: { value: new THREE.Color(params.colorA) }, colorB: { value: new THREE.Color(params.colorB) },
+        edge: { value: params.edge }, speed: { value: params.speed }, diamonds: { value: params.diamonds }, alphaMul: { value: params.alpha },
+      },
+      vertexShader: `
+        varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+        void main() {
+          vUv = uv;
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vN = normalize(mat3(modelMatrix) * normal);
+          vV = normalize(cameraPosition - wp.xyz);
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }`,
+      fragmentShader: `
+        uniform float time; uniform float intensity; uniform sampler2D noiseTex; uniform vec3 colorA; uniform vec3 colorB;
+        uniform float edge; uniform float speed; uniform float diamonds; uniform float alphaMul;
+        varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+        void main() {
+          float z = vUv.y;                       // 0 nozul, 1 uç
+          float ax = exp(-z * 2.4) * pow(max(0.0, 1.0 - z), 0.45);
+          float n1 = texture2D(noiseTex, vec2(vUv.x * 2.0 + time * 0.25, z * 2.5 - time * speed)).r;
+          float n2 = texture2D(noiseTex, vec2(vUv.x * 3.0 - time * 0.4, z * 5.0 - time * speed * 1.7)).r;
+          float turb = 0.55 + 0.6 * n1 + 0.3 * (n2 - 0.5);
+          float sh = 0.55 + 0.45 * cos(z * (13.0 + 7.0 * intensity) - time * 9.0);
+          sh = mix(1.0, sh, diamonds * exp(-z * 2.2));
+          float fres = pow(abs(dot(normalize(vN), normalize(vV))), edge);
+          float b = ax * turb * sh * intensity;
+          vec3 col = mix(colorA, colorB, clamp(z * 1.4 + (n1 - 0.5) * 0.5, 0.0, 1.0));
+          gl_FragColor = vec4(col * b * 1.15, clamp(b * fres * alphaMul, 0.0, 1.0));
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    }));
     const flameGroup = new THREE.Group();
-    flameGroup.position.set(0, y0, zB - 0.05);
-    const outerGeo = new THREE.ConeGeometry(0.44, 1, 16, 1, true);
-    outerGeo.rotateX(Math.PI / 2); outerGeo.translate(0, 0, 0.5);
-    const innerGeo = new THREE.ConeGeometry(0.27, 1, 12, 1, true);
-    innerGeo.rotateX(Math.PI / 2); innerGeo.translate(0, 0, 0.5);
-    const outer = new THREE.Mesh(this.track(outerGeo), this.matFlameOuter);
-    const innerF = new THREE.Mesh(this.track(innerGeo), this.matFlameInner);
-    flameGroup.add(outer, innerF);
-    this.parts.diamonds = [];
-    for (let i = 0; i < 4; i++) {
-      const d = new THREE.Mesh(this.track(new THREE.SphereGeometry(0.16, 8, 6)), this.matFlameInner);
-      d.position.z = 0.14 + i * 0.16;
-      flameGroup.add(d);
-      this.parts.diamonds.push(d);
-    }
+    flameGroup.position.set(0, y0, zB - 0.04);
+    const tube = (rIn, rOut, len) => {
+      // Uzunluk boyunca daralan tüp; uv.y = z/len
+      const g = new THREE.CylinderGeometry(rOut, rIn, len, 20, 12, true);
+      g.rotateX(Math.PI / 2);
+      g.translate(0, 0, len / 2);
+      return g;
+    };
+    this.flameCore = new THREE.Mesh(this.track(tube(0.24, 0.04, 1)), mkFlameMat({ colorA: 0xd8ecff, colorB: 0x6aa0ff, edge: 0.6, speed: 6.0, diamonds: 1.0, alpha: 0.85 }));
+    this.flameMid = new THREE.Mesh(this.track(tube(0.38, 0.10, 1)), mkFlameMat({ colorA: 0xff9040, colorB: 0xff4a14, edge: 1.1, speed: 4.5, diamonds: 0.7, alpha: 0.5 }));
+    this.flameHaze = new THREE.Mesh(this.track(tube(0.50, 0.24, 1)), mkFlameMat({ colorA: 0xb8c8e0, colorB: 0x9ab0d0, edge: 1.8, speed: 2.2, diamonds: 0.0, alpha: 0.10 }));
+    this.flameCore.renderOrder = 8; this.flameMid.renderOrder = 7; this.flameHaze.renderOrder = 6;
+    flameGroup.add(this.flameHaze, this.flameMid, this.flameCore);
     flameGroup.visible = false;
     this.group.add(flameGroup);
     this.parts.flame = flameGroup;
+    this.flameMats = [this.flameCore.material, this.flameMid.material, this.flameHaze.material];
+    this.abFlash = 0;
   }
 
   buildGear() {
@@ -693,15 +734,50 @@ export class F35A {
 
   buildLights() {
     const P = this.wingPlanform();
-    const mk = (mat, x, y, z) => { const m = new THREE.Mesh(this.track(new THREE.SphereGeometry(0.07, 8, 6)), mat); m.position.set(x, y, z); this.group.add(m); return m; };
-    this.matNavRed = this.track(new THREE.MeshBasicMaterial({ color: 0xff2020 }));
-    this.matNavGreen = this.track(new THREE.MeshBasicMaterial({ color: 0x20ff40 }));
-    this.matStrobe = this.track(new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    const glowTex = this.track(makeGlowTexture(64));
+    const mkLight = (color, x, y, z, size = 0.8) => {
+      const g = new THREE.Group();
+      const bulb = new THREE.Mesh(this.track(new THREE.SphereGeometry(0.05, 6, 5)), this.track(new THREE.MeshBasicMaterial({ color })));
+      const spr = new THREE.Sprite(this.track(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
+      spr.scale.set(size, size, 1);
+      g.add(bulb, spr);
+      g.position.set(x, y, z);
+      g.userData.sprite = spr; g.userData.size = size;
+      this.group.add(g);
+      return g;
+    };
     const tipS = (P.leTip + P.teTip) / 2;
-    this.parts.navLeft = mk(this.matNavRed, -P.tipX + 0.05, P.y, st(tipS));
-    this.parts.navRight = mk(this.matNavGreen, P.tipX - 0.05, P.y, st(tipS));
-    this.parts.strobe = mk(this.matStrobe, 0, bodyTop(13.0) + 0.05, st(13.0));
+    // Seyir ışıkları: sol kırmızı, sağ yeşil, kuyruk beyaz (sürekli)
+    this.lights = {
+      navLeft: mkLight(0xff2a2a, -P.tipX + 0.05, P.y, st(tipS), 0.55),
+      navRight: mkLight(0x2aff5a, P.tipX - 0.05, P.y, st(tipS), 0.55),
+      tail: mkLight(0xffffff, 0, 0.42, st(14.62), 0.45),
+      // Çarpışma önleyici flaşörler: kanat uçları (beyaz, çift flaş), gövde üst/alt (kırmızı beacon)
+      strobeLeft: mkLight(0xffffff, -P.tipX + 0.05, P.y + 0.03, st(tipS) + 0.15, 1.0),
+      strobeRight: mkLight(0xffffff, P.tipX - 0.05, P.y + 0.03, st(tipS) + 0.15, 1.0),
+      beaconTop: mkLight(0xff3020, 0, bodyTop(9.6) + 0.06, st(9.6), 0.9),
+      beaconBottom: mkLight(0xff3020, 0, bodyBottom(9.6) - 0.06, st(9.6), 0.9),
+    };
+    this.parts.strobe = this.lights.strobeLeft; // geriye dönük uyumluluk
+    // İniş/taksi ışığı: burun takımı üzerinde, öne-aşağı bakan spot
+    const spot = new THREE.SpotLight(0xfff2dc, 0, 420, 24 * DEG, 0.45, 0.6);
+    spot.castShadow = false;
+    const noseGear = this.parts.gear.nose.pivot;
+    spot.position.set(0, -0.45, -0.12);
+    const target = new THREE.Object3D();
+    target.position.set(0, -6.0, -40);
+    noseGear.add(spot); noseGear.add(target);
+    spot.target = target;
+    this.landingSpot = spot;
+    this.landingLens = new THREE.Sprite(this.track(new THREE.SpriteMaterial({ map: glowTex, color: 0xfff4e0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
+    this.landingLens.scale.set(0.5, 0.5, 1);
+    this.landingLens.position.set(0, -0.45, -0.16);
+    this.landingLens.visible = false;
+    noseGear.add(this.landingLens);
+    this.landingLightsOn = false;
   }
+
+  setLandingLights(on) { this.landingLightsOn = !!on; }
 
   buildMarkings() {
     const P = this.wingPlanform();
@@ -776,12 +852,14 @@ export class F35A {
     p.stabs.left.rotation.x = stab - aileron * 5 * DEG;
     p.stabs.right.rotation.x = stab + aileron * 5 * DEG;
     const setHinge = (mesh, angle) => { mesh.quaternion.setFromAxisAngle(mesh.userData.axis, angle); };
+    // Sağa yatış: sağ kanatçık yukarı (negatif), sol kanatçık aşağı (pozitif)
     const ail = aileron * 22 * DEG;
-    setHinge(p.ailerons.right, ail);
+    setHinge(p.ailerons.right, -ail);
     setHinge(p.ailerons.left, ail);
+    // Flaperonlar: flap aşağı (her iki tarafta aynı) + yatış karışımı
     const flapAngle = flaps * 28 * DEG;
-    setHinge(p.flaps.right, flapAngle + aileron * 10 * DEG);
-    setHinge(p.flaps.left, flapAngle - aileron * 10 * DEG);
+    setHinge(p.flaps.right, flapAngle - aileron * 10 * DEG);
+    setHinge(p.flaps.left, flapAngle + aileron * 10 * DEG);
     const rud = rudder * 25 * DEG;
     setHinge(p.rudders.right, -rud);
     setHinge(p.rudders.left, -rud);
@@ -797,21 +875,44 @@ export class F35A {
       const doorOpen = Math.min(1, gear * 1.4);
       for (const d of g.doors) d.pivot.rotation.z = d.sign * (Math.PI / 2) * (1 - doorOpen) + d.sign * 0.35 * doorOpen;
     }
-    // Motor parıltısı ve art yakıcı
-    this.matGlow.opacity = Math.max(0, throttle - 0.6) * 0.8 + afterburner * 0.6;
-    if (afterburner > 0.02) {
+    // Motor parıltısı, nozul ısısı ve art yakıcı
+    const mil = Math.max(0, (throttle - 0.55) / 0.45);
+    // Ateşleme parlaması: AB seviyesi hızla yükselirken kısa flaş
+    const abRise = afterburner - (this._lastAb || 0); this._lastAb = afterburner;
+    this.abFlash = Math.max(0, this.abFlash * (1 - 6 * Math.max(dt, 0.001)) + Math.max(0, abRise) * 40);
+    const flash = Math.min(1, this.abFlash);
+    this.matGlow.opacity = mil * 0.25 + afterburner * 0.75 + flash * 0.4;
+    this.matGlow.color.setRGB(1.0, 0.45 + 0.45 * afterburner, 0.15 + 0.7 * afterburner);
+    this.matNozzleInner.emissiveIntensity = mil * 0.35 + afterburner * 1.6 + flash;
+    const intensity = mil * 0.14 + afterburner;
+    if (intensity > 0.02) {
       p.flame.visible = true;
-      const flick = 0.92 + 0.08 * Math.sin(time * 90) * Math.sin(time * 37);
-      const len = (2.5 + 4.5 * afterburner) * flick;
-      p.flame.scale.set(0.9 + 0.2 * afterburner, 0.9 + 0.2 * afterburner, len);
-      this.matFlameOuter.opacity = 0.12 + 0.14 * afterburner;
-      this.matFlameInner.opacity = 0.16 + 0.18 * afterburner;
-      p.diamonds.forEach((d, i) => { d.visible = afterburner > 0.3 + i * 0.15; d.scale.z = 0.35 / len; });
+      const flick = 1 + 0.06 * Math.sin(time * 71) * Math.sin(time * 29) + 0.03 * Math.sin(time * 113);
+      const len = (1.2 + 1.2 * mil + 6.0 * afterburner) * flick;
+      const w = 0.85 + 0.35 * afterburner + 0.25 * flash;
+      p.flame.scale.set(w, w, len);
+      const I = Math.min(1.5, intensity + flash * 0.6);
+      for (const mt of this.flameMats) { mt.uniforms.time.value = time; mt.uniforms.intensity.value = I; }
+      this.flameHaze.visible = afterburner > 0.1;
     } else {
       p.flame.visible = false;
     }
-    const blink = (time % 1.2) < 0.08 || ((time + 0.25) % 1.2) < 0.08;
-    p.strobe.visible = blink;
+    // Dış ışıklar: seyir ışıkları sürekli; flaşörler çift flaş (periyot 1.7 s); beacon 1 Hz
+    const tp = time % 1.7;
+    const strobeOn = (tp < 0.06) || (tp > 0.16 && tp < 0.22);
+    const beaconOn = (time % 1.0) < 0.12;
+    const L = this.lights;
+    L.strobeLeft.visible = strobeOn; L.strobeRight.visible = strobeOn;
+    L.beaconTop.visible = beaconOn; L.beaconBottom.visible = beaconOn;
+    // Parıltı boyutu mesafeye göre değil sabit (mobil dostu); hafif titreme
+    const pulse = 0.9 + 0.1 * Math.sin(time * 6);
+    L.navLeft.userData.sprite.scale.setScalar(L.navLeft.userData.size * pulse);
+    L.navRight.userData.sprite.scale.setScalar(L.navRight.userData.size * pulse);
+    // İniş ışığı: takım açık ve anahtar açıkken
+    const ll = this.landingLightsOn && gear > 0.9;
+    this.landingSpot.intensity = ll ? 40 : 0;
+    this.landingSpot.visible = ll;
+    this.landingLens.visible = ll;
   }
 
   dispose() {
@@ -827,7 +928,7 @@ export function buildStaticAircraftGeometries() {
   const byMat = new Map();
   ac.group.traverse((o) => {
     if (!o.isMesh || !o.visible) return;
-    if (o.material === ac.matFlameOuter || o.material === ac.matFlameInner || o.material === ac.matGlow) return;
+    if (ac.flameMats.includes(o.material) || o.material === ac.matGlow || o.isSprite) return;
     if (o.parent && !o.parent.visible) return;
     let mat = o.material;
     if (Array.isArray(mat)) mat = mat[0];

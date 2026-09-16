@@ -5,6 +5,7 @@ import { Simplex2D, mulberry32, smoothstep, clamp, lerp } from './noise.js';
 import {
   makeGrassTexture, makeAsphaltTexture, makeConcreteTexture, makeWaterNormalTexture,
   makeHangarWallTexture, makeHangarDoorTexture, makeTextTexture, makeCloudTexture, makeRoadTexture, makeWindowsTexture,
+  makeChainLinkTexture, makeBarbedWireTexture, makeOliveTexture,
 } from './textures.js';
 import { buildStaticAircraftGeometries } from './aircraft.js';
 
@@ -101,9 +102,9 @@ export function terrainHeight(x, z) {
     h = lerp(h, -16, inner);
   }
   const rd = distToPolyline(x, z, RIVER) * (1 + 0.25 * simplex.noise(x * 0.002 + 1, z * 0.002 + 2));
-  const rOuter = smoothstep(650, 200, rd);
+  const rOuter = smoothstep(820, 300, rd);
   h = lerp(h, 6.5, rOuter);
-  const rInner = smoothstep(120, 55, rd);
+  const rInner = smoothstep(210, 105, rd);
   h = lerp(h, -14, rInner);
   return h;
 }
@@ -202,6 +203,7 @@ export class World {
     this.buildRoads();
     this.buildTown();
     this.buildAirbase();
+    this.buildBaseDetails();
     this.buildClouds();
   }
 
@@ -309,16 +311,27 @@ export class World {
     const terrainGroup = new THREE.Group();
     terrainGroup.name = 'terrain';
     this.terrainChunks = [];
-    const n = segHi + 1;
-    const nb = n + 2; // kenarlıklı ızgara (normal hesabı için)
-    const hb = new Float32Array(nb * nb);
-    const cgrid = new Float32Array(n * n * 3);
-    const ngrid = new Float32Array(n * n * 3);
+    // Su kıyıları ve üs çevresindeki parçalar 2x çözünürlük alır (nehir yatağı ızgarada kaybolmasın)
+    const nMax = segHi * 2 + 1, nbMax = nMax + 2;
+    const hb = new Float32Array(nbMax * nbMax);
+    const cgrid = new Float32Array(nMax * nMax * 3);
+    const ngrid = new Float32Array(nMax * nMax * 3);
+    const isDetailChunk = (cxm, czm) => {
+      const r = chunkSize * 0.72;
+      if (Math.abs(cxm) < 2400 + r && Math.abs(czm) < 1200 + r) return true;
+      if (distToPolyline(cxm, czm, RIVER) < r + 300) return true;
+      for (const L of LAKES) if (Math.hypot(cxm - L.x, czm - L.z) < L.r * 1.9 + r) return true;
+      return false;
+    };
     for (let cz = 0; cz < chunksPerSide; cz++) {
       for (let cx = 0; cx < chunksPerSide; cx++) {
         const x0 = -MAP_SIZE / 2 + cx * chunkSize;
         const z0 = -MAP_SIZE / 2 + cz * chunkSize;
-        const step = chunkSize / segHi;
+        const detail = isDetailChunk(x0 + chunkSize / 2, z0 + chunkSize / 2);
+        const segC = detail ? segHi * 2 : segHi;
+        const n = segC + 1;
+        const nb = n + 2; // kenarlıklı ızgara (normal hesabı için)
+        const step = chunkSize / segC;
         for (let j = 0; j < nb; j++) for (let k = 0; k < nb; k++) hb[j * nb + k] = terrainHeight(x0 + (k - 1) * step, z0 + (j - 1) * step);
         const H = (j, k) => hb[(j + 1) * nb + (k + 1)];
         for (let j = 0; j < n; j++) {
@@ -356,7 +369,7 @@ export class World {
         const skirts = [45, 110];
         for (let L = 0; L < 2; L++) {
           const stride = strides[L];
-          const seg = segHi / stride;
+          const seg = segC / stride;
           const m = seg + 1;
           const nv = m * m + 4 * m;
           const pos = new Float32Array(nv * 3), col = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), uv = new Float32Array(nv * 2);
@@ -407,17 +420,73 @@ export class World {
     this.group.add(terrainGroup);
   }
 
-  // ---- Su: analitik gökyüzü yansıması + fresnel + güneş parıltısı + hareketli dalga normalleri ----
+  // ---- Su: her su kütlesi için derinlik öznitelikli ızgara; analitik gökyüzü yansıması + fresnel + güneş parıltısı ----
+  waterGrid(x0, z0, w, d, nx, nz) {
+    const pos = [], dep = [], idx = [];
+    for (let j = 0; j <= nz; j++) {
+      for (let i = 0; i <= nx; i++) {
+        const x = x0 + (i / nx) * w, z = z0 + (j / nz) * d;
+        pos.push(x, WATER_LEVEL, z);
+        dep.push(WATER_LEVEL - terrainHeight(x, z));
+      }
+    }
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+      const a = j * (nx + 1) + i, b = a + 1, c = a + nx + 1, dd = c + 1;
+      // Tamamen karada kalan (derinliği çok negatif) dörtgenleri atla
+      if (dep[a] < -6 && dep[b] < -6 && dep[c] < -6 && dep[dd] < -6) continue;
+      idx.push(a, c, b, b, c, dd);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('depth', new THREE.Float32BufferAttribute(dep, 1));
+    g.setIndex(idx);
+    g.computeBoundingSphere();
+    return g;
+  }
+  waterStrip(pts, width, step, across) {
+    const pos = [], dep = [], idx = [];
+    let row = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+      const len = Math.hypot(bx - ax, bz - az);
+      const n = Math.max(1, Math.ceil(len / step));
+      const nx = -(bz - az) / len, nz = (bx - ax) / len;
+      for (let k = (i === 0 ? 0 : 1); k <= n; k++) {
+        const t = k / n;
+        const cx = ax + (bx - ax) * t, cz = az + (bz - az) * t;
+        for (let q = 0; q <= across; q++) {
+          const off = (q / across - 0.5) * width;
+          const x = cx + nx * off, z = cz + nz * off;
+          pos.push(x, WATER_LEVEL, z);
+          dep.push(WATER_LEVEL - terrainHeight(x, z));
+        }
+        row++;
+      }
+    }
+    const cols = across + 1;
+    for (let r = 0; r < row - 1; r++) for (let q = 0; q < across; q++) {
+      const a = r * cols + q, b = a + 1, c = a + cols, dd = c + 1;
+      if (dep[a] < -6 && dep[b] < -6 && dep[c] < -6 && dep[dd] < -6) continue;
+      // Satır yönü (akış) x enine (sol normal) -> normalin yukarı bakması için sarım ters
+      idx.push(a, b, c, b, dd, c);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('depth', new THREE.Float32BufferAttribute(dep, 1));
+    g.setIndex(idx);
+    g.computeBoundingSphere();
+    return g;
+  }
+
   buildWater() {
     const q = this.quality;
-    const geo = this.track(new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE, 1, 1));
     const normals = this.track(makeWaterNormalTexture(512));
     normals.anisotropy = q.anisotropy;
     const uniforms = THREE.UniformsUtils.merge([
       THREE.UniformsLib.fog,
       {
         normalMap: { value: null }, time: { value: 0 }, sunDir: { value: this.sunDir.clone() },
-        waterColor: { value: new THREE.Color(0x0b3550) }, deepColor: { value: new THREE.Color(0x041d2a) },
+        shallowColor: { value: new THREE.Color(0x2e7f8e) }, waterColor: { value: new THREE.Color(0x0c3a55) }, deepColor: { value: new THREE.Color(0x04202e) },
         zenith: { value: this.skyUniforms.zenith.value }, horizon: { value: this.skyUniforms.horizon.value },
         ground: { value: this.skyUniforms.ground.value }, sunColor: { value: this.skyUniforms.sunColor.value },
         detail: { value: q.water === 'reflective' ? 1.0 : 0.6 },
@@ -427,30 +496,33 @@ export class World {
     const mat = this.track(new THREE.ShaderMaterial({
       uniforms,
       vertexShader: `
-        varying vec3 vWorldPos;
+        attribute float depth;
+        varying vec3 vWorldPos; varying float vDepth;
         #include <fog_pars_vertex>
         void main() {
           vec4 wp = modelMatrix * vec4(position, 1.0);
-          vWorldPos = wp.xyz;
+          vWorldPos = wp.xyz; vDepth = depth;
           vec4 mvPosition = viewMatrix * wp;
           gl_Position = projectionMatrix * mvPosition;
           #include <fog_vertex>
         }`,
       fragmentShader: `
-        uniform sampler2D normalMap; uniform float time; uniform vec3 sunDir; uniform vec3 waterColor; uniform vec3 deepColor;
+        uniform sampler2D normalMap; uniform float time; uniform vec3 sunDir; uniform vec3 shallowColor; uniform vec3 waterColor; uniform vec3 deepColor;
         uniform vec3 zenith; uniform vec3 horizon; uniform vec3 ground; uniform vec3 sunColor; uniform float detail;
-        varying vec3 vWorldPos;
+        varying vec3 vWorldPos; varying float vDepth;
         #include <fog_pars_fragment>
         ${World.skyGLSL()}
         void main() {
           vec2 uv = vWorldPos.xz * 0.018;
+          // Pürüzlülük değişimi: büyük ölçekli yavaş desen (sakin/rüzgarlı bölgeler)
+          float rough = 0.55 + 0.45 * texture2D(normalMap, vWorldPos.xz * 0.00045 + time * 0.0015).b;
           vec3 n1 = texture2D(normalMap, uv + time * vec2(0.020, 0.014)).xyz * 2.0 - 1.0;
           vec3 n2 = texture2D(normalMap, uv * 2.9 - time * vec2(0.011, 0.023)).xyz * 2.0 - 1.0;
           vec3 n3 = texture2D(normalMap, uv * 0.23 + time * vec2(0.004, -0.003)).xyz * 2.0 - 1.0;
           float dist = length(cameraPosition - vWorldPos);
           float fadeFine = clamp(1.0 - dist / 2200.0, 0.0, 1.0);
           float fadeCoarse = clamp(1.0 - dist / 7000.0, 0.08, 1.0);
-          vec3 nt = ((n1 + n2 * 0.35) * fadeFine + n3 * 0.9 * fadeCoarse) * detail;
+          vec3 nt = ((n1 + n2 * 0.35) * fadeFine + n3 * 0.9 * fadeCoarse) * detail * rough;
           vec3 n = normalize(vec3(nt.x * 0.13, 1.0, nt.y * 0.13));
           vec3 V = normalize(cameraPosition - vWorldPos);
           vec3 R = reflect(-V, n);
@@ -458,25 +530,46 @@ export class World {
           vec3 sky = skyColor(normalize(R), sunDir, zenith, horizon, ground, sunColor, 0.35);
           float cosT = max(dot(V, n), 0.0);
           float fres = 0.03 + 0.97 * pow(1.0 - cosT, 5.0);
-          fres = clamp(fres, 0.12, 0.8);
-          vec3 base = mix(deepColor, waterColor, clamp(cosT * 1.4, 0.0, 1.0));
+          fres = clamp(fres, 0.10, 0.75);
+          // Derinliğe göre renk: sığda turkuaz, derinde koyu
+          float dNorm = clamp(vDepth / 10.0, 0.0, 1.0);
+          vec3 base = mix(shallowColor, mix(waterColor, deepColor, clamp((vDepth - 6.0) / 10.0, 0.0, 1.0)), smoothstep(0.0, 0.6, dNorm));
+          base = mix(base, base * 1.25, clamp(cosT * 0.6, 0.0, 1.0));
           vec3 col = mix(base, sky, fres);
+          // Güneş parıltısı: pürüzlülüğe göre yayılım
           float rs = max(dot(normalize(R), sunDir), 0.0);
-          col += sunColor * (pow(rs, 900.0) * 3.0 + pow(rs, 60.0) * 0.12);
-          gl_FragColor = vec4(col, 1.0);
+          float shine = mix(1400.0, 250.0, rough);
+          col += sunColor * (pow(rs, shine) * (2.4 - rough) + pow(rs, 50.0) * 0.10);
+          // Kıyı köpüğü: çok sığ bantta hafif beyaz
+          float foamN = texture2D(normalMap, vWorldPos.xz * 0.06 + time * vec2(0.03, 0.02)).r;
+          float foam = (1.0 - smoothstep(0.05, 1.1, vDepth)) * smoothstep(-0.3, 0.2, vDepth) * (0.35 + 0.65 * foamN);
+          col = mix(col, vec3(0.85, 0.9, 0.92), foam * 0.45);
+          // Uzaklık pusu (ufka doğru)
+          col = mix(col, horizon, clamp(dist / 26000.0, 0.0, 0.35));
+          float alpha = smoothstep(-0.35, 1.4, vDepth);
+          gl_FragColor = vec4(col, alpha);
           #include <fog_fragment>
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }`,
-      fog: true,
+      fog: true, transparent: true, depthWrite: false,
     }));
-    const water = new THREE.Mesh(geo, mat);
-    water.rotation.x = -Math.PI / 2;
-    water.position.y = WATER_LEVEL;
-    water.renderOrder = 1;
-    this.water = water;
     this.waterUniforms = uniforms;
-    this.group.add(water);
+    this.waterMeshes = [];
+    const addWater = (g) => {
+      this.track(g);
+      const m = new THREE.Mesh(g, mat);
+      m.renderOrder = 1;
+      m.matrixAutoUpdate = false;
+      this.group.add(m);
+      this.waterMeshes.push(m);
+    };
+    for (const L of LAKES) {
+      const R = L.r * 1.75;
+      addWater(this.waterGrid(L.x - R, L.z - R, 2 * R, 2 * R, 48, 48));
+    }
+    addWater(this.waterStrip(RIVER, 820, 50, 12));
+    this.water = this.waterMeshes[0];
   }
 
   buildTrees() {
@@ -523,6 +616,7 @@ export class World {
     const leafyGeo = mergeGeometries([trunk2, crown].map((g) => (g.index ? g.toNonIndexed() : g)), false);
     this.track(coniferGeo); this.track(leafyGeo);
     const mat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 }));
+    this.treeAssets = { coniferGeo, leafyGeo, mat };
     this.treeChunks = [];
     const m4 = new THREE.Matrix4();
     const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
@@ -983,6 +1077,320 @@ export class World {
     cars.instanceMatrix.needsUpdate = true; if (cars.instanceColor) cars.instanceColor.needsUpdate = true;
     base.add(cars);
     this.group.add(base);
+  }
+
+  // ---- Üs detayları: çevre çiti, kapılar, çevre yolu, servis binaları, yakıt sahası, araçlar, ekipman, bitki örtüsü ----
+  buildBaseDetails() {
+    const q = this.quality;
+    const A = AIRBASE;
+    const grp = new THREE.Group();
+    grp.name = 'base-details';
+    const rand = mulberry32(5150);
+    const m4 = new THREE.Matrix4(), p = new THREE.Vector3(), qu = new THREE.Quaternion(), sc = new THREE.Vector3(1, 1, 1);
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    const addBox = (cx, cz, w, d, h) => this.buildingBoxes.push({ minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2, minY: 0, maxY: h });
+    const colorize = (g, color) => { const n = g.attributes.position.count; const arr = new Float32Array(n * 3); for (let i = 0; i < n; i++) { arr[i * 3] = color.r; arr[i * 3 + 1] = color.g; arr[i * 3 + 2] = color.b; } g.setAttribute('color', new THREE.BufferAttribute(arr, 3)); return g; };
+    const ni = (g) => (g.index ? g.toNonIndexed() : g);
+
+    // --- Çevre çiti: dikdörtgen (kapı boşlukları hariç)
+    const F = { x0: -2080, x1: 2080, z0: -820, z1: A.gateZ };
+    const gates = [{ x: 0, w: 30, side: 's' }, { x: -1200, w: 16, side: 's' }];
+    const postGeo = this.track(new THREE.BoxGeometry(0.12, 2.7, 0.12)); postGeo.translate(0, 1.35, 0);
+    const postMat = this.track(new THREE.MeshStandardMaterial({ color: 0x8a8f94, roughness: 0.7, metalness: 0.4 }));
+    const posts = [];
+    const segs = [
+      { a: [F.x0, F.z0], b: [F.x1, F.z0] }, { a: [F.x1, F.z0], b: [F.x1, F.z1] },
+      { a: [F.x1, F.z1], b: [F.x0, F.z1], gate: true }, { a: [F.x0, F.z1], b: [F.x0, F.z0] },
+    ];
+    const chainTex = this.track(makeChainLinkTexture(64)); chainTex.anisotropy = q.anisotropy;
+    const barbTex = this.track(makeBarbedWireTexture(128, 32));
+    const chainMat = this.track(new THREE.MeshStandardMaterial({ map: chainTex, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.5, depthWrite: true }));
+    const barbMat = this.track(new THREE.MeshStandardMaterial({ map: barbTex, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.6 }));
+    const chainGeos = [], barbGeos = [];
+    const inGate = (x, z) => gates.some((g) => Math.abs(z - A.gateZ) < 1 && Math.abs(x - g.x) < g.w / 2);
+    for (const sg of segs) {
+      const len = Math.hypot(sg.b[0] - sg.a[0], sg.b[1] - sg.a[1]);
+      const dx = (sg.b[0] - sg.a[0]) / len, dz = (sg.b[1] - sg.a[1]) / len;
+      for (let t = 0; t <= len; t += 4) {
+        const x = sg.a[0] + dx * t, z = sg.a[1] + dz * t;
+        if (inGate(x, z)) continue;
+        posts.push([x, z]);
+      }
+      // Tel örgü şeridi: kapı boşluklarıyla parçalara böl
+      const pieces = [];
+      if (sg.gate) {
+        // güney çizgisi: x1 -> x0 yönünde; kapılar x konumunda
+        let cursor = 0;
+        const cuts = gates.map((g) => ({ s: (sg.a[0] - (g.x + g.w / 2)) / (sg.a[0] - sg.b[0]) * len, e: (sg.a[0] - (g.x - g.w / 2)) / (sg.a[0] - sg.b[0]) * len })).sort((u, v) => u.s - v.s);
+        for (const c of cuts) { pieces.push([cursor, c.s]); cursor = c.e; }
+        pieces.push([cursor, len]);
+      } else pieces.push([0, len]);
+      for (const [t0, t1] of pieces) {
+        if (t1 - t0 < 2) continue;
+        const L = t1 - t0;
+        const mk = (h, y0, tex) => {
+          const g = new THREE.PlaneGeometry(L, h);
+          const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (L / (tex === 'barb' ? 4 : 1)), uv.getY(i) * (tex === 'barb' ? 1 : h));
+          g.rotateY(Math.atan2(dx, dz) + Math.PI / 2);
+          g.translate(sg.a[0] + dx * (t0 + L / 2), y0 + h / 2, sg.a[1] + dz * (t0 + L / 2));
+          return g;
+        };
+        chainGeos.push(mk(2.4, 0.05, 'chain'));
+        barbGeos.push(mk(0.45, 2.45, 'barb'));
+      }
+    }
+    const postMesh = new THREE.InstancedMesh(postGeo, postMat, posts.length);
+    posts.forEach(([x, z], i) => { m4.makeTranslation(x, terrainHeight(x, z), z); postMesh.setMatrixAt(i, m4); });
+    postMesh.instanceMatrix.needsUpdate = true; postMesh.computeBoundingSphere();
+    grp.add(postMesh);
+    grp.add(new THREE.Mesh(this.track(mergeGeometries(chainGeos, false)), chainMat));
+    grp.add(new THREE.Mesh(this.track(mergeGeometries(barbGeos, false)), barbMat));
+
+    // --- Kapılar: nöbet kulübesi, bariyer kolları, beton bariyerler
+    const plain = this.track(new THREE.MeshStandardMaterial({ color: 0xb8b4aa, roughness: 0.9 }));
+    const redWhite = this.track(new THREE.MeshStandardMaterial({ color: 0xff3b30, roughness: 0.6 }));
+    const white = this.track(new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.6 }));
+    const concrete = this.track(new THREE.MeshStandardMaterial({ color: 0x9a9a94, roughness: 0.95 }));
+    const plainGeos = [], redGeos = [], whiteGeos = [], concGeos = [], gateSigns = [];
+    for (const g of gates) {
+      const gh = new THREE.BoxGeometry(6, 3.2, 4); gh.translate(g.x + g.w / 2 + 5, 1.6, A.gateZ - 2); plainGeos.push(ni(gh));
+      const roof = new THREE.BoxGeometry(7, 0.3, 5); roof.translate(g.x + g.w / 2 + 5, 3.35, A.gateZ - 2); concGeos.push(ni(roof));
+      addBox(g.x + g.w / 2 + 5, A.gateZ - 2, 6, 4, 3.5);
+      // Bariyer kolları (kırmızı-beyaz): iki yön
+      for (const side of [-1, 1]) {
+        const arm = new THREE.BoxGeometry(g.w / 2 - 1, 0.12, 0.12); arm.translate(g.x + side * (g.w / 4), 1.1, A.gateZ + side * 4); redGeos.push(ni(arm));
+        const arm2 = new THREE.BoxGeometry(g.w / 2 - 1, 0.13, 0.13); arm2.translate(g.x + side * (g.w / 4), 1.1, A.gateZ + side * 4 + 0.001);
+        // beyaz bantlar: ince kutular
+        for (let k = 0; k < 4; k++) { const b = new THREE.BoxGeometry(0.6, 0.14, 0.14); b.translate(g.x + side * (g.w / 4) - (g.w / 4 - 1) + k * ((g.w / 2 - 1) / 4) + 0.3, 1.1, A.gateZ + side * 4); whiteGeos.push(ni(b)); }
+        const pole = new THREE.CylinderGeometry(0.18, 0.18, 1.2, 8); pole.translate(g.x + side * (g.w / 2 - 0.6), 0.6, A.gateZ + side * 4); plainGeos.push(ni(pole));
+      }
+      // Ana kapı: yol üstü sundurma (kolonlu), tabela
+      if (g.w >= 24) {
+        const slab = new THREE.BoxGeometry(g.w + 8, 0.5, 9); slab.translate(g.x, 6.0, A.gateZ); concGeos.push(ni(slab));
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const col = new THREE.CylinderGeometry(0.28, 0.28, 5.8, 8); col.translate(g.x + sx * (g.w / 2 + 3), 2.9, A.gateZ + sz * 3.6); plainGeos.push(ni(col)); }
+        const sign = new THREE.BoxGeometry(10, 1.3, 0.25); sign.translate(g.x, 6.95, A.gateZ + 4.4); gateSigns.push(sign);
+      }
+      // Beton bariyerler (jersey): şaşırtmalı
+      for (let k = 0; k < 6; k++) {
+        const b = new THREE.BoxGeometry(3.2, 0.9, 0.7);
+        const x = g.x + (k % 2 ? 1 : -1) * (g.w / 2 - 3.5), z = A.gateZ + 14 + k * 9;
+        b.translate(x, 0.45, z); concGeos.push(ni(b));
+      }
+    }
+    // --- Çevre yolu (çit içinde) ve servis yolları
+    const roadTex = this.track(makeRoadTexture(128, 256)); roadTex.anisotropy = q.anisotropy;
+    const roadMat = this.track(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+    const inset = 14;
+    const perim = [[F.x0 + inset, F.z1 - inset], [F.x0 + inset, F.z0 + inset], [F.x1 - inset, F.z0 + inset], [F.x1 - inset, F.z1 - inset], [F.x0 + inset, F.z1 - inset]];
+    const roadGeos = [this.roadGeometry(perim, 6, 0.28)];
+    const serviceRoads = [
+      [[0, A.gateZ + 60], [0, A.gateZ - 40], [0, 800]],                       // ana giriş -> hangar yolu
+      [[-1200, A.gateZ + 30], [-1200, 900], [-1120, 760], [-1060, 700]],      // batı kapısı -> depolar
+      [[A.hq.x, 560], [A.hq.x, 470]],                                          // HQ
+      [[-1400, 640], [-1400, 200]],                                            // yakıt sahası -> taksi yolu
+      [[-900, -560], [900, -560]],                                             // HAS arka yolu
+      [[-1700, -300], [-1700, -700], [-1300, -700]],                           // mühimmat sahası
+    ];
+    for (const r of serviceRoads) roadGeos.push(this.roadGeometry(r, 6, 0.28));
+    grp.add(new THREE.Mesh(this.track(mergeGeometries(roadGeos.map(ni), false)), roadMat));
+    roadGeos.forEach((g) => g.dispose());
+
+    // --- Servis binaları: bakım atölyeleri, filo binası, kışla/yemekhane, jeneratör binası
+    const winTex = this.track(makeWindowsTexture(512, 256, 12, 2));
+    const winMat = this.track(new THREE.MeshStandardMaterial({ map: winTex, roughness: 0.85 }));
+    const winGeos = [];
+    const building = (x, z, w, d, h, rot = 0, mat = 'win') => {
+      const g = new THREE.BoxGeometry(w, h, d);
+      const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * Math.max(1, Math.round(w / 12)), uv.getY(i) * Math.max(1, Math.round(h / 7)));
+      g.rotateY(rot); g.translate(x, h / 2, z);
+      (mat === 'win' ? winGeos : plainGeos).push(ni(g));
+      addBox(x, z, Math.abs(Math.cos(rot)) * w + Math.abs(Math.sin(rot)) * d, Math.abs(Math.sin(rot)) * w + Math.abs(Math.cos(rot)) * d, h);
+      const roof = new THREE.BoxGeometry(w + 0.6, 0.4, d + 0.6); roof.rotateY(rot); roof.translate(x, h + 0.2, z); concGeos.push(ni(roof));
+    };
+    building(-820, 800 + 60, 34, 14, 7, 0, 'plain');   // atölye 1
+    building(-780, 900, 34, 14, 7, 0, 'plain');        // atölye 2
+    building(700, 640, 44, 16, 8);                     // filo operasyon
+    building(-300, 940, 70, 18, 9);                    // kışla
+    building(-400, 990, 30, 14, 5, 0, 'plain');        // yemekhane
+    building(300, 960, 26, 12, 6, 0, 'plain');         // jeneratör/enerji
+    building(1500, 860, 40, 18, 6, 0, 'plain');        // depo
+    building(1600, 700, 24, 12, 5, 0, 'plain');        // araç bakım
+    // Bakım atölyesi kapıları (koyu dikdörtgenler)
+    const doorMat = this.track(new THREE.MeshStandardMaterial({ color: 0x3b4046, roughness: 0.8 }));
+    const doorGeos = [];
+    for (const [x, z] of [[-820, 853], [-780, 893]]) { const d = new THREE.PlaneGeometry(8, 5); d.translate(x, 2.5, z + 0.01); doorGeos.push(d); }
+    grp.add(new THREE.Mesh(this.track(mergeGeometries([...doorGeos, ...gateSigns], false)), doorMat));
+
+    // --- Yakıt sahası: set duvarı, pompa adası, borular
+    const fuelC = [-992, 395];
+    for (const [w, d, x, z] of [[130, 1.2, fuelC[0], fuelC[1] - 55], [130, 1.2, fuelC[0], fuelC[1] + 55], [1.2, 110, fuelC[0] - 65, fuelC[1]], [1.2, 110, fuelC[0] + 65, fuelC[1]]]) {
+      const g = new THREE.BoxGeometry(w, 1.3, d); g.translate(x, 0.65, z); concGeos.push(ni(g));
+    }
+    for (let k = 0; k < 3; k++) { const pump = new THREE.BoxGeometry(1.2, 1.8, 0.8); pump.translate(-950 + k * 6, 0.9, 445); plainGeos.push(ni(pump)); }
+    const pipeMat = this.track(new THREE.MeshStandardMaterial({ color: 0x9aa0a4, roughness: 0.5, metalness: 0.7 }));
+    const pipes = [];
+    for (const f of A.fuel) { const pipe = new THREE.CylinderGeometry(0.18, 0.18, 26, 8); pipe.rotateZ(Math.PI / 2); pipe.translate(f.x + 13, 0.7, f.z); pipes.push(ni(pipe)); }
+    const mainPipe = new THREE.CylinderGeometry(0.22, 0.22, 60, 8); mainPipe.rotateX(Math.PI / 2); mainPipe.translate(-960, 0.6, 420); pipes.push(ni(mainPipe));
+    grp.add(new THREE.Mesh(this.track(mergeGeometries(pipes, false)), pipeMat));
+
+    // --- Mühimmat depolama: toprak örtülü iglolar + set
+    const dirtMat = this.track(new THREE.MeshStandardMaterial({ color: 0x6f7a4a, roughness: 1 }));
+    const dirtGeos = [];
+    for (let k = 0; k < 5; k++) {
+      const x = -1750 + k * 90, z = -700;
+      const ig = new THREE.CylinderGeometry(9, 9, 22, 12, 1, false, 0, Math.PI); ig.rotateZ(Math.PI / 2); ig.rotateY(Math.PI / 2); ig.scale(1, 0.6, 1); ig.translate(x, 0, z);
+      dirtGeos.push(ni(ig));
+      const face = new THREE.BoxGeometry(12, 4, 1.2); face.translate(x, 2, z + 11); concGeos.push(ni(face));
+      const door = new THREE.PlaneGeometry(4, 3.2); door.translate(x, 1.6, z + 11.62); doorGeos.push(door);
+      addBox(x, z, 20, 24, 6);
+    }
+    // Toprak set: yamaçlı tümsek (kesit yamuk), çimenli toprak rengi
+    const bermShape = new THREE.Shape([new THREE.Vector2(-9, -0.4), new THREE.Vector2(-1.6, 3.2), new THREE.Vector2(1.6, 3.2), new THREE.Vector2(9, -0.4)]);
+    const berm = new THREE.ExtrudeGeometry(bermShape, { depth: 520, bevelEnabled: false });
+    berm.rotateY(Math.PI / 2); berm.translate(-1820, 0, -760);
+    const bermMat = this.track(new THREE.MeshStandardMaterial({ color: 0x7c8a52, roughness: 1 }));
+    grp.add(new THREE.Mesh(this.track(ni(berm)), bermMat));
+    grp.add(new THREE.Mesh(this.track(mergeGeometries(dirtGeos, false)), dirtMat));
+
+    // --- Pist ucu jet sapıtıcıları, taksi yolu levhaları, tutuş çizgileri
+    const deflMat = this.track(new THREE.MeshStandardMaterial({ color: 0x777c82, roughness: 0.6, metalness: 0.5 }));
+    const deflGeos = [];
+    for (const side of [-1, 1]) { const dfl = new THREE.BoxGeometry(60, 4, 0.6); dfl.rotateX(-side * 0.5); dfl.translate(side * (A.runwayLength / 2 + 95), 1.6, 0); deflGeos.push(ni(dfl)); }
+    grp.add(new THREE.Mesh(this.track(mergeGeometries(deflGeos, false)), deflMat));
+    const signMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe8c22a, roughness: 0.7 }));
+    const signGeos = [];
+    for (const lx of A.links) for (const z of [A.taxiwayZ - 20, 32]) { const sg = new THREE.BoxGeometry(1.4, 0.7, 0.2); sg.translate(lx + 16, 0.5, z); signGeos.push(ni(sg)); }
+    for (const lx of A.linksNorth) { const sg = new THREE.BoxGeometry(1.4, 0.7, 0.2); sg.translate(lx + 16, 0.5, -32); signGeos.push(ni(sg)); }
+    grp.add(new THREE.Mesh(this.track(mergeGeometries(signGeos, false)), signMat));
+    const holdMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd8b52a, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const holdGeos = [];
+    const flatY = (w, d, x, z) => { const g = new THREE.PlaneGeometry(w, d); g.rotateX(-Math.PI / 2); g.translate(x, 0.1, z); return g; };
+    for (const lx of A.links) { holdGeos.push(flatY(A.taxiwayWidth, 0.3, lx, 40)); holdGeos.push(flatY(A.taxiwayWidth, 0.3, lx, 41.2)); }
+    for (const lx of A.linksNorth) { holdGeos.push(flatY(A.taxiwayWidth, 0.3, lx, -40)); holdGeos.push(flatY(A.taxiwayWidth, 0.3, lx, -41.2)); }
+    grp.add(new THREE.Mesh(this.track(mergeGeometries(holdGeos, false)), holdMat));
+
+    // --- Araçlar ve ekipman (instanced, vertex renkli basit gövdeler)
+    const olive = new THREE.Color(0.36, 0.40, 0.28), tan = new THREE.Color(0.66, 0.60, 0.45), red = new THREE.Color(0.75, 0.12, 0.10), yellow = new THREE.Color(0.85, 0.75, 0.2), grey = new THREE.Color(0.55, 0.57, 0.6), black = new THREE.Color(0.08, 0.08, 0.08);
+    const vehMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.15 }));
+    const wheelSet = (positions, r, w) => positions.map(([x, y, z]) => { const wg = new THREE.CylinderGeometry(r, r, w, 8); wg.rotateZ(Math.PI / 2); wg.translate(x, y, z); return colorize(ni(wg), black); });
+    const mkVehicle = (parts) => {
+      const gs = parts.map(([g, c]) => colorize(ni(g), c));
+      for (const g of gs) if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+      return this.track(mergeGeometries(gs, false));
+    };
+    // Hafif taktik araç
+    const humvee = mkVehicle([
+      [new THREE.BoxGeometry(4.6, 0.9, 2.2).translate(0, 1.0, 0), tan],
+      [new THREE.BoxGeometry(2.6, 0.8, 2.1).translate(-0.3, 1.85, 0), tan],
+      ...wheelSet([[1.5, 0.45, 1.0], [1.5, 0.45, -1.0], [-1.5, 0.45, 1.0], [-1.5, 0.45, -1.0]], 0.45, 0.35).map((g) => [g, black]),
+    ]);
+    // Kamyon
+    const truck = mkVehicle([
+      [new THREE.BoxGeometry(2.2, 2.0, 2.4).translate(2.6, 1.9, 0), olive],
+      [new THREE.BoxGeometry(5.0, 2.2, 2.4).translate(-1.2, 2.0, 0), olive],
+      [new THREE.BoxGeometry(7.6, 0.5, 2.3).translate(0.4, 0.95, 0), black],
+      ...wheelSet([[2.6, 0.55, 1.15], [2.6, 0.55, -1.15], [-1.4, 0.55, 1.15], [-1.4, 0.55, -1.15], [-2.8, 0.55, 1.15], [-2.8, 0.55, -1.15]], 0.55, 0.4).map((g) => [g, black]),
+    ]);
+    // Yakıt tankeri
+    const tanker = mkVehicle([
+      [new THREE.BoxGeometry(2.2, 2.0, 2.4).translate(2.8, 1.9, 0), olive],
+      [new THREE.CylinderGeometry(1.15, 1.15, 5.6, 14).rotateZ(Math.PI / 2).translate(-1.0, 2.1, 0), yellow],
+      [new THREE.BoxGeometry(8.0, 0.5, 2.3).translate(0.4, 0.95, 0), black],
+      ...wheelSet([[2.8, 0.55, 1.15], [2.8, 0.55, -1.15], [-1.6, 0.55, 1.15], [-1.6, 0.55, -1.15], [-3.0, 0.55, 1.15], [-3.0, 0.55, -1.15]], 0.55, 0.4).map((g) => [g, black]),
+    ]);
+    // İtfaiye
+    const fire = mkVehicle([
+      [new THREE.BoxGeometry(2.4, 2.2, 2.5).translate(2.8, 2.0, 0), red],
+      [new THREE.BoxGeometry(5.4, 2.4, 2.5).translate(-1.2, 2.1, 0), red],
+      [new THREE.BoxGeometry(8.4, 0.5, 2.3).translate(0.4, 0.95, 0), black],
+      [new THREE.CylinderGeometry(0.12, 0.12, 1.6, 6).rotateX(Math.PI / 2).translate(2.2, 3.5, 0), grey],
+      ...wheelSet([[2.8, 0.6, 1.2], [2.8, 0.6, -1.2], [-1.6, 0.6, 1.2], [-1.6, 0.6, -1.2], [-3.2, 0.6, 1.2], [-3.2, 0.6, -1.2]], 0.6, 0.45).map((g) => [g, black]),
+    ]);
+    // Yer güç ünitesi / çekici
+    const gpu = mkVehicle([
+      [new THREE.BoxGeometry(2.4, 1.2, 1.4).translate(0, 0.95, 0), yellow],
+      ...wheelSet([[0.8, 0.35, 0.75], [0.8, 0.35, -0.75], [-0.8, 0.35, 0.75], [-0.8, 0.35, -0.75]], 0.35, 0.25).map((g) => [g, black]),
+    ]);
+    // Konteyner
+    const container = mkVehicle([[new THREE.BoxGeometry(12, 2.6, 2.4).translate(0, 1.3, 0), olive]]);
+    const containerTan = mkVehicle([[new THREE.BoxGeometry(6, 2.6, 2.4).translate(0, 1.3, 0), tan]]);
+    const place = (geo, list) => {
+      if (!list.length) return;
+      const im = new THREE.InstancedMesh(geo, vehMat, list.length);
+      list.forEach(([x, z, rot], i) => { p.set(x, terrainHeight(x, z) + 0.05, z); qu.setFromAxisAngle(yAxis, rot); m4.compose(p, qu, sc); im.setMatrixAt(i, m4); });
+      im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); im.castShadow = q.shadows && q.shadowMap >= 2048;
+      grp.add(im);
+    };
+    const humvees = [], trucks = [], tankers = [], fires = [], gpus = [], containers = [], containersTan = [];
+    for (let i = 0; i < 6; i++) humvees.push([A.hq.x - 60 + i * 7, 480, 0]);
+    for (let i = 0; i < 3; i++) humvees.push([-1250 + i * 8, 880, Math.PI / 2]);
+    humvees.push([30, A.gateZ - 30, 0.2], [-1215, A.gateZ - 28, 1.4]);
+    for (let i = 0; i < 4; i++) trucks.push([1470 + i * 10, 900, Math.PI / 2]);
+    trucks.push([-1140, 740, 0], [-700, 640, 0.1], [700, 720, -0.05]);
+    tankers.push([-1060, 445, Math.PI / 2], [-1030, 470, Math.PI / 2], [-560, 300, 0]);
+    fires.push([1080, 300, 0], [1080, 310, 0]);
+    for (const spot of A.parking) if (spot.x % 160 === 40 || spot.x % 160 === -120) gpus.push([spot.x + 14, spot.z + 18, 0.3 * (rand() - 0.5)]);
+    for (const s2 of A.shelters) gpus.push([s2.x + s2.w / 2 + 4, s2.z, Math.PI / 2]);
+    for (let i = 0; i < 8; i++) containers.push([1520 + (i % 4) * 13.5, 800 + Math.floor(i / 4) * 4, 0]);
+    for (let i = 0; i < 6; i++) containersTan.push([-1160 + (i % 3) * 7, 560 + Math.floor(i / 3) * 4, 0]);
+    for (let i = 0; i < 4; i++) containers.push([-620 + i * 13.5, 780, 0]);
+    place(humvee, humvees); place(truck, trucks); place(tanker, tankers); place(fire, fires); place(gpu, gpus); place(container, containers); place(containerTan, containersTan);
+
+    // --- Otoparklar (asfalt) ve aydınlatma direkleri
+    const asph = this.track(new THREE.MeshStandardMaterial({ color: 0x3a3c3f, roughness: 0.95 }));
+    const lotGeos = [];
+    for (const [x, z, w, d] of [[A.hq.x - 40, 484, 70, 24], [-1250, 885, 40, 22], [1480, 905, 60, 20], [-300, 1000 + 8, 60, 16]]) lotGeos.push(flatY(w, d, x, z));
+    grp.add(new THREE.Mesh(this.track(mergeGeometries(lotGeos, false)), asph));
+    const lotMarkMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe6e6e0, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+    const lotMarkGeos = [];
+    for (const [x, z, w, d] of [[A.hq.x - 40, 484, 70, 24], [-1250, 885, 40, 22], [1480, 905, 60, 20], [-300, 1000 + 8, 60, 16]]) {
+      for (let sx = -w / 2 + 2; sx <= w / 2 - 2; sx += 2.7) { lotMarkGeos.push(flatY(0.12, d * 0.42, x + sx, z - d * 0.27)); lotMarkGeos.push(flatY(0.12, d * 0.42, x + sx, z + d * 0.27)); }
+    }
+    grp.add(new THREE.Mesh(this.track(mergeGeometries(lotMarkGeos, false)), lotMarkMat));
+    const poleGeo = this.track(new THREE.CylinderGeometry(0.15, 0.2, 9, 6)); poleGeo.translate(0, 4.5, 0);
+    const poleList = [];
+    for (let x = -1900; x <= 1900; x += 200) poleList.push([x, A.gateZ - 26]);
+    for (let z = -700; z <= 900; z += 200) { poleList.push([F.x0 + 26, z]); poleList.push([F.x1 - 26, z]); }
+    for (let x = -600; x <= 600; x += 150) poleList.push([x, 780]);
+    const poleMesh = new THREE.InstancedMesh(poleGeo, postMat, poleList.length);
+    poleList.forEach(([x, z], i) => { m4.makeTranslation(x, terrainHeight(x, z), z); poleMesh.setMatrixAt(i, m4); });
+    poleMesh.instanceMatrix.needsUpdate = true; poleMesh.computeBoundingSphere();
+    grp.add(poleMesh);
+
+    // --- Bitki örtüsü: çevre yolu boyunca ağaç sıraları, binalar çevresinde ağaçlar ve çalılar
+    if (this.treeAssets) {
+      const { leafyGeo, coniferGeo, mat } = this.treeAssets;
+      const leafy = [], conif = [];
+      for (let x = -1950; x <= 1950; x += 38) { leafy.push([x, A.gateZ - 40, rand() * 6.28, 0.7 + rand() * 0.4]); }
+      for (let z = -700; z <= 950; z += 42) { conif.push([F.x0 + 40, z, rand() * 6.28, 0.8 + rand() * 0.5]); conif.push([F.x1 - 40, z, rand() * 6.28, 0.8 + rand() * 0.5]); }
+      for (const [bx, bz, n] of [[-300, 960, 14], [700, 600, 10], [A.hq.x, 450, 12], [-820, 780, 6], [1500, 830, 8]]) {
+        for (let k = 0; k < n; k++) leafy.push([bx + (rand() - 0.5) * 90, bz + (rand() - 0.5) * 70, rand() * 6.28, 0.6 + rand() * 0.5]);
+      }
+      const treeIm = (geo, list) => {
+        const im = new THREE.InstancedMesh(geo, mat, list.length);
+        list.forEach(([x, z, rot, s2], i) => { p.set(x, terrainHeight(x, z) - 0.2, z); qu.setFromAxisAngle(yAxis, rot); sc.set(s2, s2, s2); m4.compose(p, qu, sc); im.setMatrixAt(i, m4); });
+        sc.set(1, 1, 1);
+        im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); im.layers.set(LAYER_TREES);
+        grp.add(im);
+      };
+      treeIm(leafyGeo, leafy); treeIm(coniferGeo, conif);
+      const bushGeo = this.track(new THREE.IcosahedronGeometry(1.1, 1)); bushGeo.translate(0, 0.8, 0);
+      const bushMat = this.track(new THREE.MeshStandardMaterial({ color: 0x3f6b2e, roughness: 0.95 }));
+      const bushes = [];
+      for (const [bx, bz, n, r] of [[-300, 940, 30, 60], [700, 640, 18, 40], [A.hq.x, 420, 24, 50], [0, A.gateZ - 15, 24, 40], [-1200, A.gateZ - 12, 12, 20], [-400, 990, 12, 30]]) {
+        for (let k = 0; k < n; k++) bushes.push([bx + (rand() - 0.5) * r * 2, bz + (rand() - 0.5) * r, 0.6 + rand() * 0.8]);
+      }
+      const bim = new THREE.InstancedMesh(bushGeo, bushMat, bushes.length);
+      bushes.forEach(([x, z, s2], i) => { p.set(x, terrainHeight(x, z), z); sc.set(s2, s2 * 0.8, s2); qu.identity(); m4.compose(p, qu, sc); bim.setMatrixAt(i, m4); });
+      sc.set(1, 1, 1);
+      bim.instanceMatrix.needsUpdate = true; bim.computeBoundingSphere();
+      grp.add(bim);
+    }
+
+    // Birleştirilmiş sabit geometriler
+    const addMerged = (geos, mat) => { if (!geos.length) return; for (const g of geos) if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2)); const mm = new THREE.Mesh(this.track(mergeGeometries(geos, false)), mat); mm.castShadow = q.shadows; mm.receiveShadow = q.shadows; grp.add(mm); };
+    addMerged(plainGeos, plain); addMerged(redGeos, redWhite); addMerged(whiteGeos, white); addMerged(concGeos, concrete); addMerged(winGeos, winMat);
+    this.group.add(grp);
   }
 
   heightAt(x, z) { return terrainHeight(x, z); }

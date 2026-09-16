@@ -13,7 +13,7 @@ export class UI {
       updateToast: $('update-toast'), btnUpdate: $('btn-update'),
       guide: $('guide'), guideClose: $('guide-close'),
       touch: $('touch'), msg: $('msg'), fps: $('fps'),
-      btnGear: $('btn-gear'), btnFlap: $('btn-flap'), btnBrake: $('btn-brake'), btnSound: $('btn-sound'),
+      btnGear: $('btn-gear'), btnFlap: $('btn-flap'), btnBrake: $('btn-brake'), btnSound: $('btn-sound'), btnLights: $('btn-lights'),
     };
     this.el.guideClose.addEventListener('click', () => this.hide('guide'));
     this.el.standaloneHintClose.addEventListener('click', () => this.hide('standaloneHint'));

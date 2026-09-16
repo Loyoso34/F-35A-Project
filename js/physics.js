@@ -21,7 +21,7 @@ const AERO = {
   thrustMil: 125000, thrustAB: 191000, idleFrac: 0.045,
   CLa: 4.0, CL0: 0.04, CLmax: 1.72,
   alphaLin: 16 * DEG, alphaMax: 24 * DEG, alphaDrop: 34 * DEG, alphaLimit: 25 * DEG,
-  CD0: 0.016, e: 0.76, CDgear: 0.022, CDflaps: 0.016,
+  CD0: 0.016, e: 0.78, eFlaps: 0.70, CDgear: 0.024, CDflaps: 0.018,
   CLflaps: 0.5,
   gMax: 9, gMin: -3,
   rollRateMax: 250 * DEG, pitchRateMax: 50 * DEG, yawRateMax: 18 * DEG,
@@ -188,19 +188,25 @@ export class FlightModel {
     const beta = V > 1 ? Math.asin(clamp(v / V, -1, 1)) : 0;
     const aAbs = Math.abs(alpha);
 
-    // ---- Aerodinamik katsayılar ----
-    const CL = liftCoefficient(alpha, this.flapsPos, mach);
-    const AR = AERO.span * AERO.span / AERO.S;
-    let K = 1 / (Math.PI * AR * AERO.e);
-    // Yer etkisi: indüklenmiş sürükleme azalır
+    // ---- Aerodinamik katsayılar (rüzgar eksenleri) ----
+    // Yer etkisi: kanat yere yaklaşınca indüklenmiş sürükleme azalır, taşıma eğimi hafif artar
     const groundYq = this.world.heightAt(pos.x, pos.z);
     const hWing = Math.max(0.5, pos.y - groundYq - 1.0);
-    const sigma = Math.pow(16 * hWing / AERO.span, 2) / (1 + Math.pow(16 * hWing / AERO.span, 2));
-    K *= sigma;
+    const hb = 16 * hWing / AERO.span;
+    const sigma = (hb * hb) / (1 + hb * hb);           // 1: yer etkisi yok, ->0: yerde
+    let CL = liftCoefficient(alpha, this.flapsPos, mach);
+    CL *= 1 + 0.10 * (1 - sigma);
+    const AR = AERO.span * AERO.span / AERO.S;
+    const e = AERO.e + (AERO.eFlaps - AERO.e) * this.flapsPos;
+    const K = (1 / (Math.PI * AR * e)) * sigma;
+    // Parazit sürükleme: temiz + takım + flap + dalga sürüklemesi (ses altı-üstü geçişi)
     let CD0 = AERO.CD0 + AERO.CDgear * this.gearPos + AERO.CDflaps * this.flapsPos;
     CD0 += 0.052 * smoothstep(0.88, 1.12, mach) + 0.03 * smoothstep(1.35, 1.75, mach);
     const stallBlend = smoothstep(AERO.alphaMax, AERO.alphaDrop, aAbs);
-    const CD = CD0 + K * CL * CL * (1 - 0.5 * stallBlend) + 1.4 * Math.pow(Math.sin(aAbs), 2) * smoothstep(20 * DEG, 40 * DEG, aAbs);
+    // İndüklenmiş sürükleme (stall sonrası ayrılmış akış: düz plaka terimi devralır)
+    const CDi = K * CL * CL * (1 - 0.5 * stallBlend);
+    const CDsep = 1.4 * Math.pow(Math.sin(aAbs), 2) * smoothstep(20 * DEG, 40 * DEG, aAbs);
+    const CD = CD0 + CDi + CDsep;
     const CY = -0.9 * beta;
 
     const L = qd * AERO.S * CL;
@@ -302,11 +308,21 @@ export class FlightModel {
       this.surfaces.rudder += (st.yaw - this.surfaces.rudder) * (1 - Math.exp(-10 * dt));
     } else {
       // --- FBW komutları ---
+      // Gerçek yük faktörü (gövde-dik özgül kuvvet): taşıma + itkinin dik bileşeni
+      const nAct = (L * Math.cos(alpha) + thrust * Math.sin(alpha)) / (m * G);
+      // Yüksek hız: g komutu (nötr çubuk = 1g, uçuş yolu korunur; tutum hıza göre kendini ayarlar)
       const nCmd = st.pitch >= 0 ? 1 + st.pitch * (AERO.gMax - 1) : 1 + st.pitch * (1 - AERO.gMin);
-      let qCmd = (nCmd - Math.cos(roll) * Math.cos(pitch)) * G / Vs;
       const nAvail = qd * AERO.S * AERO.CLmax / (m * G);
-      const qAvail = (Math.max(nAvail, 0.2) + 0.25) * G / Vs;
-      qCmd = clamp(qCmd, -qAvail, qAvail);
+      const nTarget = clamp(nCmd, Math.min(nCmd, AERO.gMin), Math.max(0.25, nAvail * 0.98));
+      const qSteady = (nTarget - Math.cos(roll) * Math.cos(pitch)) * G / Vs;   // hedef g için kararlı hal yunuslama oranı
+      const Kn = 0.35 + 0.35 * authority;                                        // g hatası geri beslemesi (rad/s per g)
+      let qCmdG = qSteady + (nTarget - nAct) * Kn;
+      // Düşük hız: AoA komutu (nötr çubuk = trim AoA'sı ~ 1g, tam çubuk = sınır AoA)
+      const alphaTrim = clamp((m * G / Math.max(qd * AERO.S, 1) - AERO.CL0 - AERO.CLflaps * this.flapsPos) / AERO.CLa, 2 * DEG, AERO.alphaLimit);
+      const alphaCmd = st.pitch >= 0 ? alphaTrim + st.pitch * (AERO.alphaLimit - alphaTrim) : alphaTrim + st.pitch * (alphaTrim + 8 * DEG);
+      const qCmdA = (alphaCmd - alpha) * 2.2;
+      const wG = smoothstep(2500, 7000, qd);
+      let qCmd = qCmdA * (1 - wG) + qCmdG * wG;
       // AoA sınırlayıcı: sınıra yaklaşınca burun yukarı komutu kısılır, aşınca burun aşağı istenir
       const aMargin = AERO.alphaLimit - alpha;
       if (aMargin < 5 * DEG) qCmd = Math.min(qCmd, aMargin * 1.5);

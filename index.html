@@ -46,47 +46,65 @@
     #hud { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
     #touch { position: fixed; inset: 0; pointer-events: none; }
     #touch .zone { position: absolute; pointer-events: auto; }
-    #stick-zone { left: 0; top: calc(var(--sat) + 56px); bottom: 0; width: 42%; }
-    #view-zone { left: 42%; right: calc(var(--sar) + 180px); top: calc(var(--sat) + 56px); bottom: calc(var(--sab) + 80px); }
+    #stick-zone { left: 0; top: calc(var(--sat) + 56px); bottom: 0; width: 40%; }
+    #view-zone { left: 40%; right: calc(var(--sar) + 150px); top: calc(var(--sat) + 56px); bottom: calc(var(--sab) + 64px); }
     #stick-base {
-      position: absolute; width: 120px; height: 120px; border-radius: 50%;
-      border: 2px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.06);
-      left: calc(var(--sal) + 40px); bottom: calc(var(--sab) + 40px);
-      transform: translate(0, 0); pointer-events: none;
+      position: absolute; width: 100px; height: 100px; border-radius: 50%;
+      border: 1.5px solid rgba(255,255,255,0.28); background: rgba(10,16,24,0.35);
+      left: calc(var(--sal) + 34px); bottom: calc(var(--sab) + 34px);
+      transform: translate(0, 0); pointer-events: none; box-shadow: inset 0 0 18px rgba(0,0,0,0.35);
     }
-    #stick-base::after { content: ""; position: absolute; inset: 50%; width: 8px; height: 8px; margin: -4px; border-radius: 50%; background: rgba(255,255,255,0.4); }
+    #stick-base::before { content: ""; position: absolute; inset: 14px; border-radius: 50%; border: 1px dashed rgba(255,255,255,0.14); }
+    #stick-base::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: rgba(255,255,255,0.35); }
     #stick-knob {
-      position: absolute; width: 56px; height: 56px; border-radius: 50%; left: 30px; top: 30px;
-      background: rgba(57,255,106,0.35); border: 2px solid rgba(57,255,106,0.8);
+      position: absolute; width: 44px; height: 44px; border-radius: 50%; left: 28px; top: 28px;
+      background: radial-gradient(circle at 40% 35%, rgba(120,255,170,0.55), rgba(57,255,106,0.25) 60%, rgba(57,255,106,0.12));
+      border: 1.5px solid rgba(57,255,106,0.85); box-shadow: 0 2px 10px rgba(0,0,0,0.45);
     }
     #throttle {
-      position: absolute; right: calc(var(--sar) + 10px); top: calc(var(--sat) + 60px); bottom: calc(var(--sab) + 16px);
-      width: 64px; pointer-events: auto;
+      position: absolute; right: calc(var(--sar) + 8px); top: calc(var(--sat) + 58px); bottom: calc(var(--sab) + 14px);
+      width: 54px; pointer-events: auto;
     }
     #throttle-track {
-      position: absolute; left: 12px; right: 12px; top: 0; bottom: 0; border-radius: 12px;
-      background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.3); overflow: hidden;
+      position: absolute; left: 9px; right: 9px; top: 0; bottom: 0; border-radius: 10px;
+      background: rgba(10,16,24,0.5); border: 1.5px solid rgba(255,255,255,0.26); overflow: hidden;
     }
-    #throttle-ab { position: absolute; left: 0; right: 0; top: 0; height: 15%; background: rgba(255,120,30,0.35); border-bottom: 2px dashed rgba(255,160,60,0.9); }
-    #throttle-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0%; background: rgba(57,255,106,0.35); }
+    #throttle-ab { position: absolute; left: 0; right: 0; top: 0; height: 15%; background: repeating-linear-gradient(135deg, rgba(255,140,40,0.35) 0 6px, rgba(255,140,40,0.15) 6px 12px); border-bottom: 1.5px dashed rgba(255,170,70,0.9); }
+    #throttle-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0%; background: linear-gradient(180deg, rgba(57,255,106,0.45), rgba(57,255,106,0.2)); }
     #throttle-knob {
-      position: absolute; left: 0; width: 64px; height: 44px; margin-top: -22px; border-radius: 10px;
-      background: rgba(30,40,50,0.9); border: 2px solid rgba(57,255,106,0.9); pointer-events: none;
-      display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--hud); font-weight: 700;
+      position: absolute; left: 0; width: 54px; height: 44px; margin-top: -22px; border-radius: 9px;
+      background: rgba(14,20,28,0.92); border: 1.5px solid rgba(57,255,106,0.9); pointer-events: none;
+      display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--hud); font-weight: 700; letter-spacing: 0.3px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
     }
     .btn {
-      pointer-events: auto; min-width: 44px; min-height: 44px; padding: 6px 10px; border-radius: 10px;
-      background: var(--btn); color: #fff; border: 1px solid rgba(255,255,255,0.35);
-      font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center;
-      text-align: center; line-height: 1.1; letter-spacing: 0.2px;
+      pointer-events: auto; min-width: 44px; min-height: 44px; padding: 4px 9px; border-radius: 8px;
+      background: rgba(10,16,24,0.55); color: #e8eef5; border: 1px solid rgba(255,255,255,0.22);
+      font-size: 11px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+      text-align: center; line-height: 1.1; text-shadow: 0 1px 2px rgba(0,0,0,0.7); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
     }
-    .btn.on { background: var(--btn-on); border-color: var(--hud); color: var(--hud); }
-    .btn.pressed { background: rgba(255,255,255,0.3); }
-    #top-left { position: absolute; left: calc(var(--sal) + 8px); top: calc(var(--sat) + 8px); display: flex; gap: 8px; }
-    #bottom-center { position: absolute; left: 44%; right: 176px; bottom: calc(var(--sab) + 10px); display: flex; gap: 10px; justify-content: center; }
-    #bottom-center .btn { min-width: 84px; min-height: 52px; font-size: 15px; }
-    #right-col { position: absolute; right: calc(var(--sar) + 84px); bottom: calc(var(--sab) + 12px); display: flex; flex-direction: column; gap: 8px; }
-    #right-col .btn { min-width: 88px; }
+    .btn .i { font-size: 16px; line-height: 1; }
+    .btn .l { font-size: 9.5px; opacity: 0.85; }
+    .btn.on { background: rgba(57,255,106,0.16); border-color: rgba(57,255,106,0.85); color: var(--hud); }
+    .btn.warn.on { background: rgba(255,170,60,0.18); border-color: rgba(255,170,60,0.9); color: #ffc46a; }
+    .btn.pressed { background: rgba(255,255,255,0.28); }
+    #top-left { position: absolute; left: calc(var(--sal) + 8px); top: calc(var(--sat) + 8px); display: flex; gap: 6px; }
+    #top-left .btn { width: 52px; padding: 3px 4px; }
+    #rudder { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--sab) + 10px); width: 210px; height: 44px; pointer-events: auto; }
+    #rudder-track {
+      position: absolute; inset: 0; border-radius: 22px; background: rgba(10,16,24,0.5); border: 1.5px solid rgba(255,255,255,0.26);
+      box-shadow: inset 0 0 14px rgba(0,0,0,0.35);
+    }
+    #rudder-track::before { content: ""; position: absolute; left: 50%; top: 8px; bottom: 8px; width: 2px; margin-left: -1px; background: rgba(255,255,255,0.35); }
+    #rudder-track::after { content: "RUDDER"; position: absolute; left: 0; right: 0; bottom: -14px; text-align: center; font-size: 9px; letter-spacing: 1.5px; color: rgba(255,255,255,0.55); }
+    #rudder-knob {
+      position: absolute; left: 50%; top: 3px; width: 38px; height: 38px; margin-left: -19px; border-radius: 50%;
+      background: radial-gradient(circle at 40% 35%, rgba(120,255,170,0.55), rgba(57,255,106,0.22) 60%, rgba(57,255,106,0.1));
+      border: 1.5px solid rgba(57,255,106,0.85); pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+    }
+    #right-col { position: absolute; right: calc(var(--sar) + 70px); bottom: calc(var(--sab) + 12px); display: flex; flex-direction: column; gap: 6px; }
+    #right-col .btn { width: 66px; min-height: 44px; }
     .overlay {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
       background: rgba(4, 8, 14, 0.78); z-index: 20; padding: calc(var(--sat) + 12px) calc(var(--sar) + 12px) calc(var(--sab) + 12px) calc(var(--sal) + 12px);
@@ -146,21 +164,19 @@
   <div id="touch" hidden>
     <div class="zone" id="view-zone"></div>
     <div id="top-left">
-      <button class="btn" id="btn-pause" aria-label="Duraklat">⏸ Duraklat</button>
-      <button class="btn" id="btn-camera" aria-label="Kamera">🎥 Kamera</button>
-      <button class="btn" id="btn-sound" aria-label="Ses">🔊 Ses</button>
+      <button class="btn" id="btn-pause" aria-label="Duraklat"><span class="i">⏸</span><span class="l">Duraklat</span></button>
+      <button class="btn" id="btn-camera" aria-label="Kamera"><span class="i">🎥</span><span class="l">Kamera</span></button>
+      <button class="btn" id="btn-sound" aria-label="Ses"><span class="i">🔊</span><span class="l">Ses</span></button>
+      <button class="btn warn" id="btn-lights" aria-label="İniş ışıkları"><span class="i">💡</span><span class="l">Işık</span></button>
     </div>
     <div class="zone" id="stick-zone">
       <div id="stick-base"><div id="stick-knob"></div></div>
     </div>
-    <div id="bottom-center">
-      <button class="btn" id="btn-rudder-l">◀ Rudder Sol</button>
-      <button class="btn" id="btn-rudder-r">Rudder Sağ ▶</button>
-    </div>
+    <div id="rudder"><div id="rudder-track"></div><div id="rudder-knob"></div></div>
     <div id="right-col">
-      <button class="btn on" id="btn-gear">İniş Takımı</button>
-      <button class="btn" id="btn-flap">Flap</button>
-      <button class="btn on" id="btn-brake">Fren</button>
+      <button class="btn on" id="btn-gear"><span class="i">🛬</span><span class="l">Takım</span></button>
+      <button class="btn" id="btn-flap"><span class="i">🔽</span><span class="l">Flap</span></button>
+      <button class="btn on" id="btn-brake"><span class="i">🛑</span><span class="l">Fren</span></button>
     </div>
     <div class="zone" id="throttle">
       <div id="throttle-track"><div id="throttle-ab"></div><div id="throttle-fill"></div></div>
@@ -175,10 +191,11 @@
       <ul>
         <li><b>Sol joystick:</b> yunuslama (pitch) ve yatış (roll)</li>
         <li><b>Sağ kaydırıcı:</b> gaz kolu — en üstte art yakıcı (AB)</li>
-        <li><b>Rudder Sol/Sağ:</b> dümen ve yerde burun tekeri</li>
+        <li><b>Rudder kaydırıcısı (alt orta):</b> sürükle, bırakınca ortaya döner; yerde burun tekeri</li>
         <li><b>İniş Takımı / Flap / Fren:</b> aç-kapat</li>
         <li><b>Kalkış:</b> freni bırak, tam gaz, ~140 kt'ta burnu kaldır</li>
-        <li><b>Klavye:</b> WASD/oklar, Shift/Ctrl gaz, G takım, F flap, B fren, C kamera, P duraklat</li>
+        <li><b>Işık:</b> iniş/taksi ışıkları (L). <b>Kamera:</b> takip → kokpit → serbest → uçuş geçişi</li>
+        <li><b>Klavye:</b> WASD/oklar, Q/E dümen, Shift/Ctrl gaz, G takım, F flap, B fren, L ışık, C kamera, P duraklat</li>
       </ul>
     </div>
   </div>
