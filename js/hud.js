@@ -173,8 +173,8 @@ export class HUD {
     ctx.font = 'bold 20px "SF Mono", Menlo, Consolas, monospace';
     const on = Math.floor(this.blink * 4) % 2 === 0;
     if (T.stall && on) { ctx.fillStyle = '#ff5050'; ctx.fillText('STALL', cx, cy + 70); }
-    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = '#ffd35a'; ctx.fillText('GEAR', cx, cy + 94); }
-    if (T.alpha > 20 && !T.stall) { ctx.fillStyle = '#ffd35a'; ctx.font = 'bold 14px "SF Mono", Menlo, Consolas, monospace'; ctx.fillText('AoA LIMIT', cx, cy + 70); }
+    else if (T.stallWarn) { ctx.fillStyle = '#ffd35a'; ctx.font = 'bold 14px "SF Mono", Menlo, Consolas, monospace'; ctx.fillText('AoA ' + (on ? '▲' : '△') + ' STALL WARN', cx, cy + 70); }
+    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = '#ffd35a'; ctx.font = 'bold 20px "SF Mono", Menlo, Consolas, monospace'; ctx.fillText('GEAR', cx, cy + 94); }
     ctx.restore();
   }
 }

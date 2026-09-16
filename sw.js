@@ -1,5 +1,5 @@
 /* F-35A Simülatör – Service Worker */
-const CACHE_VERSION = '1.0.0';
+const CACHE_VERSION = '1.1.0';
 const CACHE_NAME = 'f35a-sim-' + CACHE_VERSION;
 const THREE_VERSION = '0.170.0';
 const CDN_BASE = 'https://cdn.jsdelivr.net/npm/three@' + THREE_VERSION + '/';
@@ -24,7 +24,6 @@ const APP_FILES = [
 const ICON_FILES = ['./icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 const CDN_FILES = [
   CDN_BASE + 'build/three.module.js',
-  CDN_BASE + 'examples/jsm/objects/Water.js',
   CDN_BASE + 'examples/jsm/utils/BufferGeometryUtils.js',
 ];
 

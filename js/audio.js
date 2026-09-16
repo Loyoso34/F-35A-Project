@@ -116,7 +116,7 @@ export class AudioEngine {
     const rollG = running && T.onGround ? Math.min(T.tas / 60, 1) * 0.25 : 0;
     this.rollGain.gain.setTargetAtTime(rollG, t, k);
     // Stall: 4 Hz kesikli ton
-    if (running && T.stall) {
+    if (running && (T.stall || T.stallWarn)) {
       this.stallPhase += dt * 4;
       const on = (this.stallPhase % 1) < 0.5;
       this.stallGain.gain.setTargetAtTime(on ? 0.06 : 0, t, 0.01);

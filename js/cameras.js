@@ -42,9 +42,15 @@ export class CameraRig {
     const pos = fm.pos, quat = fm.quat;
     const fwd = this._v.set(0, 0, -1).applyQuaternion(quat);
     const up = this._up.set(0, 1, 0).applyQuaternion(quat);
+    const buffet = (fm.telemetry && fm.telemetry.buffet) || 0;
+    const t = fm.time || 0;
     if (this.mode === 'cockpit') {
       cam.position.copy(F35.pilotEye).applyQuaternion(quat).add(pos);
       cam.quaternion.copy(quat);
+      if (buffet > 0.01) {
+        const sx = Math.sin(t * 61) * Math.sin(t * 17) * 0.012 * buffet, sy = Math.sin(t * 53 + 1) * Math.sin(t * 23) * 0.012 * buffet;
+        cam.position.addScaledVector(this._v.set(1, 0, 0).applyQuaternion(quat), sx).addScaledVector(this._up.set(0, 1, 0).applyQuaternion(quat), sy);
+      }
       return;
     }
     if (this.mode === 'orbit') {
@@ -66,6 +72,7 @@ export class CameraRig {
     this.pos.lerp(desired, s);
     // Yerin altına inmesin
     cam.position.copy(this.pos);
+    if (buffet > 0.01) cam.position.addScaledVector(up, Math.sin(t * 57) * Math.sin(t * 19) * 0.08 * buffet).addScaledVector(this._v.set(1, 0, 0).applyQuaternion(quat), Math.sin(t * 47 + 2) * 0.06 * buffet);
     const worldUp = new THREE.Vector3(0, 1, 0);
     cam.up.copy(worldUp).lerp(up, 0.35).normalize();
     this.look.copy(pos).addScaledVector(fwd, 12);

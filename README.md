@@ -61,6 +61,7 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 - **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır). **Ses:** sessize al. **Duraklat:** menü.
 - **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, M ses, P/Esc duraklat.
 - **Kalkış:** Fren'i kapatın, gazı sonuna kadar itin, ~145 kt'ta burnu kaldırın, tırmanışta takımı toplayın.
+- **Stall:** Hücum açısı 19°'de uyarı (HUD ve ses), 24°'nin üzerinde taşıma hızla düşer; burun düşer, kanat sallanır. Toparlamak için çubuğu ileri itip hız kazanın.
 - **Eğim kontrolü:** Ayarlar → Eğim kontrolü → Açık. Telefonu rahat tuttuğunuz açıda **Kalibre Et**'e basın.
 
 ## Güncelleme yayınlama
@@ -72,11 +73,13 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 
 ## Kalite ayarları
 
-| Ayar | Piksel oranı | Gölge | Çizim mesafesi | Ağaç | Su |
-|------|-------------|-------|----------------|------|----|
-| Düşük | 1 | yok | 9 km | 3 500 | basit |
-| Orta (varsayılan) | 1.5 | 1024 | 15 km | 9 000 | yansımalı |
-| Yüksek | 2 | 2048 | 26 km | 16 000 | yansımalı |
+| Ayar | Piksel oranı | Gölge | Çizim mesafesi | Ağaç | Bulut | Su dalga detayı |
+|------|-------------|-------|----------------|------|-------|-----------------|
+| Düşük | 1 | yok | 13 km | 6 000 | 40 | düşük |
+| Orta (varsayılan) | 1.5 | 1024 | 21 km | 13 000 | 70 | tam |
+| Yüksek | 2 | 2048 | 34 km | 24 000 | 110 | tam |
+
+Dünya 40 × 40 km'dir: kenarlarda dağlar, ortada düzlükler ve tarlalar, dört göl, bir nehir, yollar, bir kasaba ve genişletilmiş hava üssü (paralel taksi yolları, apron, güneşlikler, hangarlar, korumalı sığınaklar, kule, park halinde F-35'ler).
 
 Eski cihazlarda veya Düşük Güç Modu'nda takılma olursa **Düşük** seçin.
 

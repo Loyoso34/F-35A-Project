@@ -371,10 +371,11 @@ class App {
     const p = this.physics, T = p.telemetry;
     this.aircraft.group.position.copy(p.pos);
     this.aircraft.group.quaternion.copy(p.quat);
-    const s = p.stick;
+    const sf = p.surfaces;
     this.aircraft.update({
-      pitch: s.pitch, roll: s.roll, yaw: s.yaw, flaps: p.flapsPos, gear: p.gearPos,
+      elevator: sf.elevator, aileron: sf.aileron, rudder: sf.rudder, flaps: p.flapsPos, gear: p.gearPos,
       throttle: p.engine, afterburner: p.abLevel, time: p.time,
+      groundSpeed: p.onGround ? p.vel.length() : 0, dt,
     });
   }
 
