@@ -10,7 +10,7 @@ manifest.webmanifest    PWA bildirimi
 sw.js                   Service worker (önbellek, çevrimdışı, güncelleme)
 js/main.js              Uygulama girişi, oyun döngüsü, menüler
 js/world.js             Arazi, gökyüzü, su, ormanlar, hava üssü
-js/aircraft.js          Prosedürel F-35A modeli
+js/aircraft.js          Prosedürel F-35A modeli (fasetli alt gövde, silah yuvası kapakları, düz kokpit güvertesi)
 js/physics.js           Uçuş dinamiği (120 Hz sabit adım)
 js/controls.js          Dokunmatik / klavye / eğim girişleri
 js/hud.js               Yeşil HUD
@@ -86,6 +86,7 @@ Dünya 40 × 40 km'dir: kenarlarda dağlar, ortada düzlükler ve tarlalar, dör
 
 - Hız vektörü gerçek ivmelenmeden gelir; dikey hız (VS) doğrudan hız vektörünün düşey bileşenidir. Burun aşağıdayken irtifa kaybı kaçınılmazdır; yapay irtifa tutucu yoktur.
 - Kontrol kanunu yük katsayısı (g) komutludur; düşük hızda hücum açısı komutuna geçer. Çubuk merkezdeyken uçak trim durumuna yakın kalır, ancak hız düştükçe burun düşer.
+- Yunuslama sönümü: dış döngü kazancı dinamik basınca göre programlanır (kapalı döngü kısa periyot sönümü ζ≈0,9), çubuk girişine 0,12 s ön filtre ve kontrol momentlerine 0,04 s eyleyici gecikmesi uygulanır. Çubuk bırakıldığında uçak yeni uçuş yoluna tek ve düzgün bir geçişle oturur; burun aşağı-yukarı sekmesi yoktur. Fizik 120 Hz sabit adımlı olduğundan davranış kare hızından bağımsızdır.
 - Taşıma/sürükleme: CL eğrisi stall sonrası düşer, indüklenmiş sürükleme (Oswald), ayrılma sürüklemesi, takım/flap sürüklemesi, yer etkisi (h/b oranına göre) ve ISA atmosferi.
 - Motor: yavaş tepkili itki (spool), art yakıcı ayrı kademe, yakıt tüketimi; ses motoru rumble/türbin/egzoz/art yakıcı katmanlarını buna göre karıştırır.
 

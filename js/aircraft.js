@@ -2,7 +2,7 @@
 // Eksenler: burun -Z, üst +Y, sağ kanat +X. Uzunluk 15.7 m, açıklık 10.7 m, yükseklik 4.4 m.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { makeStealthPanelTexture, makeRoughnessTexture, makeInsigniaTexture, makeTextTexture, makeCockpitDisplayTexture, makeBayDoorTexture, makeFlameNoiseTexture, makeGlowTexture } from './textures.js';
+import { makeStealthPanelTexture, makeRoughnessTexture, makeInsigniaTexture, makeTextTexture, makeCockpitDisplayTexture, makeFlameNoiseTexture, makeGlowTexture } from './textures.js';
 
 const DEG = Math.PI / 180;
 export const F35 = {
@@ -20,26 +20,29 @@ function st(s) { return s - F35.cgStation; }
 // yt: üst y, (xc,yc): chine, (xs,ys): yanak kontrol noktası (hava alığı şişkinliği),
 // (xb,yb): alt köşe, ybot: alt merkez, nt: üst süperelips üssü, nb: alt süperelips üssü.
 const FORE_PROFILES = [
-  [0.00, { yt: 0.02, xc: 0.012, yc: 0.0, xs: 0.012, ys: -0.01, xb: 0.008, yb: -0.015, ybot: -0.02, nt: 2.2, nb: 2.5 }],
-  [0.70, { yt: 0.27, xc: 0.30, yc: 0.01, xs: 0.27, ys: -0.10, xb: 0.16, yb: -0.21, ybot: -0.26, nt: 2.2, nb: 2.6 }],
-  [1.80, { yt: 0.49, xc: 0.58, yc: 0.04, xs: 0.50, ys: -0.18, xb: 0.30, yb: -0.38, ybot: -0.46, nt: 2.3, nb: 2.8 }],
-  [2.90, { yt: 0.61, xc: 0.79, yc: 0.06, xs: 0.68, ys: -0.25, xb: 0.42, yb: -0.52, ybot: -0.62, nt: 2.4, nb: 3.0 }],
-  [3.60, { yt: 0.65, xc: 0.90, yc: 0.05, xs: 0.78, ys: -0.28, xb: 0.48, yb: -0.62, ybot: -0.72, nt: 2.5, nb: 3.0 }],
-  [4.10, { yt: 0.67, xc: 0.97, yc: 0.03, xs: 0.88, ys: -0.32, xb: 0.50, yb: -0.68, ybot: -0.78, nt: 2.6, nb: 3.0 }],
-  [4.50, { yt: 0.68, xc: 1.02, yc: 0.01, xs: 0.94, ys: -0.34, xb: 0.46, yb: -0.71, ybot: -0.80, nt: 2.6, nb: 3.0 }],
+  [0.00, { yt: 0.02, xc: 0.012, yc: 0.0, xs: 0.012, ys: -0.01, xb: 0.008, yb: -0.015, ybot: -0.02, nt: 2.2, nb: 2.2, dk: 0.004 }],
+  [0.70, { yt: 0.27, xc: 0.30, yc: 0.01, xs: 0.27, ys: -0.10, xb: 0.15, yb: -0.20, ybot: -0.26, nt: 2.2, nb: 2.2, dk: 0.004 }],
+  [1.80, { yt: 0.49, xc: 0.58, yc: 0.04, xs: 0.50, ys: -0.19, xb: 0.28, yb: -0.37, ybot: -0.46, nt: 2.3, nb: 2.3, dk: 0.004 }],
+  [2.90, { yt: 0.61, xc: 0.79, yc: 0.06, xs: 0.68, ys: -0.26, xb: 0.40, yb: -0.51, ybot: -0.62, nt: 2.4, nb: 2.4, dk: 0.10 }],
+  [3.30, { yt: 0.635, xc: 0.85, yc: 0.055, xs: 0.73, ys: -0.27, xb: 0.44, yb: -0.57, ybot: -0.67, nt: 2.45, nb: 2.5, dk: 0.35 }],
+  [3.60, { yt: 0.65, xc: 0.90, yc: 0.05, xs: 0.78, ys: -0.29, xb: 0.47, yb: -0.62, ybot: -0.72, nt: 2.5, nb: 2.6, dk: 0.49 }],
+  [4.10, { yt: 0.67, xc: 0.97, yc: 0.03, xs: 0.88, ys: -0.33, xb: 0.49, yb: -0.68, ybot: -0.78, nt: 2.6, nb: 2.8, dk: 0.60 }],
+  [4.50, { yt: 0.68, xc: 1.02, yc: 0.01, xs: 0.94, ys: -0.35, xb: 0.46, yb: -0.71, ybot: -0.80, nt: 2.6, nb: 3.0, dk: 0.63 }],
 ];
+// Ana gövde: chine altındaki yan yüzey (hava alığı yanağı -> alt köşe) iki fasetli, orta karın düz;
+// arka gövde motor yatağı etrafında yuvarlaklaşır.
 const MAIN_PROFILES = [
-  [5.00, { yt: 0.69, xc: 1.12, yc: 0.00, xs: 1.42, ys: -0.42, xb: 1.22, yb: -0.86, ybot: -0.92, nt: 2.6, nb: 3.5 }],
-  [5.80, { yt: 0.73, xc: 1.24, yc: -0.02, xs: 1.47, ys: -0.45, xb: 1.27, yb: -0.90, ybot: -0.96, nt: 2.7, nb: 3.5 }],
-  [6.60, { yt: 0.79, xc: 1.44, yc: -0.06, xs: 1.62, ys: -0.48, xb: 1.42, yb: -0.92, ybot: -0.98, nt: 2.8, nb: 3.6 }],
-  [7.60, { yt: 0.83, xc: 1.64, yc: -0.10, xs: 1.76, ys: -0.50, xb: 1.57, yb: -0.94, ybot: -1.00, nt: 2.9, nb: 3.6 }],
-  [8.80, { yt: 0.83, xc: 1.74, yc: -0.10, xs: 1.82, ys: -0.50, xb: 1.62, yb: -0.95, ybot: -1.00, nt: 2.9, nb: 3.6 }],
-  [10.0, { yt: 0.77, xc: 1.74, yc: -0.10, xs: 1.78, ys: -0.50, xb: 1.57, yb: -0.90, ybot: -0.95, nt: 2.8, nb: 3.5 }],
-  [11.2, { yt: 0.69, xc: 1.64, yc: -0.08, xs: 1.64, ys: -0.45, xb: 1.42, yb: -0.78, ybot: -0.80, nt: 2.7, nb: 3.2 }],
-  [12.4, { yt: 0.63, xc: 1.50, yc: -0.05, xs: 1.47, ys: -0.35, xb: 1.30, yb: -0.62, ybot: -0.64, nt: 2.6, nb: 3.0 }],
-  [13.4, { yt: 0.61, xc: 1.37, yc: -0.02, xs: 1.32, ys: -0.30, xb: 1.17, yb: -0.52, ybot: -0.52, nt: 2.5, nb: 2.8 }],
-  [14.2, { yt: 0.59, xc: 1.22, yc: 0.00, xs: 1.17, ys: -0.25, xb: 1.04, yb: -0.46, ybot: -0.46, nt: 2.4, nb: 2.6 }],
-  [14.6, { yt: 0.57, xc: 1.14, yc: 0.00, xs: 1.10, ys: -0.24, xb: 0.98, yb: -0.44, ybot: -0.44, nt: 2.4, nb: 2.6 }],
+  [5.00, { yt: 0.69, xc: 1.12, yc: 0.00, xs: 1.46, ys: -0.42, xb: 1.18, yb: -0.85, ybot: -0.92, nt: 2.6, nb: 3.2, dk: 0.64 }],
+  [5.80, { yt: 0.73, xc: 1.26, yc: -0.02, xs: 1.54, ys: -0.47, xb: 1.22, yb: -0.90, ybot: -0.98, nt: 2.7, nb: 3.3, dk: 0.57 }],
+  [6.60, { yt: 0.79, xc: 1.46, yc: -0.06, xs: 1.74, ys: -0.53, xb: 1.28, yb: -0.95, ybot: -1.02, nt: 2.8, nb: 3.4, dk: 0.35 }],
+  [7.60, { yt: 0.83, xc: 1.66, yc: -0.10, xs: 1.92, ys: -0.57, xb: 1.33, yb: -0.99, ybot: -1.04, nt: 2.9, nb: 3.5, dk: 0.04 }],
+  [8.80, { yt: 0.83, xc: 1.76, yc: -0.10, xs: 1.98, ys: -0.58, xb: 1.36, yb: -1.00, ybot: -1.05, nt: 2.9, nb: 3.5, dk: 0.004 }],
+  [10.0, { yt: 0.77, xc: 1.76, yc: -0.10, xs: 1.92, ys: -0.56, xb: 1.32, yb: -0.96, ybot: -1.00, nt: 2.8, nb: 3.4, dk: 0.004 }],
+  [11.2, { yt: 0.69, xc: 1.66, yc: -0.08, xs: 1.74, ys: -0.50, xb: 1.20, yb: -0.84, ybot: -0.88, nt: 2.7, nb: 3.0, dk: 0.004 }],
+  [12.4, { yt: 0.64, xc: 1.52, yc: -0.05, xs: 1.52, ys: -0.40, xb: 1.02, yb: -0.68, ybot: -0.74, nt: 2.6, nb: 2.6, dk: 0.004 }],
+  [13.4, { yt: 0.63, xc: 1.40, yc: -0.02, xs: 1.34, ys: -0.34, xb: 0.86, yb: -0.56, ybot: -0.64, nt: 2.5, nb: 2.2, dk: 0.004 }],
+  [14.2, { yt: 0.62, xc: 1.26, yc: 0.00, xs: 1.16, ys: -0.28, xb: 0.72, yb: -0.48, ybot: -0.58, nt: 2.4, nb: 2.0, dk: 0.004 }],
+  [14.6, { yt: 0.61, xc: 1.18, yc: 0.00, xs: 1.08, ys: -0.26, xb: 0.66, yb: -0.46, ybot: -0.56, nt: 2.4, nb: 2.0, dk: 0.004 }],
 ];
 
 function lerpProfile(table, s) {
@@ -61,14 +64,51 @@ function profileAt(s) { return s < 4.75 ? lerpProfile(FORE_PROFILES, s) : lerpPr
 export function bodyTop(s) { return profileAt(s).yt; }
 export function bodyBottom(s) { return profileAt(s).ybot; }
 export function bodyHalfWidth(s) { const p = profileAt(s); return Math.max(p.xc, p.xs); }
+// Alt yüzeyin (chine'den karın ortasına) verilen |x| için en alt y değeri (kapaklar, yuvalar, takım pivotları için)
+export function bottomSurfaceY(s, x) {
+  const pts = halfSection(profileAt(s));
+  const ax = Math.abs(x);
+  let best = Infinity;
+  for (let i = 4; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const lo = Math.min(a.x, b.x), hi = Math.max(a.x, b.x);
+    if (ax < lo - 1e-6 || ax > hi + 1e-6) continue;
+    const t = hi - lo < 1e-6 ? 0 : (ax - a.x) / (b.x - a.x);
+    const y = a.y + (b.y - a.y) * Math.min(1, Math.max(0, t));
+    if (y < best) best = y;
+  }
+  return best === Infinity ? profileAt(s).ybot : best;
+}
+// Üst yüzeyin (güverte + omuz) verilen |x| için y değeri – kaplama loft'unun kullandığı 5 noktalı kırık çizgi üzerinden
+export function topSurfaceY(s, x) {
+  const pts = halfSection(profileAt(s));
+  const ax = Math.abs(x);
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i], b = pts[i + 1];
+    if (ax >= a.x - 1e-6 && ax <= b.x + 1e-6) { const t = b.x - a.x < 1e-6 ? 0 : (ax - a.x) / (b.x - a.x); return a.y + (b.y - a.y) * Math.min(1, Math.max(0, t)); }
+  }
+  return pts[4].y;
+}
+// Yan yüzeyin (chine altı) verilen y için x değeri
+export function sideSurfaceX(s, y) {
+  const pts = halfSection(profileAt(s));
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    if ((y <= a.y && y >= b.y) || (y >= a.y && y <= b.y)) { const t = Math.abs(b.y - a.y) < 1e-6 ? 0 : (y - a.y) / (b.y - a.y); return a.x + (b.x - a.x) * t; }
+  }
+  return bodyHalfWidth(s);
+}
 
 // Profilden 12 noktalı yarım kesit üretir (indeks 0 üst merkez, 4 chine, 8 alt köşe, 11 alt merkez)
 function halfSection(p) {
   const pts = [];
-  // Üst: süperelips (0,yt) -> (xc,yc)
-  for (let i = 0; i <= 4; i++) {
-    const th = (i / 4) * Math.PI / 2;
-    const x = p.xc * Math.pow(Math.sin(th), 2 / p.nt);
+  // Üst: düz güverte (0..dk) + süperelips (dk,yt) -> (xc,yc). Kokpit bölgesinde güverte kanopi eşiğidir.
+  const dk = Math.min(p.dk || 0.004, p.xc * 0.9);
+  pts.push({ x: 0, y: p.yt });
+  pts.push({ x: dk, y: p.yt });
+  for (let i = 1; i <= 3; i++) {
+    const th = (i / 3) * Math.PI / 2;
+    const x = dk + (p.xc - dk) * Math.pow(Math.sin(th), 2 / p.nt);
     const y = p.yc + (p.yt - p.yc) * Math.pow(Math.cos(th), 2 / p.nt);
     pts.push({ x, y });
   }
@@ -90,7 +130,7 @@ function halfSection(p) {
 }
 
 // Genel loft. sections[i] = [{x,y,z}], hepsi aynı uzunlukta.
-function loft(sections, { uScale = 1, vScale = 1, closeRing = false, flip = false } = {}) {
+function loft(sections, { uScale = 1, vScale = 1, closeRing = false, flip = false, skipQuad = null } = {}) {
   const n = sections.length, m = sections[0].length;
   const pos = [], uv = [], idx = [];
   for (let i = 0; i < n; i++) {
@@ -104,6 +144,7 @@ function loft(sections, { uScale = 1, vScale = 1, closeRing = false, flip = fals
   for (let i = 0; i < n - 1; i++) {
     for (let k = 0; k < kMax; k++) {
       const k1 = (k + 1) % m;
+      if (skipQuad && skipQuad(i, k)) continue;
       const a = i * m + k, b = i * m + k1, c = (i + 1) * m + k, d = (i + 1) * m + k1;
       if (flip) idx.push(a, c, b, b, c, d); else idx.push(a, b, c, b, d, c);
     }
@@ -214,14 +255,17 @@ export class F35A {
   }
 
   buildFuselage() {
-    const foreS = [0.0, 0.35, 0.7, 1.2, 1.8, 2.4, 2.9, 3.3, 3.6, 3.85, 4.1, 4.3, 4.5];
+    const foreS = [0.0, 0.35, 0.7, 1.2, 1.8, 2.4, 2.9, 3.1, 3.3, 3.6, 3.85, 4.1, 4.3, 4.5];
     const mainS = [5.0, 5.4, 5.8, 6.2, 6.6, 7.1, 7.6, 8.2, 8.8, 9.4, 10.0, 10.6, 11.2, 11.8, 12.4, 12.9, 13.4, 13.8, 14.2, 14.6];
     const fore = foreS.map((s) => this.sectionPoints(s));
     const main = mainS.map((s) => this.sectionPoints(s));
     const mirror = (pt) => ({ x: -pt.x, y: pt.y, z: pt.z });
     // Üst şerit: tüm istasyonlar (chine'den chine'e, tepe üzerinden)
     const topRows = [...fore, ...main].map((h) => [mirror(h[4]), mirror(h[3]), mirror(h[2]), mirror(h[1]), h[0], h[1], h[2], h[3], h[4]]);
-    this.paintGeos.push(ensureOutward(loft(topRows, { uScale: 3, vScale: 1 }), bodyAxisRef));
+    // Kokpit açıklığı: kanopi altındaki güverte dörtgenleri (k=3,4) atlanır; içi kokpit teknesi doldurur
+    const allS = [...foreS, ...mainS];
+    const skipQuad = (i, k) => (k === 3 || k === 4) && allS[i] >= 3.25 && allS[i + 1] <= 6.7;
+    this.paintGeos.push(ensureOutward(loft(topRows, { uScale: 3, vScale: 1, skipQuad }), bodyAxisRef));
     // Alt şerit: ön gövde + ana gövde (alt köşeden alt köşeye)
     const botRows = [...fore, ...main.slice(1)].map((h) => [mirror(h[8]), mirror(h[9]), mirror(h[10]), h[11], h[10], h[9], h[8]]);
     // hava alığı alt dudağı: 5.4 istasyonu ana profilden (eğik alt dudak)
@@ -278,108 +322,118 @@ export class F35A {
 
   buildCanopyAndCockpit() {
     const m = this.m;
-    // Kokpit çukuru
-    const tub = new THREE.BoxGeometry(1.0, 0.55, 2.7);
-    tub.translate(0, bodyTop(4.7) - 0.28, st(4.75));
-    this.group.add(new THREE.Mesh(this.track(tub), m.cockpit));
-    // Gösterge paneli (panoramik dokunmatik ekran) – pilota bakan yüz
+    const cockpitMat = this.track(new THREE.MeshStandardMaterial({ color: 0x24272b, roughness: 0.9, side: THREE.DoubleSide }));
+    // Kokpit teknesi: güverteyi izleyen U kesitli oluk; gövde açıklığından koyu iç hacim görünür
+    // Üst kenar, güverte açıklığının kenarıyla (dk) çakışır: ne dışarı taşar ne aralık bırakır
+    const tubS = [3.2, 3.4, 3.8, 4.2, 4.6, 5.0, 5.4, 5.8, 6.2, 6.5, 6.75];
+    const tubRows = tubS.map((sv) => { const yt = bodyTop(sv), z = st(sv), dk = Math.min(profileAt(sv).dk, profileAt(sv).xc * 0.9), wi = Math.min(0.60, dk - 0.05); return [
+      { x: -dk, y: yt - 0.001, z }, { x: -wi, y: yt - 0.34, z }, { x: -Math.min(0.26, wi * 0.6), y: yt - 0.42, z },
+      { x: Math.min(0.26, wi * 0.6), y: yt - 0.42, z }, { x: wi, y: yt - 0.34, z }, { x: dk, y: yt - 0.001, z }]; });
+    this.group.add(new THREE.Mesh(this.track(loft(tubRows, { uScale: 1, vScale: 1 })), cockpitMat));
+    for (const row of [tubRows[0], tubRows[tubRows.length - 1]]) {
+      const mid = row.map((q) => ({ x: 0, y: q.y - 0.002, z: q.z }));
+      this.group.add(new THREE.Mesh(this.track(loft([row, mid], { uScale: 1, vScale: 1 })), cockpitMat));
+    }
+    // İç eşik: açıklık kenarından dışa doğru, dış kaplamanın hemen altında koyu raf (kokpit görünümünde dışarı sızma olmaz)
+    for (const side of [-1, 1]) {
+      const inner = tubRows.map((r, i) => ({ x: side * Math.abs(r[0].x), y: r[0].y, z: r[0].z }));
+      const outer = tubS.map((sv) => { const dk = Math.min(profileAt(sv).dk, profileAt(sv).xc * 0.9), xm = dk + 0.45; return { x: side * xm, y: topSurfaceY(sv, xm) - 0.035, z: st(sv) }; });
+      this.group.add(new THREE.Mesh(this.track(loft([inner, outer], { uScale: 1, vScale: 1 })), cockpitMat));
+    }
+    // Gösterge paneli (panoramik dokunmatik ekran) – kanopi ön camının içinde kalır
     const pcdTex = this.track(makeCockpitDisplayTexture(1024, 384));
     const pcdMat = this.track(new THREE.MeshStandardMaterial({ map: pcdTex, emissive: 0xffffff, emissiveMap: pcdTex, emissiveIntensity: 0.9, roughness: 0.4 }));
-    const panelBox = new THREE.BoxGeometry(1.02, 0.42, 0.14);
-    panelBox.translate(0, bodyTop(3.85) + 0.17, st(3.9));
-    this.group.add(new THREE.Mesh(this.track(panelBox), m.cockpit));
-    const panel = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.96, 0.36)), pcdMat);
-    panel.position.set(0, bodyTop(3.85) + 0.17, st(3.9) + 0.075);
-    panel.rotation.y = 0; // +z'ye (pilota) bakar
+    const panelY = bodyTop(3.85) + 0.10;
+    const panelBox = new THREE.BoxGeometry(0.74, 0.34, 0.14);
+    panelBox.translate(0, panelY, st(3.9));
+    this.group.add(new THREE.Mesh(this.track(panelBox), cockpitMat));
+    const panel = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.70, 0.30)), pcdMat);
+    panel.position.set(0, panelY, st(3.9) + 0.075);
     this.group.add(panel);
-    // Parlama siperi (glareshield)
+    // Parlama siperi: panelin üstünde, ön cama doğru incelen kapak
     const glareShape = new THREE.Shape();
-    glareShape.moveTo(0, 0); glareShape.lineTo(0.62, 0); glareShape.lineTo(0.62, 0.05); glareShape.lineTo(0.1, 0.12); glareShape.lineTo(0, 0.12); glareShape.lineTo(0, 0);
-    const glare = new THREE.ExtrudeGeometry(glareShape, { depth: 1.04, bevelEnabled: false });
+    glareShape.moveTo(0, 0); glareShape.lineTo(0.38, 0); glareShape.lineTo(0.38, 0.035); glareShape.lineTo(0.06, 0.07); glareShape.lineTo(0, 0.07); glareShape.lineTo(0, 0);
+    const glare = new THREE.ExtrudeGeometry(glareShape, { depth: 0.76, bevelEnabled: false });
     glare.rotateY(-Math.PI / 2);
-    glare.translate(0.52, bodyTop(3.75) + 0.29, st(3.5));
-    this.group.add(new THREE.Mesh(this.track(glare), m.cockpit));
+    glare.translate(0.38, panelY + 0.17, st(3.68));
+    this.group.add(new THREE.Mesh(this.track(glare), cockpitMat));
     // Yan konsollar, gaz kolu (sol) ve yan çubuk (sağ)
     for (const side of [-1, 1]) {
-      const console = new THREE.BoxGeometry(0.26, 0.12, 1.6);
-      console.translate(side * 0.36, bodyTop(4.7) - 0.05, st(4.85));
-      this.group.add(new THREE.Mesh(this.track(console), m.cockpit));
+      const console = new THREE.BoxGeometry(0.24, 0.10, 1.5);
+      console.translate(side * 0.38, bodyTop(4.7) - 0.09, st(4.85));
+      this.group.add(new THREE.Mesh(this.track(console), cockpitMat));
     }
-    const throttle = new THREE.BoxGeometry(0.08, 0.14, 0.22);
-    throttle.translate(-0.36, bodyTop(4.7) + 0.08, st(4.7));
+    const throttle = new THREE.BoxGeometry(0.07, 0.13, 0.2);
+    throttle.translate(-0.38, bodyTop(4.7) + 0.03, st(4.7));
     this.group.add(new THREE.Mesh(this.track(throttle), m.dark));
-    const stick = new THREE.CylinderGeometry(0.025, 0.03, 0.2, 8);
-    stick.translate(0.36, bodyTop(4.9) + 0.1, st(4.95));
+    const stick = new THREE.CylinderGeometry(0.022, 0.028, 0.18, 8);
+    stick.translate(0.38, bodyTop(4.9) + 0.05, st(4.95));
     this.group.add(new THREE.Mesh(this.track(stick), m.dark));
     // Koltuk: sırt, başlık
-    const seatBack = new THREE.BoxGeometry(0.56, 0.95, 0.14);
+    const seatBack = new THREE.BoxGeometry(0.54, 0.95, 0.14);
     seatBack.rotateX(-0.25);
-    seatBack.translate(0, bodyTop(5.5) + 0.1, st(5.55));
-    this.group.add(new THREE.Mesh(this.track(seatBack), m.cockpit));
-    const headbox = new THREE.BoxGeometry(0.46, 0.34, 0.3);
-    headbox.translate(0, bodyTop(5.6) + 0.48, st(5.65));
-    this.group.add(new THREE.Mesh(this.track(headbox), m.cockpit));
+    seatBack.translate(0, bodyTop(5.5) + 0.06, st(5.55));
+    this.group.add(new THREE.Mesh(this.track(seatBack), cockpitMat));
+    const headbox = new THREE.BoxGeometry(0.44, 0.32, 0.28);
+    headbox.translate(0, bodyTop(5.6) + 0.42, st(5.65));
+    this.group.add(new THREE.Mesh(this.track(headbox), cockpitMat));
     // Pilot: gövde + kask (kokpit görünümünde gizlenir)
     const torso = new THREE.CylinderGeometry(0.2, 0.25, 0.55, 10);
-    torso.translate(0, bodyTop(5.05) + 0.12, st(5.1));
+    torso.translate(0, bodyTop(5.05) + 0.10, st(5.1));
     const torsoMesh = new THREE.Mesh(this.track(torso), m.pilot);
     const helmet = new THREE.SphereGeometry(0.16, 12, 10);
-    helmet.translate(0, bodyTop(5.0) + 0.56, st(5.05));
+    helmet.translate(0, bodyTop(5.0) + 0.54, st(5.05));
     const helmetMesh = new THREE.Mesh(this.track(helmet), m.helmet);
     const visor = new THREE.SphereGeometry(0.165, 12, 8, -Math.PI / 2 - 0.9, 1.8, 0.9, 1.1);
-    visor.translate(0, bodyTop(5.0) + 0.56, st(5.05));
+    visor.translate(0, bodyTop(5.0) + 0.54, st(5.05));
     const visorMesh = new THREE.Mesh(this.track(visor), m.glass);
     this.group.add(torsoMesh, helmetMesh, visorMesh);
     this.parts.pilotParts = [torsoMesh, helmetMesh, visorMesh];
 
-    // Kanopi loft'u (yarım elips kesitler), dik ön cam
+    // Kanopi: eğik ön cam, en yüksek nokta pilot başı hizasında, arkaya doğru incelen damla biçimi.
+    // Kesit süperelips (n=2.3): yanlar dik, üst yuvarlak. Taban düz güverteye oturur (çıkıntı/ledge yok).
+    const CN = 2.3;
     const profile = [
-      [3.05, 0.05, 0.02], [3.25, 0.40, 0.24], [3.5, 0.53, 0.50], [3.8, 0.57, 0.70], [4.15, 0.59, 0.82],
-      [4.6, 0.59, 0.88], [5.1, 0.57, 0.85], [5.6, 0.53, 0.72], [6.1, 0.44, 0.48], [6.5, 0.30, 0.22], [6.78, 0.10, 0.04],
+      [3.0, 0.08, 0.02], [3.25, 0.30, 0.18], [3.55, 0.44, 0.40], [3.9, 0.52, 0.58], [4.3, 0.57, 0.74],
+      [4.7, 0.59, 0.84], [5.1, 0.59, 0.86], [5.5, 0.57, 0.80], [5.9, 0.52, 0.64], [6.3, 0.43, 0.42], [6.65, 0.28, 0.18], [6.9, 0.10, 0.03],
     ];
-    const rows = [];
     const M = 16;
-    for (const [s, w, h] of profile) {
-      const base = bodyTop(s) - 0.02;
+    const shapeRow = (sv, w, h, base, grow = 0) => {
       const row = [];
       for (let k = 0; k <= M; k++) {
         const th = (k / M) * Math.PI;
-        row.push({ x: Math.cos(th) * w, y: base + Math.sin(th) * h, z: st(s) });
+        const c = Math.cos(th), sn = Math.sin(th);
+        const x = Math.sign(c) * Math.pow(Math.abs(c), 2 / CN) * (w + grow);
+        const y = base + Math.pow(Math.abs(sn), 2 / CN) * (h + grow);
+        row.push({ x, y, z: st(sv) });
       }
-      rows.push(row);
-    }
+      return row;
+    };
+    const rows = profile.map(([sv, w, h]) => shapeRow(sv, w, h, bodyTop(sv) - 0.012));
     const g = this.track(ensureOutward(loft(rows, { uScale: 1, vScale: 1 })));
     const canopy = new THREE.Mesh(g, m.canopy);
     canopy.renderOrder = 5;
     this.group.add(canopy);
     this.parts.canopy = canopy;
-    // Çerçeveler: ön cam kemeri ve kanopi bow'u
-    const arc = (s, w, h, thick, depth, mat) => {
-      const a = [], b = [];
-      for (let k = 0; k <= M; k++) {
-        const th = (k / M) * Math.PI;
-        a.push({ x: Math.cos(th) * w, y: bodyTop(s) - 0.02 + Math.sin(th) * h, z: st(s) });
-        b.push({ x: Math.cos(th) * (w + thick), y: bodyTop(s) - 0.02 + Math.sin(th) * (h + thick), z: st(s) + depth });
-      }
-      const geo = this.track(loft([a, b], { uScale: 1, vScale: 1 }));
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.material.side = THREE.DoubleSide;
-      this.group.add(mesh);
+    // Kanopi bow çerçevesi (ön üçte birde) ve ince ön cam tabanı
+    const frameMat = this.track(m.dark.clone()); frameMat.side = THREE.DoubleSide;
+    const interp = (sv) => { for (let i = 0; i < profile.length - 1; i++) { const [s0, w0, h0] = profile[i], [s1, w1, h1] = profile[i + 1]; if (sv >= s0 && sv <= s1) { const t = (sv - s0) / (s1 - s0); return [w0 + (w1 - w0) * t, h0 + (h1 - h0) * t]; } } return [0.1, 0.03]; };
+    const arc = (sv, thick, depth) => {
+      const [w, h] = interp(sv);
+      const base = bodyTop(sv) - 0.012;
+      const a = shapeRow(sv, w, h, base, 0.004), b = shapeRow(sv, w, h, base, thick).map((q) => ({ x: q.x, y: q.y, z: q.z + depth }));
+      this.group.add(new THREE.Mesh(this.track(loft([a, b], { uScale: 1, vScale: 1 })), frameMat));
     };
-    arc(4.15, 0.585, 0.815, 0.03, 0.09, this.track(m.dark.clone()));
-    arc(3.12, 0.22, 0.10, 0.03, 0.06, this.track(m.dark.clone()));
-    // Kanopi eşiği: kanopi tabanını izleyen ince çerçeve
-    const sillIn = [], sillOut = [];
-    for (const [s, w] of profile) {
-      sillIn.push({ x: Math.max(0.02, w - 0.02), y: bodyTop(s) + 0.005, z: st(s) });
-      sillOut.push({ x: w + 0.05, y: bodyTop(s) + 0.005, z: st(s) });
-    }
+    arc(4.3, 0.028, 0.06);
+    arc(3.14, 0.025, 0.04);
+    // Kanopi eşiği: gövde güvertesi üzerinde, kanopi tabanını izleyen ince koyu bant (her iki yan)
+    const sillProfile = profile.slice(1);
+    const taper = (i) => (i === 0 || i === sillProfile.length - 1) ? 0.3 : 1;   // uçlarda incelir (dışarı taşan köşe olmaz)
     for (const side of [-1, 1]) {
-      const rows = [sillIn.map((q) => ({ x: side * q.x, y: q.y, z: q.z })), sillOut.map((q) => ({ x: side * q.x, y: q.y, z: q.z }))];
-      const geo = this.track(loft(rows, { uScale: 1, vScale: 1 }));
-      const mesh = new THREE.Mesh(geo, this.track(m.dark.clone()));
-      mesh.material.side = THREE.DoubleSide;
-      this.group.add(mesh);
+      // Güverteye yatık ince şerit (dik yüzü yok): kanopi tabanındaki conta çizgisi
+      const lo = sillProfile.map(([sv, w], i) => ({ x: side * (w + 0.04 * taper(i)), y: bodyTop(sv) + 0.003, z: st(sv) }));
+      const hi = sillProfile.map(([sv, w], i) => ({ x: side * (w + 0.004 * taper(i)), y: bodyTop(sv) + 0.009, z: st(sv) }));
+      this.group.add(new THREE.Mesh(this.track(loft([lo, hi], { uScale: 1, vScale: 1 })), frameMat));
     }
   }
 
@@ -626,7 +680,7 @@ export class F35A {
     {
       const pivot = new THREE.Group();
       const s = F35.cgStation + F35.noseGearZ;
-      const topY = bodyBottom(s) + 0.05;
+      const topY = bottomSurfaceY(s, 0) + 0.05;
       pivot.position.set(0, topY, F35.noseGearZ);
       const r = 0.27;
       const strutLen = topY - (wheelBottom + r);
@@ -649,7 +703,7 @@ export class F35A {
       const doors = [];
       for (const side of [-1, 1]) {
         const dp = new THREE.Group();
-        dp.position.set(side * 0.34, bodyBottom(s) + 0.02, F35.noseGearZ + 0.2);
+        dp.position.set(side * 0.34, bottomSurfaceY(s, 0.34) + 0.02, F35.noseGearZ + 0.2);
         const door = new THREE.Mesh(this.track(new THREE.BoxGeometry(0.03, 0.62, 1.7)), this.m.paint);
         door.position.set(0, -0.31, 0);
         dp.add(door);
@@ -662,7 +716,7 @@ export class F35A {
     for (const side of [-1, 1]) {
       const pivot = new THREE.Group();
       const s = F35.cgStation + F35.mainGearZ;
-      const topY = bodyBottom(s) + 0.1;
+      const topY = bottomSurfaceY(s, F35.mainGearX) + 0.06;
       pivot.position.set(side * F35.mainGearX, topY, F35.mainGearZ);
       const r = 0.37;
       const strutLen = topY - (wheelBottom + r);
@@ -677,7 +731,7 @@ export class F35A {
       pivot.traverse((o) => { if (o.isMesh) o.castShadow = true; });
       this.group.add(pivot);
       const dp = new THREE.Group();
-      dp.position.set(side * (F35.mainGearX - 0.5), bodyBottom(s) + 0.02, F35.mainGearZ);
+      dp.position.set(side * (F35.mainGearX - 0.5), bottomSurfaceY(s, F35.mainGearX - 0.5) + 0.02, F35.mainGearZ);
       const door = new THREE.Mesh(this.track(new THREE.BoxGeometry(0.03, 0.9, 1.5)), this.m.paint);
       door.position.set(0, -0.45, 0);
       dp.add(door);
@@ -701,13 +755,38 @@ export class F35A {
     const gunPort = new THREE.CircleGeometry(0.06, 8);
     gunPort.translate(-1.1, 0.22, st(7.85) - 0.01);
     this.group.add(new THREE.Mesh(this.track(gunPort), m.dark));
-    // Silah yuvası kapakları: gövde altı çıkartması
-    const bayTex = this.track(makeBayDoorTexture(1024, 512));
-    const bayMat = this.track(new THREE.MeshStandardMaterial({ map: bayTex, transparent: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -1 }));
-    const bay = new THREE.Mesh(this.track(new THREE.PlaneGeometry(2.8, 4.2)), bayMat);
-    bay.position.set(0, bodyBottom(9.0) - 0.012, st(8.9));
-    bay.rotation.x = Math.PI / 2;
-    this.group.add(bay);
+    // Alt yüzeyi izleyen ince kabuk (kapaklar, yuva ağızları): x aralığı, istasyon aralığı, yüzeyden ofset
+    const bellyShell = (x0, x1, s0, s1, nx, ns, off) => {
+      const rows = [];
+      for (let j = 0; j <= ns; j++) {
+        const sv = s0 + (s1 - s0) * (j / ns);
+        const row = [];
+        for (let i = 0; i <= nx; i++) { const x = x0 + (x1 - x0) * (i / nx); row.push({ x, y: bottomSurfaceY(sv, x) - off, z: st(sv) }); }
+        rows.push(row);
+      }
+      return ensureOutward(loft(rows, { uScale: 1, vScale: 1 }), bodyAxisRef);
+    };
+    // Silah yuvası kapakları: her yanda iç (düz karın) ve dış (eğik faset) kapak; kapak çevresinde koyu panel aralığı
+    const gapMat = this.track(new THREE.MeshStandardMaterial({ color: 0x0f1113, roughness: 0.95 }));
+    const gapGeos = [];
+    for (const side of [-1, 1]) {
+      for (const [x0, x1] of [[0.10, 0.60], [0.66, 1.30]]) {
+        this.paintGeos.push(bellyShell(side * x0, side * x1, 6.75, 10.55, 4, 9, 0.014));
+        gapGeos.push(bellyShell(side * (x0 - 0.03), side * (x1 + 0.03), 6.71, 10.59, 4, 9, 0.005));
+      }
+    }
+    // İniş takımı yuva ağızları (koyu): burun ve ana takımlar; kapaklar kapalıyken örtülür
+    gapGeos.push(bellyShell(-0.30, 0.30, 2.95, 4.5, 3, 5, 0.004));
+    for (const side of [-1, 1]) gapGeos.push(bellyShell(side * 1.28, side * 1.86, 8.0, 9.6, 3, 5, 0.004));
+    this.group.add(new THREE.Mesh(this.track(mergeGeometries(gapGeos.map((g) => g.toNonIndexed()), false)), gapMat));
+    // Kuyruk kancası kaportası (gövde altı, orta hat) ve kanca
+    const hookFair = new THREE.BoxGeometry(0.26, 0.20, 1.7);
+    hookFair.rotateX(0.05);
+    hookFair.translate(0, bottomSurfaceY(13.2, 0) - 0.05, st(13.2));
+    this.paintGeos.push(hookFair);
+    const hook = new THREE.BoxGeometry(0.07, 0.07, 0.5);
+    hook.translate(0, bottomSurfaceY(14.2, 0) - 0.10, st(14.15));
+    this.group.add(new THREE.Mesh(this.track(hook), m.dark));
     // Yakıt ikmal kapağı (sırt)
     const rec = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.5, 0.36)), this.track(new THREE.MeshStandardMaterial({ color: 0x5c6167, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -1 })));
     rec.position.set(0, bodyTop(7.5) + 0.012, st(7.5));
@@ -716,7 +795,7 @@ export class F35A {
     // Formasyon ışık şeritleri (gövde yanları)
     for (const side of [-1, 1]) {
       const fl = new THREE.Mesh(this.track(new THREE.PlaneGeometry(1.2, 0.07)), m.formLight);
-      fl.position.set(side * (bodyHalfWidth(9.4) + 0.01), -0.2, st(9.4));
+      fl.position.set(side * (sideSurfaceX(9.4, -0.2) + 0.012), -0.2, st(9.4));
       fl.rotation.y = side * Math.PI / 2;
       this.group.add(fl);
       const fl2 = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.06, 0.6)), m.formLight);
@@ -798,9 +877,9 @@ export class F35A {
     }
     for (const side of [-1, 1]) {
       const mesh = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.9, 0.5)), mat);
-      mesh.position.set(side * (bodyHalfWidth(10.6) - 0.15), 0.3, st(10.6));
+      mesh.position.set(side * (sideSurfaceX(10.6, 0.3) + 0.02), 0.3, st(10.6));
       mesh.rotation.y = side * Math.PI / 2;
-      mesh.rotation.x = side * -0.4;
+      mesh.rotation.x = side * -0.45;
       this.group.add(mesh);
     }
     const cant = 22 * DEG;

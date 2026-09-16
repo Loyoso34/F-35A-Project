@@ -97,6 +97,8 @@ export class FlightModel {
     this.onGround = true;
     this.time = 0;
     this.stick = { pitch: 0, roll: 0, yaw: 0 };
+    this.stickF = { pitch: 0, roll: 0 };                    // ön filtreli çubuk (komut sıçramasını yumuşatır)
+    this.act = { M: 0, L: 0, N: 0 };                        // eyleyici (kontrol momenti) durumu
     this.surfaces = { elevator: 0, aileron: 0, rudder: 0 }; // görsel yüzey sapmaları (-1..1)
     this.telemetry = {};
     this._v = new THREE.Vector3(); this._f = new THREE.Vector3(); this._q = new THREE.Quaternion();
@@ -118,6 +120,7 @@ export class FlightModel {
     this.crashed = false; this.crashReason = ''; this.onGround = true; this.time = 0;
     this.wasOnGround = true;
     this.surfaces.elevator = this.surfaces.aileron = this.surfaces.rudder = 0;
+    this.stickF.pitch = this.stickF.roll = 0; this.act.M = this.act.L = this.act.N = 0;
     this.updateTelemetry(atmosphere(gy), 0, 0, 1, 1);
   }
 
@@ -308,19 +311,32 @@ export class FlightModel {
       this.surfaces.rudder += (st.yaw - this.surfaces.rudder) * (1 - Math.exp(-10 * dt));
     } else {
       // --- FBW komutları ---
+      // Çubuk ön filtresi (τ 0.12 s): ani bırakmada komut basamağı yumuşar, gecikme hissedilmez
+      const kPre = 1 - Math.exp(-dt / 0.12);
+      this.stickF.pitch += (st.pitch - this.stickF.pitch) * kPre;
+      this.stickF.roll += (st.roll - this.stickF.roll) * (1 - Math.exp(-dt / 0.06));
+      const sp = this.stickF.pitch;
+      // İç döngü (oran) kazancı: q, komuta 1/Kq zaman sabitiyle yaklaşır
+      const Kq = 3.5 + 4.5 * authority, Kp = 5 + 7 * authority, Kr = 2.5 + 3.5 * authority;
       // Gerçek yük faktörü (gövde-dik özgül kuvvet): taşıma + itkinin dik bileşeni
       const nAct = (L * Math.cos(alpha) + thrust * Math.sin(alpha)) / (m * G);
       // Yüksek hız: g komutu (nötr çubuk = 1g, uçuş yolu korunur; tutum hıza göre kendini ayarlar)
-      const nCmd = st.pitch >= 0 ? 1 + st.pitch * (AERO.gMax - 1) : 1 + st.pitch * (1 - AERO.gMin);
+      const nCmd = sp >= 0 ? 1 + sp * (AERO.gMax - 1) : 1 + sp * (1 - AERO.gMin);
       const nAvail = qd * AERO.S * AERO.CLmax / (m * G);
       const nTarget = clamp(nCmd, Math.min(nCmd, AERO.gMin), Math.max(0.25, nAvail * 0.98));
       const qSteady = (nTarget - Math.cos(roll) * Math.cos(pitch)) * G / Vs;   // hedef g için kararlı hal yunuslama oranı
-      const Kn = 0.35 + 0.35 * authority;                                        // g hatası geri beslemesi (rad/s per g)
+      // Dış döngü kazancı dinamik basınca göre programlanır: kısa periyot kapalı döngü sönümü ζ≈0.9
+      // (ωn² = Kq·kα·(Kn + g/V), 2ζωn = Kq + kα·g/V; kα = taşıma eğimi [g/rad])
+      const kAlpha = Math.max(0.5, AERO.CLa * qd * AERO.S / (m * G));
+      const zeta = 0.9;
+      const Kn = clamp(Kq / (4 * zeta * zeta * kAlpha) - G / Vs, 0.03, 0.8);
       let qCmdG = qSteady + (nTarget - nAct) * Kn;
-      // Düşük hız: AoA komutu (nötr çubuk = trim AoA'sı ~ 1g, tam çubuk = sınır AoA)
+      // Düşük hız: AoA komutu (nötr çubuk = trim AoA'sı ~ 1g, tam çubuk = sınır AoA); aynı sönüm hedefiyle programlanır
       const alphaTrim = clamp((m * G / Math.max(qd * AERO.S, 1) - AERO.CL0 - AERO.CLflaps * this.flapsPos) / AERO.CLa, 2 * DEG, AERO.alphaLimit);
-      const alphaCmd = st.pitch >= 0 ? alphaTrim + st.pitch * (AERO.alphaLimit - alphaTrim) : alphaTrim + st.pitch * (alphaTrim + 8 * DEG);
-      const qCmdA = (alphaCmd - alpha) * 2.2;
+      const alphaCmd = sp >= 0 ? alphaTrim + sp * (AERO.alphaLimit - alphaTrim) : alphaTrim + sp * (alphaTrim + 8 * DEG);
+      const gkv = G * kAlpha / Vs;
+      const Ka = clamp((Kq + gkv) * (Kq + gkv) / (4 * zeta * zeta * Kq) - gkv, 0.6, 2.2);
+      const qCmdA = (alphaCmd - alpha) * Ka;
       const wG = smoothstep(2500, 7000, qd);
       let qCmd = qCmdA * (1 - wG) + qCmdG * wG;
       // AoA sınırlayıcı: sınıra yaklaşınca burun yukarı komutu kısılır, aşınca burun aşağı istenir
@@ -328,7 +344,7 @@ export class FlightModel {
       if (aMargin < 5 * DEG) qCmd = Math.min(qCmd, aMargin * 1.5);
       if (alpha < -12 * DEG) qCmd = Math.max(qCmd, 0);
       qCmd = clamp(qCmd, -AERO.pitchRateMax, AERO.pitchRateMax);
-      const pCmd = st.roll * AERO.rollRateMax * clamp(qd / 6000, 0.15, 1);
+      const pCmd = this.stickF.roll * AERO.rollRateMax * clamp(qd / 6000, 0.15, 1);
       // Hız vektörü etrafında yatış için koordineli sapma + kayma sıfırlama + dümen
       let rCmd = -pCmd * Math.tan(clamp(alpha, -0.6, 0.6)) * 0.85 - beta * 3.0 - st.yaw * AERO.yawRateMax;
 
@@ -359,11 +375,15 @@ export class FlightModel {
       const Mmax = qS * AERO.chord * AERO.CmCtl * ctlEff;
       const Lmax = qS * AERO.span * AERO.ClCtl * ctlEff;
       const Nmax = qS * AERO.span * AERO.CnCtl * (1 - 0.4 * highAlpha);
-      const Kq = 3.5 + 4.5 * authority, Kp = 5 + 7 * authority, Kr = 2.5 + 3.5 * authority;
       // FBW: istenen ivme için gereken momenti hesapla, bilinen momentleri telafi et, sınırla
-      const Mctl = clamp(AERO.Iyy * Kq * (qCmd - R.q) - Maero - Mine, -Mmax, Mmax);
-      const Lctl = clamp(AERO.Ixx * Kp * (pCmd - R.p) - Laero - Line, -Lmax, Lmax);
-      const Nctl = clamp(AERO.Izz * Kr * (rCmd - R.r) - Naero - Nine, -Nmax, Nmax);
+      const MctlCmd = clamp(AERO.Iyy * Kq * (qCmd - R.q) - Maero - Mine, -Mmax, Mmax);
+      const LctlCmd = clamp(AERO.Ixx * Kp * (pCmd - R.p) - Laero - Line, -Lmax, Lmax);
+      const NctlCmd = clamp(AERO.Izz * Kr * (rCmd - R.r) - Naero - Nine, -Nmax, Nmax);
+      // Eyleyici gecikmesi (yüzey sapma hızı sınırı, τ 0.04 s): anlık moment sıçraması yok
+      const kAct = 1 - Math.exp(-dt / 0.04);
+      const A = this.act;
+      A.M += (MctlCmd - A.M) * kAct; A.L += (LctlCmd - A.L) * kAct; A.N += (NctlCmd - A.N) * kAct;
+      const Mctl = clamp(A.M, -Mmax, Mmax), Lctl = clamp(A.L, -Lmax, Lmax), Nctl = clamp(A.N, -Nmax, Nmax);
       // Görsel yüzey sapmaları (kontrol momentinin doygunluk oranı)
       this.surfaces.elevator += ((Mmax > 1 ? Mctl / Mmax : 0) - this.surfaces.elevator) * (1 - Math.exp(-12 * dt));
       this.surfaces.aileron += ((Lmax > 1 ? Lctl / Lmax : 0) - this.surfaces.aileron) * (1 - Math.exp(-12 * dt));
