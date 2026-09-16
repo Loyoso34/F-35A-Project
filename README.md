@@ -1,0 +1,99 @@
+# F-35A Simülatör (PWA)
+
+iPhone Safari (iOS 17+), Android Chrome ve masaüstü tarayıcılarda çalışan, ana ekrana eklenebilen (PWA) bir F-35A Lightning II uçuş simülatörü. Derleme adımı yoktur; yalnızca statik dosyalardan oluşur ve Three.js CDN üzerinden sabit sürümle yüklenir.
+
+## Dosya yapısı
+
+```
+index.html              Sayfa iskeleti, CSS, arayüz, import map
+manifest.webmanifest    PWA bildirimi
+sw.js                   Service worker (önbellek, çevrimdışı, güncelleme)
+js/main.js              Uygulama girişi, oyun döngüsü, menüler
+js/world.js             Arazi, gökyüzü, su, ormanlar, hava üssü
+js/aircraft.js          Prosedürel F-35A modeli
+js/physics.js           Uçuş dinamiği (120 Hz sabit adım)
+js/controls.js          Dokunmatik / klavye / eğim girişleri
+js/hud.js               Yeşil HUD
+js/audio.js             Prosedürel ses
+js/cameras.js           Takip, kokpit, serbest kamera
+js/ui.js                Menü yardımcıları
+js/textures.js          Canvas ile üretilen dokular
+js/noise.js             Gürültü fonksiyonları
+js/version.js           Uygulama sürümü
+icons/                  Ana ekran ikonları (tools/make_icons.py ile üretilir)
+tools/make_icons.py     İkon üretici (yalnızca Python standart kütüphanesi)
+.nojekyll               GitHub Pages'in dosyaları olduğu gibi sunması için
+```
+
+## GitHub Pages ile yayınlama
+
+1. GitHub'da yeni bir depo oluşturun (örneğin `f35a-sim`).
+2. Bu klasördeki tüm dosyaları deponun köküne yükleyin:
+
+   ```bash
+   git init
+   git add .
+   git commit -m "F-35A simülatör"
+   git branch -M main
+   git remote add origin https://github.com/KULLANICI/f35a-sim.git
+   git push -u origin main
+   ```
+
+3. Depoda **Settings → Pages** bölümüne gidin. **Source** olarak *Deploy from a branch*, dal olarak `main` ve klasör olarak `/ (root)` seçip kaydedin.
+4. Birkaç dakika sonra site `https://KULLANICI.github.io/f35a-sim/` adresinde yayında olur. Tüm yollar göreli (`./…`) olduğu için alt klasörden sorunsuz çalışır.
+
+> Service worker ve "Ana Ekrana Ekle" özellikleri yalnızca HTTPS üzerinde çalışır; GitHub Pages bunu otomatik sağlar.
+
+## iPhone ana ekranına ekleme
+
+1. Siteyi **Safari** ile açın (Chrome veya uygulama içi tarayıcılar "Ana Ekrana Ekle"yi desteklemez).
+2. Alt çubuktaki **Paylaş** düğmesine (kare içinden çıkan ok) dokunun.
+3. Listeden **Ana Ekrana Ekle** seçin ve **Ekle**'ye dokunun.
+4. Ana ekrandaki **F-35A** simgesi uygulamayı tam ekran, adres çubuğu olmadan açar. Telefonu yatay tutun; dikey tutulduğunda oyun duraklar ve "Telefonu yatay çevirin" uyarısı görünür.
+5. İlk açılışta **Başla**'ya dokunun: ses ve (ayarlardan açılmışsa) eğim kontrolü izni bu dokunuşla etkinleşir.
+
+Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı yükle** seçeneği aynı işi görür.
+
+## Kontroller
+
+- **Sol joystick:** yunuslama ve yatış. **Sağ kaydırıcı:** gaz kolu; üstteki turuncu bölge art yakıcı.
+- **Rudder Sol/Sağ:** dümen ve burun tekeri. **İniş Takımı / Flap / Fren:** aç-kapat.
+- **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır). **Ses:** sessize al. **Duraklat:** menü.
+- **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, M ses, P/Esc duraklat.
+- **Kalkış:** Fren'i kapatın, gazı sonuna kadar itin, ~145 kt'ta burnu kaldırın, tırmanışta takımı toplayın.
+- **Eğim kontrolü:** Ayarlar → Eğim kontrolü → Açık. Telefonu rahat tuttuğunuz açıda **Kalibre Et**'e basın.
+
+## Güncelleme yayınlama
+
+1. Kodda değişiklik yapın.
+2. `sw.js` içindeki `CACHE_VERSION` ve `js/version.js` içindeki `APP_VERSION` değerlerini **her değişiklikte** artırın (örneğin `1.0.0` → `1.0.1`). Aynı sürüm numarası kalırsa eski kullanıcılarda yeni dosyalar devreye girmez.
+3. `git commit` ve `git push` yapın; GitHub Pages birkaç dakikada yeni sürümü sunar.
+4. Uygulamayı açan kullanıcılara "Yeni sürüm hazır" bildirimi çıkar; **Yenile** ile yeni sürüme geçerler. Ayarlar menüsünde geçerli sürüm görünür.
+
+## Kalite ayarları
+
+| Ayar | Piksel oranı | Gölge | Çizim mesafesi | Ağaç | Su |
+|------|-------------|-------|----------------|------|----|
+| Düşük | 1 | yok | 9 km | 3 500 | basit |
+| Orta (varsayılan) | 1.5 | 1024 | 15 km | 9 000 | yansımalı |
+| Yüksek | 2 | 2048 | 26 km | 16 000 | yansımalı |
+
+Eski cihazlarda veya Düşük Güç Modu'nda takılma olursa **Düşük** seçin.
+
+## İkonları yeniden üretme
+
+```bash
+python3 tools/make_icons.py
+```
+
+Ek kütüphane gerektirmez; `icons/` klasörüne 180, 192 ve 512 piksellik PNG'leri yazar.
+
+## Yerel test
+
+Herhangi bir statik sunucu yeterlidir, örneğin:
+
+```bash
+python3 -m http.server 8080
+```
+
+Ardından `http://localhost:8080/` adresini açın. (Service worker `localhost` üzerinde de çalışır.)

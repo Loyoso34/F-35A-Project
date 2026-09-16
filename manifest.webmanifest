@@ -1,0 +1,17 @@
+{
+  "name": "F-35A Simülatör",
+  "short_name": "F-35A",
+  "description": "F-35A Lightning II uçuş simülatörü",
+  "lang": "tr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0b1016",
+  "theme_color": "#0b1016",
+  "icons": [
+    { "src": "./icons/icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

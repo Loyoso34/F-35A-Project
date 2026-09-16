@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="F-35A">
+  <meta name="theme-color" content="#0b1016">
+  <meta name="description" content="F-35A Lightning II uçuş simülatörü (PWA)">
+  <title>F-35A Simülatör</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <style>
+    :root {
+      --sat: env(safe-area-inset-top, 0px);
+      --sar: env(safe-area-inset-right, 0px);
+      --sab: env(safe-area-inset-bottom, 0px);
+      --sal: env(safe-area-inset-left, 0px);
+      --hud: #39ff6a;
+      --panel: rgba(10, 16, 24, 0.86);
+      --btn: rgba(255, 255, 255, 0.10);
+      --btn-on: rgba(57, 255, 106, 0.28);
+      --accent: #4fc3f7;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%; height: 100dvh;
+      overflow: hidden; background: #0b1016; color: #e8eef5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+      overscroll-behavior: none; position: fixed; inset: 0;
+    }
+    canvas { display: block; }
+    #gl { position: fixed; inset: 0; width: 100%; height: 100%; }
+    #hud { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    #touch { position: fixed; inset: 0; pointer-events: none; }
+    #touch .zone { position: absolute; pointer-events: auto; }
+    #stick-zone { left: 0; top: calc(var(--sat) + 56px); bottom: 0; width: 42%; }
+    #view-zone { left: 42%; right: calc(var(--sar) + 180px); top: calc(var(--sat) + 56px); bottom: calc(var(--sab) + 80px); }
+    #stick-base {
+      position: absolute; width: 120px; height: 120px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.06);
+      left: calc(var(--sal) + 40px); bottom: calc(var(--sab) + 40px);
+      transform: translate(0, 0); pointer-events: none;
+    }
+    #stick-base::after { content: ""; position: absolute; inset: 50%; width: 8px; height: 8px; margin: -4px; border-radius: 50%; background: rgba(255,255,255,0.4); }
+    #stick-knob {
+      position: absolute; width: 56px; height: 56px; border-radius: 50%; left: 30px; top: 30px;
+      background: rgba(57,255,106,0.35); border: 2px solid rgba(57,255,106,0.8);
+    }
+    #throttle {
+      position: absolute; right: calc(var(--sar) + 10px); top: calc(var(--sat) + 60px); bottom: calc(var(--sab) + 16px);
+      width: 64px; pointer-events: auto;
+    }
+    #throttle-track {
+      position: absolute; left: 12px; right: 12px; top: 0; bottom: 0; border-radius: 12px;
+      background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.3); overflow: hidden;
+    }
+    #throttle-ab { position: absolute; left: 0; right: 0; top: 0; height: 15%; background: rgba(255,120,30,0.35); border-bottom: 2px dashed rgba(255,160,60,0.9); }
+    #throttle-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0%; background: rgba(57,255,106,0.35); }
+    #throttle-knob {
+      position: absolute; left: 0; width: 64px; height: 44px; margin-top: -22px; border-radius: 10px;
+      background: rgba(30,40,50,0.9); border: 2px solid rgba(57,255,106,0.9); pointer-events: none;
+      display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--hud); font-weight: 700;
+    }
+    .btn {
+      pointer-events: auto; min-width: 44px; min-height: 44px; padding: 6px 10px; border-radius: 10px;
+      background: var(--btn); color: #fff; border: 1px solid rgba(255,255,255,0.35);
+      font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+      text-align: center; line-height: 1.1; letter-spacing: 0.2px;
+    }
+    .btn.on { background: var(--btn-on); border-color: var(--hud); color: var(--hud); }
+    .btn.pressed { background: rgba(255,255,255,0.3); }
+    #top-left { position: absolute; left: calc(var(--sal) + 8px); top: calc(var(--sat) + 8px); display: flex; gap: 8px; }
+    #bottom-center { position: absolute; left: 44%; right: 176px; bottom: calc(var(--sab) + 10px); display: flex; gap: 10px; justify-content: center; }
+    #bottom-center .btn { min-width: 84px; min-height: 52px; font-size: 15px; }
+    #right-col { position: absolute; right: calc(var(--sar) + 84px); bottom: calc(var(--sab) + 12px); display: flex; flex-direction: column; gap: 8px; }
+    #right-col .btn { min-width: 88px; }
+    .overlay {
+      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: rgba(4, 8, 14, 0.78); z-index: 20; padding: calc(var(--sat) + 12px) calc(var(--sar) + 12px) calc(var(--sab) + 12px) calc(var(--sal) + 12px);
+      pointer-events: auto;
+    }
+    .overlay[hidden] { display: none; }
+    .panel {
+      background: var(--panel); border: 1px solid rgba(255,255,255,0.15); border-radius: 16px; padding: 18px 22px;
+      max-width: min(92vw, 560px); max-height: 92dvh; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+    .panel h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: 1px; }
+    .panel h2 { margin: 0 0 10px; font-size: 20px; }
+    .panel p { margin: 6px 0; font-size: 14px; line-height: 1.4; color: #cfd8e3; }
+    .panel .big {
+      display: block; width: 100%; margin-top: 12px; min-height: 52px; font-size: 18px; border-radius: 12px;
+      background: linear-gradient(180deg, #2fb45a, #1e8c43); color: #fff; border: none; font-weight: 700;
+    }
+    .panel .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+    .panel .row .btn { flex: 1; min-height: 48px; font-size: 15px; }
+    .panel .opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0; font-size: 15px; }
+    .seg { display: flex; border: 1px solid rgba(255,255,255,0.3); border-radius: 10px; overflow: hidden; }
+    .seg button { min-width: 64px; min-height: 44px; border: none; background: transparent; color: #fff; font-size: 14px; padding: 0 12px; }
+    .seg button.on { background: var(--btn-on); color: var(--hud); }
+    .small { font-size: 12px; color: #9fb0c2; }
+    #guide ul { margin: 6px 0 0 18px; padding: 0; font-size: 14px; line-height: 1.5; color: #cfd8e3; }
+    #guide { position: fixed; left: 50%; top: calc(var(--sat) + 10px); transform: translateX(-50%); z-index: 15; width: min(94vw, 620px); }
+    #guide .panel { padding: 12px 16px; }
+    #guide[hidden] { display: none; }
+    #guide .close { position: absolute; right: 10px; top: 8px; width: 44px; height: 44px; border-radius: 50%; background: var(--btn); border: 1px solid rgba(255,255,255,0.3); color: #fff; font-size: 20px; }
+    .toast {
+      position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--sab) + 80px); z-index: 30;
+      background: var(--panel); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; padding: 10px 14px;
+      display: flex; align-items: center; gap: 12px; font-size: 14px; pointer-events: auto; max-width: 92vw;
+    }
+    .toast[hidden] { display: none; }
+    .toast .btn { min-height: 40px; }
+    #orient-overlay { z-index: 40; background: #0b1016; flex-direction: column; text-align: center; }
+    #orient-overlay .phone { width: 46px; height: 84px; border: 3px solid #fff; border-radius: 8px; margin-bottom: 18px; animation: rot 1.6s ease-in-out infinite alternate; }
+    @keyframes rot { from { transform: rotate(0deg); } to { transform: rotate(-90deg); } }
+    #loading { z-index: 35; flex-direction: column; }
+    #loading .bar { width: 240px; height: 6px; background: rgba(255,255,255,0.15); border-radius: 3px; overflow: hidden; margin-top: 12px; }
+    #loading .bar div { height: 100%; width: 0%; background: var(--hud); transition: width 0.2s; }
+    #crash .panel { border-color: #ff5b5b; }
+    #crash h2 { color: #ff7a7a; }
+    #msg { position: fixed; left: 50%; top: calc(var(--sat) + 60px); transform: translateX(-50%); color: #ffd35a; font-weight: 700; font-size: 16px; text-shadow: 0 1px 4px #000; pointer-events: none; z-index: 12; }
+    #msg:empty { display: none; }
+    #fps { position: fixed; right: calc(var(--sar) + 84px); top: calc(var(--sat) + 8px); font-size: 11px; color: rgba(255,255,255,0.5); pointer-events: none; }
+  </style>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <canvas id="hud"></canvas>
+  <div id="msg"></div>
+  <div id="fps"></div>
+
+  <div id="touch" hidden>
+    <div class="zone" id="view-zone"></div>
+    <div id="top-left">
+      <button class="btn" id="btn-pause" aria-label="Duraklat">⏸ Duraklat</button>
+      <button class="btn" id="btn-camera" aria-label="Kamera">🎥 Kamera</button>
+      <button class="btn" id="btn-sound" aria-label="Ses">🔊 Ses</button>
+    </div>
+    <div class="zone" id="stick-zone">
+      <div id="stick-base"><div id="stick-knob"></div></div>
+    </div>
+    <div id="bottom-center">
+      <button class="btn" id="btn-rudder-l">◀ Rudder Sol</button>
+      <button class="btn" id="btn-rudder-r">Rudder Sağ ▶</button>
+    </div>
+    <div id="right-col">
+      <button class="btn on" id="btn-gear">İniş Takımı</button>
+      <button class="btn" id="btn-flap">Flap</button>
+      <button class="btn on" id="btn-brake">Fren</button>
+    </div>
+    <div class="zone" id="throttle">
+      <div id="throttle-track"><div id="throttle-ab"></div><div id="throttle-fill"></div></div>
+      <div id="throttle-knob">0%</div>
+    </div>
+  </div>
+
+  <div id="guide" hidden>
+    <div class="panel">
+      <button class="close" id="guide-close" aria-label="Kapat">✕</button>
+      <h2>Kontroller</h2>
+      <ul>
+        <li><b>Sol joystick:</b> yunuslama (pitch) ve yatış (roll)</li>
+        <li><b>Sağ kaydırıcı:</b> gaz kolu — en üstte art yakıcı (AB)</li>
+        <li><b>Rudder Sol/Sağ:</b> dümen ve yerde burun tekeri</li>
+        <li><b>İniş Takımı / Flap / Fren:</b> aç-kapat</li>
+        <li><b>Kalkış:</b> freni bırak, tam gaz, ~140 kt'ta burnu kaldır</li>
+        <li><b>Klavye:</b> WASD/oklar, Shift/Ctrl gaz, G takım, F flap, B fren, C kamera, P duraklat</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="overlay" id="loading">
+    <div class="panel" style="text-align:center">
+      <h1>F-35A Simülatör</h1>
+      <p id="loading-text">Yükleniyor…</p>
+      <div class="bar"><div id="loading-bar"></div></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="start-screen" hidden>
+    <div class="panel" style="text-align:center">
+      <h1>F-35A Lightning II</h1>
+      <p>Uçuş Simülatörü</p>
+      <button class="big" id="btn-start">Başla</button>
+      <p class="small" id="start-hint"></p>
+    </div>
+  </div>
+
+  <div class="overlay" id="pause-menu" hidden>
+    <div class="panel">
+      <h2>Duraklatıldı</h2>
+      <div class="row">
+        <button class="btn" id="btn-resume">Devam</button>
+        <button class="btn" id="btn-restart">Yeniden Başla</button>
+        <button class="btn" id="btn-settings">Ayarlar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="settings" hidden>
+    <div class="panel">
+      <h2>Ayarlar</h2>
+      <div class="opt"><span>Grafik kalitesi</span>
+        <div class="seg" id="quality-seg">
+          <button data-q="low">Düşük</button>
+          <button data-q="medium" class="on">Orta</button>
+          <button data-q="high">Yüksek</button>
+        </div>
+      </div>
+      <div class="opt"><span>Eğim kontrolü (telefonu yatır)</span>
+        <div class="seg" id="tilt-seg">
+          <button data-t="0" class="on">Kapalı</button>
+          <button data-t="1">Açık</button>
+        </div>
+      </div>
+      <div class="opt"><span>Eğim sıfırlama</span><button class="btn" id="btn-calibrate">Kalibre Et</button></div>
+      <div class="opt"><span>Ses</span>
+        <div class="seg" id="sound-seg">
+          <button data-s="1" class="on">Açık</button>
+          <button data-s="0">Kapalı</button>
+        </div>
+      </div>
+      <div class="opt"><span>Performans göstergesi</span>
+        <div class="seg" id="fps-seg">
+          <button data-f="0" class="on">Kapalı</button>
+          <button data-f="1">Açık</button>
+        </div>
+      </div>
+      <p class="small">Sürüm: <span id="version"></span> · Kalite değişikliği sahneyi yeniden yükler.</p>
+      <div class="row"><button class="btn" id="btn-settings-close">Kapat</button></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="crash" hidden>
+    <div class="panel" style="text-align:center">
+      <h2>Uçak Düştü</h2>
+      <p id="crash-reason"></p>
+      <button class="big" id="btn-crash-restart">Yeniden Başla</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="orient-overlay" hidden>
+    <div class="phone"></div>
+    <h2>Telefonu yatay çevirin</h2>
+    <p class="small">Simülatör yatay modda çalışır.</p>
+  </div>
+
+  <div class="overlay" id="context-lost" hidden>
+    <div class="panel" style="text-align:center">
+      <h2>Grafik bağlamı kaybedildi</h2>
+      <p>Geri yükleniyor… Gerekirse sayfayı yenileyin.</p>
+      <button class="big" id="btn-reload">Yenile</button>
+    </div>
+  </div>
+
+  <div class="toast" id="standalone-hint" hidden>
+    <span>Tam ekran için: Paylaş → Ana Ekrana Ekle</span>
+    <button class="btn" id="standalone-hint-close">Tamam</button>
+  </div>
+  <div class="toast" id="update-toast" hidden>
+    <span>Yeni sürüm hazır</span>
+    <button class="btn" id="btn-update">Yenile</button>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
