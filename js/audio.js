@@ -3,7 +3,18 @@
 // (kahverengi gürültü, gaz kolu ile spektrum değişir), art yakıcı (yumuşak kırpma + çıtırtı + ateşleme darbesi),
 // rüzgar, yer gürültüsü, stall uyarısı. Kokpit içinde boğuk/gürlemeli, dışarıda parlak ve kükremeli.
 // Dış "uçuş geçişi" kamerasında Doppler ve mesafe zayıflaması uygulanır. Master kompresör kırpmayı önler.
+// Varsayılan (savaş uçağı) ses profili
+const DEFAULT_PROFILE = {
+  rumbleF: [38, 75], rumbleFilter: [120, 260], rumbleGain: [0.10, 0.22],
+  roarBP: [220, 620], roarLP: [500, 2200], roarGain: [0.05, 0.55],
+  whineF: [700, 3500], whineGain: [0.004, 0.028], hissHP: [1800, 2500], hissGain: 0.05,
+  ab: 1, reverse: 0, idle: 0.22, rollLP: 220,
+};
+
 export class AudioEngine {
+  // Uçak sesi profili: motor türüne göre frekans ve seviye eşlemesi (fleet.js'ten gelir)
+  setProfile(p) { this.profile = p || null; }
+
   constructor() {
     this.ctx = null;
     this.muted = false;
@@ -181,9 +192,11 @@ export class AudioEngine {
   update(dt, T, running) {
     if (!this.ready || !T) return;
     const ctx = this.ctx, t = ctx.currentTime, k = 0.06;
+    const P = this.profile || DEFAULT_PROFILE;
     const eng = running ? T.engine : 0;
-    const ab = running ? T.ab : 0;
-    const rpm = 0.22 + 0.78 * eng;               // rölanti ~%22 hissi
+    // Art yakıcı kanalı: savaş uçağında AB, yolcu uçağında ters itki gürlemesi için kullanılır
+    const ab = running ? (T.ab * P.ab + (T.reverse || 0) * P.reverse) : 0;
+    const rpm = P.idle + (1 - P.idle) * eng;     // rölanti hissi profile göre
     const cockpit = this.view === 'cockpit';
     const dg = cockpit ? 1 : this.distanceGain;
     const dop = cockpit ? 1 : this.doppler;
@@ -192,30 +205,32 @@ export class AudioEngine {
     this.viewFilter.frequency.setTargetAtTime(cockpit ? 1500 : 14000, t, 0.1);
 
     // Gövde gürlemesi: frekans rpm ile 40->115 Hz, kokpitte daha baskın
-    const fr = (38 + rpm * 75) * dop;
+    const fr = (P.rumbleF[0] + rpm * P.rumbleF[1]) * dop;
     for (const r of this.rumbleOscs) r.o.frequency.setTargetAtTime(fr * r.mul, t, k);
-    this.rumbleFilter.frequency.setTargetAtTime(120 + rpm * 260, t, k);
-    this.rumbleGain.gain.setTargetAtTime(running ? (0.10 + rpm * 0.22) * (cockpit ? 1.25 : 0.9) * dg : 0, t, k);
+    this.rumbleFilter.frequency.setTargetAtTime(P.rumbleFilter[0] + rpm * P.rumbleFilter[1], t, k);
+    this.rumbleGain.gain.setTargetAtTime(running ? (P.rumbleGain[0] + rpm * P.rumbleGain[1]) * (cockpit ? 1.25 : 0.9) * dg : 0, t, k);
 
     // Kükreme: spektrum rpm ile yukarı, seviye rpm² ile
-    this.roarBP.frequency.setTargetAtTime((220 + rpm * 620) * dop, t, k);
-    this.roarLP.frequency.setTargetAtTime((500 + rpm * 2200) * dop, t, k);
-    this.roarGain.gain.setTargetAtTime(running ? (0.05 + rpm * rpm * 0.55) * (cockpit ? 0.45 : 1.0) * dg : 0, t, k);
+    this.roarBP.frequency.setTargetAtTime((P.roarBP[0] + rpm * P.roarBP[1]) * dop, t, k);
+    this.roarLP.frequency.setTargetAtTime((P.roarLP[0] + rpm * P.roarLP[1]) * dop, t, k);
+    this.roarGain.gain.setTargetAtTime(running ? (P.roarGain[0] + rpm * rpm * P.roarGain[1]) * (cockpit ? 0.45 : 1.0) * dg : 0, t, k);
 
     // Islık: 700 Hz -> 4200 Hz, dışarıda belirgin, kokpitte kısık
-    const fw = (700 + rpm * 3500) * dop;
+    const fw = (P.whineF[0] + rpm * P.whineF[1]) * dop;
     for (const w of this.whineOscs) w.o.frequency.setTargetAtTime(fw * w.mul, t, k);
-    this.whineGain.gain.setTargetAtTime(running ? (0.004 + rpm * 0.028) * (cockpit ? 0.5 : 1.0) * dg : 0, t, k);
-    this.hissHP.frequency.setTargetAtTime(1800 + rpm * 2500, t, k);
-    this.hissGain.gain.setTargetAtTime(running ? rpm * rpm * 0.05 * (cockpit ? 0.3 : 1.0) * dg : 0, t, k);
+    this.whineGain.gain.setTargetAtTime(running ? (P.whineGain[0] + rpm * P.whineGain[1]) * (cockpit ? 0.5 : 1.0) * dg : 0, t, k);
+    this.hissHP.frequency.setTargetAtTime(P.hissHP[0] + rpm * P.hissHP[1], t, k);
+    this.hissGain.gain.setTargetAtTime(running ? rpm * rpm * P.hissGain * (cockpit ? 0.3 : 1.0) * dg : 0, t, k);
 
     // Art yakıcı: ateşleme darbesi + gürleme + çıtırtı
-    if (ab > 0.25 && this.lastAb <= 0.25 && running) this.thump();
+    if (P.ab && ab > 0.25 && this.lastAb <= 0.25 && running) this.thump();
     this.lastAb = ab;
-    this.abLP.frequency.setTargetAtTime((90 + ab * 90) * dop, t, k);
+    // Ters itki: daha derin ve daha az çıtırtılı
+    const deep = P.ab ? 1 : 0.62;
+    this.abLP.frequency.setTargetAtTime((90 * deep + ab * 90 * deep) * dop, t, k);
     this.abGain.gain.setTargetAtTime(ab * (cockpit ? 0.7 : 1.0) * dg, t, 0.08);
     this.crackleBP.frequency.setTargetAtTime((700 + ab * 600) * dop, t, k);
-    this.crackleGain.gain.setTargetAtTime(ab * ab * (cockpit ? 0.06 : 0.16) * dg, t, k);
+    this.crackleGain.gain.setTargetAtTime(P.ab * ab * ab * (cockpit ? 0.06 : 0.16) * dg, t, k);
 
     // Doppler için gürültü kaynaklarının hızı
     this.rateNodes.forEach((n, i) => n.playbackRate.setTargetAtTime(this.baseRates[i] * dop, t, 0.1));
@@ -226,6 +241,7 @@ export class AudioEngine {
     this.windBP.frequency.setTargetAtTime(400 + spd * 1600, t, k);
     const rollG = running && T.onGround ? Math.min(T.tas / 60, 1) * (cockpit ? 0.35 : 0.2) : 0;
     this.rollGain.gain.setTargetAtTime(rollG, t, k);
+    this.rollLP.frequency.setTargetAtTime(P.rollLP, t, k);
     // Stall: 4 Hz kesikli ton (yalnızca kokpit uyarısı; dışarıda daha kısık)
     if (running && (T.stall || T.stallWarn)) {
       this.stallPhase += dt * 4;

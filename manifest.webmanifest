@@ -1,7 +1,7 @@
 {
-  "name": "F-35A Simülatör",
-  "short_name": "F-35A",
-  "description": "F-35A Lightning II uçuş simülatörü",
+  "name": "Uçuş Simülatörü — F-35A & A321neo",
+  "short_name": "Uçuş Sim",
+  "description": "F-35A Lightning II ve Airbus A321neo uçuş simülatörü",
   "lang": "tr",
   "start_url": "./",
   "scope": "./",

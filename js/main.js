@@ -2,8 +2,8 @@
 import * as THREE from 'three';
 import { APP_VERSION } from './version.js';
 import { World, LAYER_TREES, QUALITY_PRESETS } from './world.js';
-import { F35A } from './aircraft.js';
 import { FlightModel, FIXED_DT } from './physics.js';
+import { FLEET, FLEET_ORDER, getAircraftConfig } from './fleet.js';
 import { Controls } from './controls.js';
 import { HUD } from './hud.js';
 import { AudioEngine } from './audio.js';
@@ -50,19 +50,14 @@ class App {
     await this.nextFrame();
     this.world = new World(this.scene, this.renderer, this.settings.quality);
 
-    ui.setLoading('F-35A modeli oluşturuluyor…', 0.55);
-    await this.nextFrame();
-    this.aircraft = new F35A({ quality: this.settings.quality });
-    this.scene.add(this.aircraft.group);
     this.buildEnvironment();
 
-    ui.setLoading('Fizik ve kontroller…', 0.8);
+    ui.setLoading('Fizik ve kontroller…', 0.6);
     await this.nextFrame();
-    this.physics = new FlightModel(this.world);
+    this.aircraft = null; this.physics = null; this.aircraftId = null;
     this.hud = new HUD(this.hudCanvas);
     this.audio = new AudioEngine();
-    this.cameraRig = new CameraRig(this.camera, this.aircraft, this.world);
-    this.cameraRig.applyMode();
+    this.cameraRig = new CameraRig(this.camera, null, this.world, null);
     this.controls = new Controls({
       onGear: () => this.toggleGear(),
       onFlaps: () => this.toggleFlaps(),
@@ -71,6 +66,7 @@ class App {
       onSound: () => this.toggleSound(),
       onPause: () => this.togglePause(),
       onLights: () => this.toggleLights(),
+      onSpoilers: () => this.toggleSpoilers(),
       onMenu: () => this.ui.toggleMenu(),
       onMenuActivity: () => this.ui.menuActivity(),
       onViewDrag: (dx, dy) => this.cameraRig.drag(dx, dy),
@@ -80,16 +76,19 @@ class App {
     this.bindSystem();
     this.onResize();
     this.applySettingsToUI();
-    this.syncAircraft(0);
-    this.cameraRig.update(1, this.physics);
-    this.world.update(0, this.camera, this.physics.pos);
+
+    ui.setLoading('Uçak önizlemeleri hazırlanıyor…', 0.85);
+    await this.nextFrame();
+    await this.buildThumbnails();
+    this.updateSelectCamera(0);
+    this.world.update(0, this.camera, this.camera.position);
 
     ui.setLoading('Hazır', 1);
     await this.nextFrame();
     ui.hide('loading');
-    ui.show('start');
-    this.state = 'start';
-    if (isIOS() && !isStandalone()) ui.el.startHint.textContent = 'iPhone: Paylaş → Ana Ekrana Ekle ile tam ekran oynayın.';
+    this.buildSelectGrid();
+    this.showSelect();
+    if (isIOS() && !isStandalone()) ui.el.selHint.textContent = 'iPhone: Paylaş → Ana Ekrana Ekle ile tam ekran oynayın.';
     this.registerSW();
     this.checkOrientation();
     this.lastTime = performance.now();
@@ -141,7 +140,8 @@ class App {
   // ---- UI bağlama ----
   bindUI() {
     const ui = this.ui, el = ui.el;
-    el.btnStart.addEventListener('click', () => this.start());
+    if (el.btnStart) el.btnStart.addEventListener('click', () => this.pickAircraft(this.aircraftId || this.settings.aircraft || FLEET_ORDER[0]));
+    el.btnAircraft.addEventListener('click', () => { ui.hide('pause'); this.showSelect(); });
     el.btnResume.addEventListener('click', () => this.resume());
     el.btnRestart.addEventListener('click', () => { ui.hide('pause'); this.restart(); });
     el.btnSettings.addEventListener('click', () => { ui.hide('pause'); ui.show('settings'); });
@@ -167,7 +167,7 @@ class App {
     ui.setSeg(el.soundSeg, 's', this.settings.sound);
     ui.setSeg(el.fpsSeg, 'f', this.settings.fps);
     this.applySound();
-    this.updateToggleButtons();
+    if (this.physics) this.updateToggleButtons();
   }
   applySound() {
     const muted = !this.settings.sound;
@@ -242,8 +242,171 @@ class App {
   }
 
   // ---- Oyun durumu ----
+  // ---- Uçak seçimi ----
+  buildSelectGrid() {
+    const grid = this.ui.el.selGrid;
+    if (!grid || grid.childElementCount) return;
+    for (const id of FLEET_ORDER) {
+      const cfg = FLEET[id];
+      const card = document.createElement('button');
+      card.className = 'ac-card';
+      card.id = 'card-' + id;
+      card.type = 'button';
+      card.style.setProperty('--ac', cfg.accent);
+      card.setAttribute('aria-label', cfg.name);
+      const cv = document.createElement('canvas');
+      cv.className = 'ac-thumb'; cv.id = 'thumb-' + id; cv.width = 512; cv.height = 288;
+      const info = document.createElement('div');
+      info.className = 'ac-info';
+      info.innerHTML = '<span class="ac-name"></span><span class="ac-sub"></span><div class="ac-specs"></div>';
+      info.querySelector('.ac-name').textContent = cfg.name;
+      info.querySelector('.ac-sub').textContent = cfg.sub;
+      for (const t of cfg.specs) { const sp = document.createElement('span'); sp.textContent = t; info.querySelector('.ac-specs').appendChild(sp); }
+      const go = document.createElement('span');
+      go.className = 'ac-go'; go.textContent = 'UÇ →';
+      card.append(cv, info, go);
+      card.addEventListener('click', () => this.pickAircraft(id));
+      grid.appendChild(card);
+      if (this.thumbData && this.thumbData[id]) cv.getContext('2d').putImageData(this.thumbData[id], 0, 0);
+    }
+  }
+
+  // Kart önizlemeleri: gerçek modeller bir kez render hedefine çizilir (dış görsel bağımlılığı yok)
+  async buildThumbnails() {
+    const W = 512, H = 288;
+    const rt = new THREE.WebGLRenderTarget(W, H);
+    const scene = new THREE.Scene();
+    const key = new THREE.DirectionalLight(0xfff2e0, 3.4); key.position.set(-9, 11, -7); scene.add(key);
+    const fill = new THREE.DirectionalLight(0xbcd4ff, 1.3); fill.position.set(10, 3, 9); scene.add(fill);
+    scene.add(new THREE.HemisphereLight(0x9ec3ee, 0x2a3038, 1.5));
+    if (this.envMap) scene.environment = this.envMap;
+    const cam = new THREE.PerspectiveCamera(26, W / H, 0.5, 4000);
+    const buf = new Uint8Array(W * H * 4);
+    const prevAlpha = this.renderer.getClearAlpha();
+    this.renderer.setClearAlpha(0);
+    this.thumbData = {};
+    for (const id of FLEET_ORDER) {
+      const cfg = FLEET[id];
+      let ac = null;
+      try {
+        ac = cfg.build({ quality: this.settings.quality });
+        if (this.envMap && ac.setEnvironment) ac.setEnvironment(this.envMap);
+        ac.update({ gear: 1, flaps: 0, slats: 0, spoilers: 0, throttle: 0.2, engine: 0.2, time: 0.35, dt: 0.016 });
+        scene.add(ac.group);
+        cam.fov = cfg.thumb.fov;
+        cam.position.fromArray(cfg.thumb.pos);
+        cam.lookAt(cfg.thumb.look[0], cfg.thumb.look[1], cfg.thumb.look[2]);
+        cam.updateProjectionMatrix();
+        this.renderer.setRenderTarget(rt);
+        this.renderer.clear();
+        this.renderer.render(scene, cam);
+        this.renderer.readRenderTargetPixels(rt, 0, 0, W, H, buf);
+        this.renderer.setRenderTarget(null);
+        // WebGL alttan yukarı okur: satırları ters çevirerek 2B tuvale aktar
+        const img = new ImageData(W, H);
+        for (let y = 0; y < H; y++) {
+          const src = (H - 1 - y) * W * 4, dst = y * W * 4;
+          img.data.set(buf.subarray(src, src + W * 4), dst);
+        }
+        this.thumbData[id] = img;
+        const cv = document.getElementById('thumb-' + id);
+        if (cv) cv.getContext('2d').putImageData(img, 0, 0);
+      } catch (e) {
+        console.warn('önizleme oluşturulamadı', id, e);
+      } finally {
+        if (ac) { scene.remove(ac.group); ac.dispose(); }
+      }
+      await this.nextFrame();
+    }
+    this.renderer.setClearAlpha(prevAlpha);
+    this.renderer.setRenderTarget(null);
+    rt.dispose();
+    key.dispose(); fill.dispose();
+  }
+
+  showSelect() {
+    if (this.state === 'running') this.controls.setEnabled(false);
+    this.state = 'select';
+    this.ui.setMenu(false);
+    this.ui.hide('touch'); this.ui.hide('pause'); this.ui.hide('settings'); this.ui.hide('crash'); this.ui.hide('guide');
+    this.buildSelectGrid();
+    for (const id of FLEET_ORDER) {
+      const c = document.getElementById('card-' + id);
+      if (c) c.classList.toggle('sel-active', id === this.aircraftId);
+    }
+    this.ui.show('select');
+    this.hud.clear();
+    this.needsRender = true;
+  }
+
+  async pickAircraft(id) {
+    if (this.switching) return;
+    this.switching = true;
+    try {
+      const cfg = getAircraftConfig(id);
+      this.ui.hide('select');
+      if (this.aircraftId !== id || !this.aircraft) {
+        this.ui.setLoading(cfg.name + ' hazırlanıyor…', 0.35);
+        this.ui.show('loading');
+        await this.nextFrame(); await this.nextFrame();
+        this.installAircraft(id);
+        this.ui.hide('loading');
+      } else {
+        this.physics.reset();
+        this.cameraRig.reset();
+      }
+      this.settings.aircraft = id;
+      saveSettings(this.settings);
+      this.start();
+    } finally {
+      this.switching = false;
+    }
+  }
+
+  // Uçağı kur: eski model, fizik ve ses profili tamamen bırakılır (artık dinleyici/nesne kalmaz)
+  installAircraft(id) {
+    const cfg = getAircraftConfig(id);
+    if (this.aircraft) {
+      this.scene.remove(this.aircraft.group);
+      this.aircraft.dispose();
+      this.aircraft = null;
+    }
+    this.aircraftId = id;
+    this.aircraft = cfg.build({ quality: this.settings.quality });
+    this.scene.add(this.aircraft.group);
+    if (this.envMap && this.aircraft.setEnvironment) this.aircraft.setEnvironment(this.envMap);
+    this.physics = new FlightModel(this.world, cfg);
+    this.cameraRig.setAircraft(this.aircraft, cfg);
+    this.cameraRig.modeIndex = 0;
+    this.cameraRig.reset();
+    this.cameraRig.applyMode();
+    this.audio.setProfile(cfg.audio);
+    this.lightsOn = false;
+    this.aircraft.setLandingLights(false);
+    this.ui.setToggle(this.ui.el.btnLights, false);
+    this.ui.el.btnSpoiler.hidden = !cfg.ui.spoilerButton;
+    this.controls.setAfterburnerEnabled(!!cfg.ui.afterburner);
+    this.controls.resetLever(0);
+    this.updateToggleButtons();
+    this.syncAircraft(0);
+    this.cameraRig.update(1, this.physics);
+    this.needsRender = true;
+  }
+
+  // Seçim ekranı arka planı: üs üzerinde yavaş sinematik kamera
+  updateSelectCamera(dt) {
+    this.selT = (this.selT || 0.8) + dt * 0.05;
+    const c = this.camera, r = 360, cx = -120, cz = 470;
+    c.position.set(cx + Math.cos(this.selT) * r, 110 + Math.sin(this.selT * 0.6) * 22, cz + Math.sin(this.selT) * r);
+    c.up.set(0, 1, 0);
+    c.lookAt(cx, 8, cz);
+    if (c.fov !== 46) { c.fov = 46; c.updateProjectionMatrix(); }
+  }
+
   start() {
     this.audio.unlock();
+    this.audio.setProfile(getAircraftConfig(this.aircraftId).audio);
+    this.ui.hide('select');
     this.ui.hide('start');
     this.ui.show('touch');
     this.ui.show('guide');
@@ -320,9 +483,21 @@ class App {
   }
   updateToggleButtons() {
     const ui = this.ui, p = this.physics;
+    if (!p) return;
     ui.setToggle(ui.el.btnGear, p.gearCmd > 0.5);
     ui.setToggle(ui.el.btnFlap, p.flapsCmd > 0.5);
     ui.setToggle(ui.el.btnBrake, p.brakes);
+    ui.setToggle(ui.el.btnSpoiler, p.spoilerCmd > 0.5);
+    // Çok kademeli flap kolunda etiket kademeyi gösterir
+    const lab = ui.el.btnFlap.querySelector('.l');
+    if (lab) lab.textContent = p.sys.flapDetents.length > 2 ? 'Flap ' + p.flapLabel : 'Flap';
+  }
+  toggleSpoilers() {
+    if (this.state !== 'running' || !this.physics) return;
+    if (!this.physics.sys.spoilers) return;
+    this.physics.toggleSpoilers();
+    this.updateToggleButtons();
+    this.ui.message(this.physics.spoilerCmd ? 'Hız frenleri açık' : 'Hız frenleri kapalı', 1100);
   }
   toggleLights() {
     if (this.state !== 'running') return;
@@ -407,8 +582,9 @@ class App {
     this.aircraft.group.quaternion.copy(p.quat);
     const sf = p.surfaces;
     this.aircraft.update({
-      elevator: sf.elevator, aileron: sf.aileron, rudder: sf.rudder, flaps: p.flapsPos, gear: p.gearPos,
-      throttle: p.engine, afterburner: p.abLevel, time: p.time,
+      elevator: sf.elevator, aileron: sf.aileron, rudder: sf.rudder,
+      flaps: p.flapsPos, slats: p.slatsPos, spoilers: p.spoilerPos, gear: p.gearPos,
+      throttle: p.engine, engine: p.engine, afterburner: p.abLevel, reverse: p.reversePos, time: p.time,
       groundSpeed: p.onGround ? p.vel.length() : 0, dt,
     });
   }
@@ -440,6 +616,17 @@ class App {
     if (dt > 0.1) dt = 0.1; // arka plandan dönüşte sıçramayı sınırla
     const running = this.state === 'running';
 
+    // Uçak seçim ekranı: henüz uçak yok, arka planda üs üzerinde sinematik kamera döner
+    if (!this.physics || this.state === 'select') {
+      this.updateSelectCamera(dt);
+      this.world.update(dt, this.camera, this.camera.position);
+      this.renderer.render(this.scene, this.camera);
+      this.hud.clear();
+      this.needsRender = false;
+      this.audio.update(dt, null, false);
+      return;
+    }
+
     if (running) {
       this.controls.update(dt);
       const c = this.controls.state;
@@ -461,11 +648,13 @@ class App {
       this.cameraRig.update(dt, this.physics);
     }
     if (running || this.needsRender) {
+      this.world.setWind(this.physics.windAt(this.physics.groundY + 8, this.physics.time), this.physics.wind.kt);
       this.world.update(running ? dt : 0, this.camera, this.physics.pos);
       this.renderer.render(this.scene, this.camera);
       const cockpit = this.cameraRig.mode === 'cockpit';
+      const style = getAircraftConfig(this.aircraftId).hud;
       this.hud.draw(this.physics.telemetry, this.camera, this.physics, {
-        visible: this.state !== 'start' && cockpit, externalOnly: this.state !== 'start' && !cockpit,
+        visible: cockpit, externalOnly: !cockpit, style, extended: style === 'airliner',
         dt, safe: this.safe, cameraName: CAMERA_NAMES[this.cameraRig.mode],
       });
       this.needsRender = false;

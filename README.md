@@ -1,6 +1,8 @@
-# F-35A Simülatör (PWA)
+# Uçuş Simülatörü — F-35A Lightning II & Airbus A321neo (PWA)
 
-iPhone Safari (iOS 17+), Android Chrome ve masaüstü tarayıcılarda çalışan, ana ekrana eklenebilen (PWA) bir F-35A Lightning II uçuş simülatörü. Derleme adımı yoktur; yalnızca statik dosyalardan oluşur ve Three.js CDN üzerinden sabit sürümle yüklenir.
+iPhone Safari (iOS 17+), Android Chrome ve masaüstü tarayıcılarda çalışan, ana ekrana eklenebilen (PWA) bir uçuş simülatörü. Derleme adımı yoktur; yalnızca statik dosyalardan oluşur ve Three.js CDN üzerinden sabit sürümle yüklenir.
+
+Açılışta **uçak seçim ekranı** gelir: **F-35A Lightning II** (savaş uçağı) ve **Airbus A321neo** (dar gövdeli yolcu uçağı). Her uçağın kendi 3B modeli, kokpiti, uçuş modeli, sistemleri, sesi, arayüzü ve kamera konumları vardır.
 
 ## Dosya yapısı
 
@@ -11,7 +13,9 @@ sw.js                   Service worker (önbellek, çevrimdışı, güncelleme)
 js/main.js              Uygulama girişi, oyun döngüsü, menüler
 js/world.js             Arazi, gökyüzü, su, ormanlar, hava üssü
 js/aircraft.js          Prosedürel F-35A modeli (fasetli alt gövde, silah yuvası kapakları, düz kokpit güvertesi)
-js/physics.js           Uçuş dinamiği (120 Hz sabit adım)
+js/a321.js              Prosedürel Airbus A321neo modeli (gövde, kanat, LEAP motorlar, kapılar, A320 kokpiti)
+js/fleet.js             Uçak kayıt defteri: her uçağın aerodinamiği, kontrol kanunu, sistemleri, kamerası, sesi
+js/physics.js           Uçuş dinamiği (120 Hz sabit adım), uçaktan bağımsız; katsayıları fleet.js'ten alır
 js/controls.js          Dokunmatik / klavye / eğim girişleri
 js/hud.js               Yeşil HUD
 js/audio.js             Prosedürel ses
@@ -54,12 +58,47 @@ tools/make_icons.py     İkon üretici (yalnızca Python standart kütüphanesi)
 
 Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı yükle** seçeneği aynı işi görür.
 
+## Uçak seçimi
+
+- Oyun açılınca **UÇAK SEÇ** ekranı gelir. İki büyük kart yan yana durur (dar ekranda alt alta); her kartta uçağın **oyun içi modelinden anlık üretilmiş** önizlemesi, adı ve teknik bilgileri vardır. Önizlemeler dışarıdan indirilmez; `WebGLRenderTarget` ile o anda render edilir.
+- Karta dokunulduğunda yalnızca seçilen uçak sahneye kurulur: modeli, fiziği, kokpiti, sesi, HUD biçimi, arayüz düğmeleri ve kamera konumları birlikte değişir. İki uçak aynı anda sahnede bulunmaz; önceki model ve tüm kaynakları (`dispose`) serbest bırakılır.
+- Uçuş sırasında **☰ Menü → Duraklat → Uçak Değiştir** ile seçim ekranına dönülür.
+- Yeni uçak eklemek için `js/fleet.js` içine bir yapılandırma nesnesi eklemek yeterlidir; kodun geri kalanında uçağa özel dallanma yoktur.
+
+## Airbus A321neo
+
+**Model.** Gerçek ölçüler: uzunluk 44,51 m, kanat açıklığı 35,8 m (sharklet dahil), yükseklik 11,8 m. Yuvarlatılmış gövde kesiti 18 istasyonluk bir tablodan loft edilir (düz alt yüzey yok). Dört yolcu kapısı, iki kanat üstü acil çıkış, iki kargo kapağı çerçeveleriyle birlikte modellenir; ayrıca VHF/SATCOM antenleri, pitot ve AoA probları, APU egzozu, kokpit camları ve radom vardır.
+
+**Motorlar.** CFM LEAP-1A benzeri büyük baypaslı nacelle: giriş dudağı, fan kanalı, 18 kanatlı fan, spinner, pilon ve egzoz. Fan N1 ile orantılı döner.
+
+**Kontrol yüzeyleri.** Aileron, asansör, dümen, Fowler flap (0 / 1 / 2 / 3 / FULL), öne-aşağı uzayan slat, kanat başına beş spoyler paneli. Yüzeyler mekanik hızla hareket eder (ani sıçrama yok), sol ve sağ birbirini doğru aynalar, flap kolu spoyleri hiç kıpırdatmaz.
+
+**Kokpit.** A320 ailesine özgü düzen: iki sidestick, PFD ve ND ekranları, iki ECAM ekranı, glareshield üzerinde FCU, orta konsolda gaz kolları ile flap / hız freni / takım kolları, tavan paneli ve koltuklar. Gaz kolları, kollar ve sidestick'ler uçuş girdileriyle birlikte hareket eder.
+
+**Uçuş modeli.** F-35'ten tamamen bağımsız katsayı takımı: 80 t kalkış ağırlığı, 128 m² kanat, 2 × 143 kN statik itki. Ağır jet karakteri ölçülerle doğrulanmıştır — ~30 s'de 150 kt'a ulaşan kalkış rulosu, ~2 500–3 000 ft/dk ilk tırmanış, 3° süzülme yolunda ~142–150 kt yaklaşma, flare, temas, otomatik yer spoyleri, ters itki ve duruş.
+
+- **İtki kaybı:** yüksek baypaslı turbofanda net itki hızla belirgin düşer (M 0,23'te statiğin ~%78'i). Savaş uçağının düşük baypaslı motorunda ise ram basıncı itkiyi artırır; iki karakteristik `fleet.js` içinde ayrı parametrelenmiştir.
+- **Spool gecikmesi:** rölantiden tam güce ~8 s (F-35'te ~3,5 s). Yaklaşmada gaz verince gecikmeyi hissedersiniz.
+- **Hız freni / yer spoyleri:** havada spoyler yarım açılır (hız freni), yerde tam açılır. Temastan sonra fren komutuyla kendiliğinden devreye girer.
+- **Ters itki:** yerde, 23 kt üzerinde ve fren komutuyla açılır; hız düşünce kendiliğinden kapanır.
+
+## Rüzgâr
+
+Aerodinamik her zaman **havaya göre bağıl hızla** hesaplanır, yer hızıyla değil. Varsayılan rüzgâr pist 09 için hafif karşı rüzgâr ve ~3 kt çapraz bileşendir (110°/9 kt, 4 kt patlamalı). Yüzeye yakın sürtünme katmanında hız düşer, yön ve şiddet yavaşça gezinir. Sonuçlar:
+
+- Park halindeyken hız göstergesi rüzgârı gösterir (gerçek uçakta olduğu gibi).
+- Çapraz rüzgârda uçak yanal olarak sürüklenir; pist eksenini tutmak için yengeç açısı gerekir.
+- Üsteki rüzgâr tulumu gerçek rüzgâr yönüne döner ve şiddete göre dolar.
+- Dış kamera şeridinde **WIND 110/9 KT** olarak görünür.
+
 ## Kontroller
 
 - **Sol joystick:** yunuslama ve yatış. **Sağ kaydırıcı:** gaz kolu; üstteki turuncu bölge art yakıcı.
 - **RUDDER kaydırıcısı (alt orta):** yaylı analog dümen ve burun tekeri; parmağı/fareyi bırakınca tam merkeze döner. **Takım / Flap / Fren:** aç-kapat.
 - **☰ Menü (sol üst):** Duraklat, Kamera, Ses ve Işık düğmeleri bu çekmecede toplanır; dokununca yumuşak bir geçişle açılır, 7 s hareketsizlikte veya duraklatınca kendini kapatır. Ekranda sürekli yalnızca uçuş için gerekli kontroller kalır. Çekmece açıkken joystick alanı onun altından başlar, böylece uçuş girişi ile menü dokunuşları çakışmaz.
-- **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır) → uçuş geçişi (sabit dış kamera, Doppler sesi). Tam HUD yalnızca kokpit görünümünde çizilir; tüm dış görünümlerde üst ortada kompakt bir şerit sürekli **IAS / ALT / VS / HDG** gösterir, altında kısa uyarılar (STALL, İNİŞ TAKIMI) çıkar.
+- **Spoyler (yalnızca A321neo):** hız freni / yer spoyleri kolu. Klavyede **V**.
+- **Flap:** F-35'te aç/kapat, A321neo'da kol 0 → 1 → 2 → 3 → FULL sırayla ilerler; düğme etiketi geçerli kademeyi gösterir.
+- **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır) → uçuş geçişi (sabit dış kamera, Doppler sesi) → sol kanat → sağ kanat → iniş takımı. Kanat ve takım görünümleri gövdeye sabittir ve her uçak için ayrı konumlanır. Tam HUD yalnızca kokpit görünümünde çizilir; tüm dış görünümlerde üst ortada kompakt bir şerit sürekli **IAS / ALT / VS / HDG** gösterir, A321neo'da ayrıca **THR / GEAR / FLAP / SPD BRK / WIND**; altında kısa uyarılar (STALL, İNİŞ TAKIMI) çıkar. Dar ekranda sığmayan alanlar sondan düşer.
 - **Işık:** iniş ışıkları (takım açıkken burun önünü aydınlatır). Seyir ışıkları (kırmızı/yeşil/beyaz), flaşörler ve dönen ikaz ışıkları her zaman açıktır.
 - **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, L ışıklar, M ses, P/Esc duraklat.
 - **Kalkış:** Fren'i kapatın, gazı sonuna kadar itin, ~145 kt'ta burnu kaldırın, tırmanışta takımı toplayın.
@@ -106,9 +145,11 @@ Pist, taksi yolları, apron ve işaretler arazinin yalnızca 5–10 cm üstünde
 
 - Hız vektörü gerçek ivmelenmeden gelir; dikey hız (VS) doğrudan hız vektörünün düşey bileşenidir. Burun aşağıdayken irtifa kaybı kaçınılmazdır; yapay irtifa tutucu yoktur.
 - Kontrol kanunu yük katsayısı (g) komutludur; düşük hızda hücum açısı komutuna geçer. Çubuk merkezdeyken uçak trim durumuna yakın kalır, ancak hız düştükçe burun düşer.
-- Yunuslama sönümü: dış döngü kazancı dinamik basınca göre programlanır (kapalı döngü kısa periyot sönümü ζ≈0,9), çubuk girişine 0,12 s ön filtre ve kontrol momentlerine 0,04 s eyleyici gecikmesi uygulanır. Çubuk bırakıldığında uçak yeni uçuş yoluna tek ve düzgün bir geçişle oturur; burun aşağı-yukarı sekmesi yoktur. Fizik 120 Hz sabit adımlı olduğundan davranış kare hızından bağımsızdır.
+- Yunuslama sönümü: dış döngü kazancı dinamik basınca göre programlanır (kapalı döngü kısa periyot sönümü F-35'te ζ≈0,9, A321neo'da ζ≈0,95), çubuk girişine ön filtre ve kontrol momentlerine 0,04 s eyleyici gecikmesi uygulanır. Çubuk bırakıldığında uçak yeni uçuş yoluna tek ve düzgün bir geçişle oturur; burun aşağı-yukarı sekmesi yoktur. Fizik 120 Hz sabit adımlı olduğundan davranış kare hızından bağımsızdır.
 - Taşıma/sürükleme: CL eğrisi stall sonrası düşer, indüklenmiş sürükleme (Oswald), ayrılma sürüklemesi, takım/flap sürüklemesi, yer etkisi (h/b oranına göre) ve ISA atmosferi.
-- Motor: yavaş tepkili itki (spool), art yakıcı ayrı kademe, yakıt tüketimi; ses motoru rumble/türbin/egzoz/art yakıcı katmanlarını buna göre karıştırır.
+- Motor: yavaş tepkili itki (spool), art yakıcı ayrı kademe, yakıt tüketimi; ses motoru rumble/türbin/egzoz/art yakıcı katmanlarını buna göre karıştırır. Ses tümüyle sentezlenir (döngüye alınmış motor kaydı yoktur): gürleme, kükreme, türbin ıslığı ve egzoz katmanlarının frekans ve seviyeleri N1'i sürekli izler, böylece rölanti, spool, kalkış, seyir, spool-down ve ters itki kendiliğinden ayrışır.
+- Kullanılabilir yük katsayısı, içinde bulunulan konfigürasyonun azami taşımasıyla hesaplanır (flap ve slat katkısı dahil). Yalnızca temiz CLmax kullanılsaydı yolcu uçağı yaklaşmada 1 g'nin altında bir tavana takılır ve flare yapamazdı.
+- Tüm katsayılar (`js/fleet.js`) uçak başına ayrıdır: kütle, atalet, kanat, itki ve spool, taşıma/sürükleme eğrileri, kontrol gücü, kontrol kanunu kazançları, yer davranışı, limitler, sistemler, kameralar, ses profili ve arayüz bayrakları.
 
 Eski cihazlarda veya Düşük Güç Modu'nda takılma olursa **Düşük** seçin.
 

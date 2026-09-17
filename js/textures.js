@@ -549,3 +549,116 @@ export function makeOliveTexture(size = 128) {
   ctx.putImageData(img, 0, 0);
   return finishTexture(new THREE.CanvasTexture(c));
 }
+
+// ---- Yolcu uçağı gövde kaplaması: beyaz üst, kabin pencereleri, kuşak çizgisi, gri karın ----
+// u: burundan kuyruğa (0..1), v: üst merkezden alt merkeze (0..1)
+export function makeAirlinerSkinTexture(w = 2048, h = 256, opt = {}) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  const belt = opt.belt || '#1b3a6b';
+  ctx.fillStyle = '#f2f4f6'; ctx.fillRect(0, 0, w, h);
+  // Hafif panel dokusu
+  const n = periodicNoise(256, 3, 913, 6, 0.5);
+  const img = ctx.getImageData(0, 0, w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 4; const d = (n[(y % 256) * 256 + (x % 256)] - 0.5) * 7;
+    img.data[i] += d; img.data[i + 1] += d; img.data[i + 2] += d;
+  }
+  ctx.putImageData(img, 0, 0);
+  // Gövde derzleri (çevresel): her ~1,2 m
+  ctx.strokeStyle = 'rgba(120,130,140,0.35)'; ctx.lineWidth = 1;
+  for (let k = 0; k < 38; k++) { const x = Math.round((k + 0.5) * (w / 38)) + 0.5; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+  // Boyuna derzler
+  for (const v of [0.22, 0.34, 0.47, 0.60, 0.74]) { const y = Math.round(v * h) + 0.5; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+  // Karın: açık gri
+  const gy = Math.round(h * 0.70);
+  const g = ctx.createLinearGradient(0, gy, 0, h);
+  g.addColorStop(0, 'rgba(176,182,188,0)'); g.addColorStop(0.25, 'rgba(176,182,188,0.9)'); g.addColorStop(1, 'rgba(158,164,170,1)');
+  ctx.fillStyle = g; ctx.fillRect(0, gy, w, h - gy);
+  // Kuşak çizgisi (pencerelerin altında): uzaktan da okunacak kadar geniş (~1 m)
+  ctx.fillStyle = belt; ctx.fillRect(0, Math.round(h * 0.492), w, Math.round(h * 0.058));
+  ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(0, Math.round(h * 0.550), w, Math.round(h * 0.012));
+  ctx.fillStyle = 'rgba(90,150,210,0.85)'; ctx.fillRect(0, Math.round(h * 0.562), w, Math.round(h * 0.016));
+  // Kabin pencereleri: 0,5 m aralık; gövde 44,5 m -> ~74 pencere kabin bölümünde
+  const y0 = Math.round(h * 0.395), wh = Math.round(h * 0.045);
+  const first = 0.135, last = 0.80, count = 70;
+  for (let k = 0; k < count; k++) {
+    const u = first + (last - first) * (k / (count - 1));
+    const x = Math.round(u * w), ww = Math.max(3, Math.round(w * 0.0028));
+    ctx.fillStyle = '#20262e';
+    ctx.beginPath(); ctx.roundRect(x, y0, ww, wh, Math.min(3, ww / 2)); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(x, y0, ww, 1);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.flipY = false;                 // v=0 gövdenin üstü (tuvalin ilk satırı)
+  tex.anisotropy = 4;
+  return tex;
+}
+
+// ---- Airbus kokpit ekranları: PFD, ND, ECAM ----
+export function makeAirbusScreenTexture(kind = 'pfd', size = 256) {
+  const w = size, h = Math.round(size * 0.85);
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2;
+  if (kind === 'pfd') {
+    // Yapay ufuk
+    ctx.fillStyle = '#2f7fd0'; ctx.fillRect(w * 0.18, h * 0.08, w * 0.64, h * 0.34);
+    ctx.fillStyle = '#8a5a２6'.replace('２', '2'); ctx.fillStyle = '#8a5a26'; ctx.fillRect(w * 0.18, h * 0.42, w * 0.64, h * 0.30);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, w / 180);
+    ctx.beginPath(); ctx.moveTo(w * 0.18, h * 0.42); ctx.lineTo(w * 0.82, h * 0.42); ctx.stroke();
+    for (const [f, ww] of [[0.30, 0.10], [0.36, 0.06], [0.48, 0.06], [0.54, 0.10]]) {
+      ctx.beginPath(); ctx.moveTo(cx - w * ww / 2, h * f); ctx.lineTo(cx + w * ww / 2, h * f); ctx.stroke();
+    }
+    // Uçak sembolü (sarı)
+    ctx.strokeStyle = '#ffd400'; ctx.lineWidth = Math.max(2, w / 90);
+    ctx.beginPath(); ctx.moveTo(cx - w * 0.14, h * 0.42); ctx.lineTo(cx - w * 0.05, h * 0.42); ctx.moveTo(cx + w * 0.05, h * 0.42); ctx.lineTo(cx + w * 0.14, h * 0.42); ctx.stroke();
+    // Hız ve irtifa şeritleri
+    ctx.fillStyle = 'rgba(20,24,30,0.9)'; ctx.fillRect(w * 0.04, h * 0.08, w * 0.13, h * 0.64); ctx.fillRect(w * 0.83, h * 0.08, w * 0.13, h * 0.64);
+    ctx.fillStyle = '#e8ecf0'; ctx.font = `bold ${Math.round(h * 0.055)}px monospace`; ctx.textAlign = 'center';
+    for (let i = 0; i < 7; i++) { ctx.fillText(String(200 + i * 20), w * 0.105, h * (0.68 - i * 0.09)); ctx.fillText(String(60 + i * 5), w * 0.895, h * (0.68 - i * 0.09)); }
+    ctx.strokeStyle = '#ffd400'; ctx.strokeRect(w * 0.04, h * 0.38, w * 0.13, h * 0.08); ctx.strokeRect(w * 0.83, h * 0.38, w * 0.13, h * 0.08);
+    // FMA şeridi
+    ctx.fillStyle = '#0b1016'; ctx.fillRect(0, 0, w, h * 0.07);
+    ctx.fillStyle = '#2ee06a'; ctx.font = `bold ${Math.round(h * 0.05)}px monospace`;
+    ctx.fillText('SPEED', w * 0.2, h * 0.05); ctx.fillText('NAV', w * 0.5, h * 0.05); ctx.fillText('ALT', w * 0.78, h * 0.05);
+  } else if (kind === 'nd') {
+    ctx.strokeStyle = '#d8dee6'; ctx.lineWidth = Math.max(1, w / 200);
+    for (const r of [0.22, 0.34, 0.46]) { ctx.beginPath(); ctx.arc(cx, h * 0.78, w * r, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); }
+    ctx.strokeStyle = '#2ee06a'; ctx.lineWidth = Math.max(2, w / 110);
+    ctx.beginPath(); ctx.moveTo(cx, h * 0.78); ctx.lineTo(cx, h * 0.26); ctx.stroke();
+    ctx.fillStyle = '#ffd400'; ctx.beginPath(); ctx.moveTo(cx, h * 0.70); ctx.lineTo(cx - w * 0.035, h * 0.80); ctx.lineTo(cx + w * 0.035, h * 0.80); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#e8ecf0'; ctx.font = `bold ${Math.round(h * 0.055)}px monospace`; ctx.textAlign = 'center';
+    for (const [a, t] of [[1.15, 'W'], [1.5, 'N'], [1.85, 'E']]) {
+      const x = cx + Math.cos(Math.PI * a) * w * 0.50, y = h * 0.78 + Math.sin(Math.PI * a) * w * 0.50;
+      ctx.fillText(t, x, y);
+    }
+    ctx.fillStyle = '#2ee06a'; ctx.textAlign = 'left'; ctx.fillText('GS 240', w * 0.04, h * 0.09);
+    ctx.fillStyle = '#c8a2ff'; ctx.fillText('TAS 258', w * 0.04, h * 0.17);
+    ctx.fillStyle = '#e8ecf0'; ctx.textAlign = 'right'; ctx.fillText('10 NM', w * 0.96, h * 0.09);
+  } else {
+    // ECAM: N1 / EGT göstergeleri ve durum satırları
+    ctx.strokeStyle = '#2a323c'; ctx.lineWidth = 1;
+    ctx.fillStyle = '#e8ecf0'; ctx.font = `bold ${Math.round(h * 0.07)}px monospace`; ctx.textAlign = 'center';
+    for (const side of [0.28, 0.72]) {
+      ctx.strokeStyle = '#8a929c'; ctx.beginPath(); ctx.arc(w * side, h * 0.30, w * 0.13, Math.PI * 0.75, Math.PI * 2.25); ctx.stroke();
+      ctx.strokeStyle = '#2ee06a'; ctx.lineWidth = Math.max(2, w / 80);
+      ctx.beginPath(); ctx.arc(w * side, h * 0.30, w * 0.13, Math.PI * 0.75, Math.PI * 1.7); ctx.stroke();
+      ctx.lineWidth = 1; ctx.fillStyle = '#2ee06a'; ctx.fillText('84.2', w * side, h * 0.33);
+      ctx.fillStyle = '#e8ecf0'; ctx.font = `${Math.round(h * 0.05)}px monospace`;
+      ctx.fillText('N1', w * side, h * 0.47); ctx.fillText('EGT 612', w * side, h * 0.55);
+      ctx.font = `bold ${Math.round(h * 0.07)}px monospace`;
+    }
+    ctx.fillStyle = '#2ee06a'; ctx.font = `${Math.round(h * 0.055)}px monospace`; ctx.textAlign = 'left';
+    ctx.fillText('ENG  1  2', w * 0.06, h * 0.72);
+    ctx.fillText('FOB  18400 KG', w * 0.06, h * 0.82);
+    ctx.fillStyle = '#ffd400'; ctx.fillText('SEAT BELTS  ON', w * 0.06, h * 0.92);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}

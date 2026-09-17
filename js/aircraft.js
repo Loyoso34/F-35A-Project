@@ -45,7 +45,7 @@ const MAIN_PROFILES = [
   [14.6, { yt: 0.61, xc: 1.18, yc: 0.00, xs: 1.08, ys: -0.26, xb: 0.66, yb: -0.46, ybot: -0.56, nt: 2.4, nb: 2.0, dk: 0.004 }],
 ];
 
-function lerpProfile(table, s) {
+export function lerpProfile(table, s) {
   if (s <= table[0][0]) return table[0][1];
   if (s >= table[table.length - 1][0]) return table[table.length - 1][1];
   for (let i = 0; i < table.length - 1; i++) {
@@ -130,7 +130,7 @@ function halfSection(p) {
 }
 
 // Genel loft. sections[i] = [{x,y,z}], hepsi aynı uzunlukta.
-function loft(sections, { uScale = 1, vScale = 1, closeRing = false, flip = false, skipQuad = null } = {}) {
+export function loft(sections, { uScale = 1, vScale = 1, closeRing = false, flip = false, skipQuad = null } = {}) {
   const n = sections.length, m = sections[0].length;
   const pos = [], uv = [], idx = [];
   for (let i = 0; i < n; i++) {
@@ -158,7 +158,7 @@ function loft(sections, { uScale = 1, vScale = 1, closeRing = false, flip = fals
 }
 
 // Normallerin dışa baktığını garanti et. refFn(v) -> referans (iç) nokta
-function ensureOutward(g, refFn = null) {
+export function ensureOutward(g, refFn = null) {
   g.computeBoundingBox();
   const c = new THREE.Vector3();
   g.boundingBox.getCenter(c);
@@ -187,7 +187,7 @@ function naca(t, thick) {
   const y = 5 * thick * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1036 * x ** 4);
   return Math.max(0, y);
 }
-function airfoilPoints(K, chord, thickFrac, tStart = 0, tEnd = 1) {
+export function airfoilPoints(K, chord, thickFrac, tStart = 0, tEnd = 1) {
   const pts = [];
   for (let i = 0; i <= K; i++) { const t = tEnd - (tEnd - tStart) * (i / K); pts.push({ c: t, y: naca(t, thickFrac) * chord }); }
   for (let i = 1; i <= K; i++) { const t = tStart + (tEnd - tStart) * (i / K); pts.push({ c: t, y: -naca(t, thickFrac) * chord }); }

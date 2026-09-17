@@ -997,10 +997,14 @@ export class World {
     const rd = A.radar;
     const rTower = new THREE.CylinderGeometry(3, 4, 12, 10); rTower.translate(rd.x, 6, rd.z); plainGeos.push(rTower);
     const dome = new THREE.SphereGeometry(6.5, 18, 12); dome.translate(rd.x, 17, rd.z); tankGeos.push(dome);
-    // Rüzgar tulumu
+    // Rüzgar tulumu: direk sabit, tulum gerçek rüzgar yönüne döner (setWind ile güncellenir)
     const pole = new THREE.CylinderGeometry(0.12, 0.15, 8, 6); pole.translate(-1600, 4, 120); plainGeos.push(pole);
-    const sock = new THREE.ConeGeometry(0.6, 3.2, 8); sock.rotateZ(-Math.PI / 2); sock.rotateY(0.4); sock.translate(-1598.5, 7.8, 120.6);
-    base.add(new THREE.Mesh(this.track(sock), this.track(new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.9 }))));
+    const sockPivot = new THREE.Group();
+    sockPivot.position.set(-1600, 7.8, 120);
+    const sock = new THREE.ConeGeometry(0.6, 3.2, 8); sock.rotateZ(-Math.PI / 2); sock.translate(1.7, 0, 0);
+    sockPivot.add(new THREE.Mesh(this.track(sock), this.track(new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.9, side: THREE.DoubleSide }))));
+    base.add(sockPivot);
+    this.windsock = sockPivot;
     // (Nizamiye buildBaseDetails içinde: nöbetçi kulübesi, sundurma, bariyerler)
     // Depolar (üs)
     for (const [x, z, w, d, h] of [[-1100, 620, 40, 20, 7], [-1160, 620, 40, 20, 7], [-1100, 660, 40, 20, 7], [1180, 420, 30, 18, 6], [1180, 470, 30, 18, 6]]) {
@@ -1432,6 +1436,18 @@ export class World {
       }
     }
     return false;
+  }
+
+  // Rüzgar tulumunu gerçek rüzgar vektörüne çevirir: tulum rüzgarın gittiği yönü gösterir,
+  // dolgunluğu (yatay durması) hızla artar.
+  setWind(vec, kt) {
+    const sock = this.windsock;
+    if (!sock) return;
+    const sp = Math.hypot(vec.x, vec.z);
+    if (sp > 0.05) sock.rotation.y = Math.atan2(vec.x, vec.z) - Math.PI / 2;
+    const fill = Math.min(1, (kt || sp * 1.944) / 15);
+    sock.rotation.z = -(1 - fill) * 0.85;      // zayıf rüzgarda aşağı sarkar
+    sock.scale.set(1, 0.55 + 0.45 * fill, 0.55 + 0.45 * fill);
   }
 
   update(dt, camera, aircraftPos) {

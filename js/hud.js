@@ -38,10 +38,23 @@ export class HUD {
       ['VS', (vs > 0 ? '+' : '') + vs, 'FPM'],
       ['HDG', String(Math.round(T.heading) % 360).padStart(3, '0'), ''],
     ];
+    // Yolcu uçağı: sistem durumları da şeritte (her kamerada görünür)
+    if (opts.extended) {
+      items.push(['THR', String(Math.round((T.reverse > 0.05 ? -T.reverse : T.throttle) * 100)), '%']);
+      items.push(['GEAR', T.gear > 0.99 ? 'DN' : T.gear < 0.01 ? 'UP' : '···', '']);
+      items.push(['FLAP', T.flapLabel || (T.flaps > 0.5 ? 'DN' : '0'), '']);
+      if (T.spoilers > 0.05) items.push(['SPD BRK', String(Math.round(T.spoilers * 100)), '%']);
+      if (T.windKt > 0) items.push(['WIND', String(T.windDeg).padStart(3, '0') + '/' + Math.round(T.windKt), 'KT']);
+    }
     const fL = '600 9px -apple-system, "Segoe UI", Roboto, sans-serif', fV = 'bold 14px "SF Mono", Menlo, Consolas, monospace', fU = '600 8px -apple-system, "Segoe UI", Roboto, sans-serif';
     const gap = 14, padX = 12, hgt = 26;
     const widths = items.map(([l, v, u]) => { ctx.font = fL; let x = ctx.measureText(l).width + 5; ctx.font = fV; x += ctx.measureText(v).width; if (u) { ctx.font = fU; x += 3 + ctx.measureText(u).width; } return x; });
-    const total = widths.reduce((a, b) => a + b, 0) + gap * (items.length - 1) + padX * 2;
+    // Dar ekranda sığmayan alanlar sondan atılır (okunaklılık korunur)
+    let n = items.length;
+    const totalOf = (k) => widths.slice(0, k).reduce((a, b) => a + b, 0) + gap * (k - 1) + padX * 2;
+    while (n > 2 && totalOf(n) > w - 2 * (opts.safe.left + opts.safe.right) - 120) n--;
+    items.length = n; widths.length = n;
+    const total = totalOf(n);
     const x0 = Math.round(w / 2 - total / 2), y0 = opts.safe.top + 8;
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0)';
@@ -76,12 +89,16 @@ export class HUD {
     ctx.restore();
   }
 
+  clear() { const ctx = this.ctx; ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.clearRect(0, 0, this.w, this.h); }
+
   draw(T, camera, fm, opts) {
     const ctx = this.ctx;
     const { w, h } = this;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     if (!T) return;
+    // Yolcu uçağı: savaş uçağı HUD'u yerine her kamerada kompakt uçuş bilgisi şeridi
+    if (opts.style === 'airliner') { this.drawExternalInfo(T, opts); this.drawExternalWarnings(T, opts); return; }
     if (opts.externalOnly) { this.drawExternalInfo(T, opts); this.drawExternalWarnings(T, opts); return; }
     if (!opts.visible) return;
     this.blink += opts.dt || 0.016;

@@ -8,7 +8,8 @@ export class Controls {
   constructor(callbacks = {}) {
     this.cb = callbacks;
     this.state = { pitch: 0, roll: 0, yaw: 0, throttle: 0, afterburner: false };
-    this.lever = 0; // 0..1.15
+    this.lever = 0; // 0..leverMax
+    this.leverMax = 1.15;   // art yakıcısı olmayan uçakta 1.0
     this.enabled = false;
     this.keys = new Set();
     this.stickPointer = null;
@@ -115,15 +116,15 @@ export class Controls {
   updateThrottle(e) {
     const r = this.els.throttleTrack.getBoundingClientRect();
     const f = clamp(1 - (e.clientY - r.top) / r.height, 0, 1); // 0 alt, 1 üst
-    this.lever = f * 1.15;
+    this.lever = f * this.leverMax;
     // Art yakıcı bölgesine (üst %15) girildiğinde kademe: tam gaz + AB
-    if (this.lever > 1.0 && this.lever < 1.06) this.lever = 1.0;
+    if (this.leverMax > 1.05 && this.lever > 1.0 && this.lever < 1.06) this.lever = 1.0;
     this.setThrottleUI();
   }
   setThrottleUI() {
     const r = this.els.throttleTrack;
     const h = r.clientHeight || 200;
-    const f = this.lever / 1.15;
+    const f = this.lever / this.leverMax;
     this.els.throttleKnob.style.top = (h * (1 - f)) + 'px';
     this.els.throttleFill.style.height = (f * 100) + '%';
     const ab = this.lever > AB_DETENT + 0.01;
@@ -180,6 +181,7 @@ export class Controls {
     tap('btn-gear', () => this.cb.onGear && this.cb.onGear());
     tap('btn-flap', () => this.cb.onFlaps && this.cb.onFlaps());
     tap('btn-brake', () => this.cb.onBrake && this.cb.onBrake());
+    tap('btn-spoiler', () => this.cb.onSpoilers && this.cb.onSpoilers());
     const secondary = (fn) => () => { this.cb.onMenuActivity && this.cb.onMenuActivity(); fn(); };
     tap('btn-menu', () => this.cb.onMenu && this.cb.onMenu());
     tap('btn-camera', secondary(() => this.cb.onCamera && this.cb.onCamera()));
@@ -235,6 +237,7 @@ export class Controls {
         case 'KeyC': this.cb.onCamera && this.cb.onCamera(); break;
         case 'KeyM': this.cb.onSound && this.cb.onSound(); break;
         case 'KeyL': this.cb.onLights && this.cb.onLights(); break;
+        case 'KeyV': this.cb.onSpoilers && this.cb.onSpoilers(); break;
         case 'KeyP': case 'Escape': this.cb.onPause && this.cb.onPause(); break;
         default: return;
       }
@@ -306,7 +309,7 @@ export class Controls {
       if (k.has('KeyD') || k.has('ArrowRight')) roll += 1;
       if (k.has('KeyA') || k.has('ArrowLeft')) roll -= 1;
       if (k.has('KeyE')) this.rudderKey = 1; else if (k.has('KeyQ')) this.rudderKey = -1; else this.rudderKey = 0;
-      if (k.has('ShiftLeft') || k.has('ShiftRight')) { this.lever = Math.min(1.15, this.lever + dt * 0.5); this.setThrottleUI(); }
+      if (k.has('ShiftLeft') || k.has('ShiftRight')) { this.lever = Math.min(this.leverMax, this.lever + dt * 0.5); this.setThrottleUI(); }
       if (k.has('ControlLeft') || k.has('ControlRight')) { this.lever = Math.max(0, this.lever - dt * 0.5); this.setThrottleUI(); }
     }
     this.computeTilt();
@@ -334,5 +337,13 @@ export class Controls {
     s.afterburner = this.lever > AB_DETENT + 0.01;
   }
 
-  resetLever(v = 0) { this.lever = v; this.setThrottleUI(); }
+  resetLever(v = 0) { this.lever = Math.min(v, this.leverMax); this.setThrottleUI(); }
+  // Uçak değişince gaz kolu aralığı: art yakıcısı olmayan uçakta üst kademe kaldırılır
+  setAfterburnerEnabled(on) {
+    this.leverMax = on ? 1.15 : 1.0;
+    const ab = document.getElementById('throttle-ab');
+    if (ab) ab.hidden = !on;
+    this.lever = Math.min(this.lever, this.leverMax);
+    this.setThrottleUI();
+  }
 }

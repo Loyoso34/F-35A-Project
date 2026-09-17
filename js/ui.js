@@ -14,7 +14,8 @@ export class UI {
       guide: $('guide'), guideClose: $('guide-close'),
       touch: $('touch'), msg: $('msg'), fps: $('fps'),
       btnGear: $('btn-gear'), btnFlap: $('btn-flap'), btnBrake: $('btn-brake'), btnSound: $('btn-sound'), btnLights: $('btn-lights'),
-      btnMenu: $('btn-menu'), drawer: $('drawer'),
+      btnMenu: $('btn-menu'), drawer: $('drawer'), btnSpoiler: $('btn-spoiler'),
+      select: $('select'), selGrid: $('sel-grid'), selHint: $('sel-hint'), btnAircraft: $('btn-aircraft'),
     };
     this.el.guideClose.addEventListener('click', () => this.hide('guide'));
     this.el.standaloneHintClose.addEventListener('click', () => this.hide('standaloneHint'));
@@ -70,8 +71,8 @@ export function isIOS() {
   return /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 export function loadSettings() {
-  try { return Object.assign({ quality: 'medium', tilt: 0, sound: 1, fps: 0 }, JSON.parse(localStorage.getItem('f35a.settings') || '{}')); }
-  catch (e) { return { quality: 'medium', tilt: 0, sound: 1, fps: 0 }; }
+  try { return Object.assign({ quality: 'medium', tilt: 0, sound: 1, fps: 0, aircraft: 'f35a' }, JSON.parse(localStorage.getItem('f35a.settings') || '{}')); }
+  catch (e) { return { quality: 'medium', tilt: 0, sound: 1, fps: 0, aircraft: 'f35a' }; }
 }
 export function saveSettings(s) {
   try { localStorage.setItem('f35a.settings', JSON.stringify(s)); } catch (e) { /* özel mod */ }
