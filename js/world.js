@@ -9,7 +9,7 @@ import {
 } from './textures.js';
 import { buildStaticAircraftGeometries } from './aircraft.js';
 
-export const MAP_SIZE = 40000;
+export const MAP_SIZE = 72000;   // 72 x 72 km: iki havaalanı arası uçuş anlamlı bir mesafe olsun
 export const WATER_LEVEL = -4;
 export const LAYER_TREES = 1;
 
@@ -19,13 +19,65 @@ const LAKES = [
   { x: 8600, z: 5600, r: 2300 },
   { x: 3200, z: -11500, r: 1400 },
   { x: -12500, z: 9000, r: 1600 },
+  { x: 17500, z: 4200, r: 2600 },      // doğu büyük göl (iki havaalanı arasındaki koridorda)
+  { x: -19500, z: -13000, r: 2100 },
+  { x: 9500, z: -18500, r: 1500 },
+  { x: -6000, z: 17500, r: 1800 },
 ];
 // Nehir: doğudaki gölden batıya doğru, üssün güneyinden geçer (+z güney)
 const RIVER = [
-  [8600, 5600], [6200, 4600], [4200, 4300], [2200, 4400], [0, 3800], [-2200, 3300], [-4600, 3000],
-  [-7500, 2500], [-10500, 2200], [-14000, 1800], [-20500, 1200],
+  [17500, 4200], [13000, 4900], [10600, 5400], [8600, 5600], [6200, 4600], [4200, 4300], [2200, 4400],
+  [0, 3800], [-2200, 3300], [-4600, 3000], [-7500, 2500], [-10500, 2200], [-14000, 1800],
+  [-18500, 1400], [-23500, 900], [-29000, 300],
 ];
 const TOWN = { x: 2600, z: 6900, r: 1250 };
+// İkinci yerleşim: sivil havalimanının yanındaki kasaba
+const TOWN2 = { x: 21200, z: -13600, r: 1050 };
+
+// ---- Havaalanları ----------------------------------------------------------
+// Her havaalanı kendi yerel çerçevesinde tanımlanır: (x, z) merkez, hdg pist yönü (derece,
+// 90 = doğu). Yerel koordinatlarda +X pist ekseni, +Z pistin sağ tarafıdır. Böylece ikinci
+// havaalanı döndürülebilir ve tüm sorgular (yüzey tipi, düzleştirme) tek kod yolundan geçer.
+export const AIRPORTS = [
+  {
+    id: 'base', name: 'Anadolu Hava Üssü', sub: 'Askeri üs', kind: 'military',
+    x: 0, z: 0, hdg: 90, elev: 0, halfX: 4600, halfZ: 1500, fade: 2400,
+    rwy: { len: 3000, w: 45 }, marks: ['09', '27'],
+  },
+  {
+    id: 'civil', name: 'Yeşilova Havalimanı', sub: 'Sivil havalimanı', kind: 'civil',
+    x: 24000, z: -10000, hdg: 120, elev: 185, halfX: 2900, halfZ: 1250, fade: 2600,
+    rwy: { len: 3400, w: 45 }, marks: ['12', '30'],
+  },
+];
+export const AIRPORT_BY_ID = Object.fromEntries(AIRPORTS.map((a) => [a.id, a]));
+// Kalkış noktaları: pist başında, pist yönüne dönük. Seçim ekranı bu listeden beslenir.
+export const SPAWNS = [
+  { id: 'base', airport: 'base', name: 'Anadolu Hava Üssü', sub: 'Askeri üs · Pist 09/27 · 3000 m', lx: -1400, lz: 0, hdg: 90 },
+  { id: 'civil', airport: 'civil', name: 'Yeşilova Havalimanı', sub: 'Sivil · Pist 12/30 · 3400 m · 185 m', lx: -1600, lz: 0, hdg: 120 },
+];
+for (const a of AIRPORTS) { const r = a.hdg * Math.PI / 180; a.cos = Math.cos(r); a.sin = Math.sin(r); }
+// Dünya -> havaalanı yerel koordinatı. hdg=90 için birim dönüşüm (lx = x, lz = z).
+export function airportLocal(a, x, z, out) {
+  const dx = x - a.x, dz = z - a.z;
+  const o = out || { x: 0, z: 0 };
+  o.x = dx * a.sin - dz * a.cos;
+  o.z = dx * a.cos + dz * a.sin;
+  return o;
+}
+export function airportWorld(a, lx, lz, out) {
+  const o = out || { x: 0, z: 0 };
+  o.x = a.x + lx * a.sin + lz * a.cos;
+  o.z = a.z - lx * a.cos + lz * a.sin;
+  return o;
+}
+// Kalkış noktasının dünya koordinatı ve yönü
+export function spawnPose(spawnId) {
+  const sp = SPAWNS.find((s) => s.id === spawnId) || SPAWNS[0];
+  const a = AIRPORT_BY_ID[sp.airport];
+  const w = airportWorld(a, sp.lx, sp.lz);
+  return { x: w.x, z: w.z, hdg: sp.hdg, id: sp.id };
+}
 // Yollar (poligon çizgileri) – hepsi düzlük koridorunda
 const ROADS = [
   { name: 'base-town', w: 9, pts: [[0, 1050], [300, 2200], [1000, 3400], [1700, 4200], [2100, 5200], [2500, 6100], [2600, 6900]] },
@@ -33,14 +85,20 @@ const ROADS = [
   // Yollar kenar dağlarından önce biter: yol koridoru düzleştirmesi dağların içine kanyon açmasın
   { name: 'base-west', w: 9, pts: [[-1200, 1050], [-2500, 1300], [-4500, 1500], [-7500, 1700], [-10500, 1500]] },
   { name: 'town-north', w: 7, over: true, pts: [[2600, 6900], [2650, 8300], [2900, 10200]] },
+  // Doğu otoyolu: kasabadan sivil havalimanına — iki havaalanı arasındaki koridoru görünür kılar
+  { name: 'highway-east', w: 11, pts: [[7600, 6200], [10200, 4200], [12600, 1600], [15200, -2200], [18000, -6200], [20400, -9600], [21200, -12600]] },
+  { name: 'civil-town', w: 9, pts: [[21200, -13600], [22600, -12400], [23600, -11200]] },
+  { name: 'civil-apron', w: 8, pts: [[23600, -11200], [24300, -10700]] },
 ];
 // Kasaba sokakları (yalnızca yol ağı ve ev yerleşimi için; arazi düzleştirmesine dahil değil)
 const TOWN_STREETS = [];
-for (let i = -4; i <= 4; i++) {
-  const half = Math.sqrt(Math.max(0, TOWN.r * TOWN.r - (i * 240) * (i * 240))) * 0.95;
-  if (half < 200) continue;
-  TOWN_STREETS.push({ w: 6, pts: [[TOWN.x - half, TOWN.z + i * 240], [TOWN.x + half, TOWN.z + i * 240]] });
-  TOWN_STREETS.push({ w: 6, over: true, pts: [[TOWN.x + i * 240, TOWN.z - half], [TOWN.x + i * 240, TOWN.z + half]] });
+for (const T of [TOWN, TOWN2]) {
+  for (let i = -4; i <= 4; i++) {
+    const half = Math.sqrt(Math.max(0, T.r * T.r - (i * 240) * (i * 240))) * 0.95;
+    if (half < 200) continue;
+    TOWN_STREETS.push({ w: 6, pts: [[T.x - half, T.z + i * 240], [T.x + half, T.z + i * 240]] });
+    TOWN_STREETS.push({ w: 6, over: true, pts: [[T.x + i * 240, T.z - half], [T.x + i * 240, T.z + half]] });
+  }
 }
 
 function distToSegment(px, pz, ax, az, bx, bz) {
@@ -60,42 +118,59 @@ function distToPolyline(px, pz, pts) {
   return best;
 }
 
-// Hava üssü düzlüğü (dikdörtgen + yumuşak geçiş)
-function baseFlatMask(x, z) {
-  const dx = Math.max(0, Math.abs(x) - 4600);
-  const dz = Math.max(0, Math.abs(z) - 1500);
-  const d = Math.hypot(dx, dz);
-  return smoothstep(0, 2400, d);
+// Havaalanı düzlüğü: yerel dikdörtgen + yumuşak geçiş. 0 = tam düz (havaalanı kotu), 1 = doğal arazi.
+const _lp = { x: 0, z: 0 };
+function airportFlatMask(a, x, z) {
+  airportLocal(a, x, z, _lp);
+  const dx = Math.max(0, Math.abs(_lp.x) - a.halfX);
+  const dz = Math.max(0, Math.abs(_lp.z) - a.halfZ);
+  return smoothstep(0, a.fade, Math.hypot(dx, dz));
 }
 function townMask(x, z) {
-  return smoothstep(TOWN.r + 1100, TOWN.r - 200, Math.hypot(x - TOWN.x, z - TOWN.z));
+  const t1 = smoothstep(TOWN.r + 1100, TOWN.r - 200, Math.hypot(x - TOWN.x, z - TOWN.z));
+  const t2 = smoothstep(TOWN2.r + 950, TOWN2.r - 200, Math.hypot(x - TOWN2.x, z - TOWN2.z));
+  return Math.max(t1, t2);
 }
 function roadMask(x, z) {
   let d = Infinity;
   for (const r of ROADS) { const dd = distToPolyline(x, z, r.pts); if (dd < d) d = dd; }
   // Dağ bölgesinde koridor düzleştirmesi sönümlenir (güvenlik payı)
   const edge = Math.max(Math.abs(x), Math.abs(z));
-  return smoothstep(520, 230, d) * (1 - smoothstep(9500, 12000, edge));
+  return smoothstep(520, 230, d) * (1 - smoothstep(MTN_IN - 3000, MTN_IN + 500, edge));
 }
+// Dağ kuşağının başladığı ve doruğa ulaştığı kenar mesafeleri (harita yarısı 36 km)
+const MTN_IN = 27000, MTN_OUT = 34500;
 function softplus(v, k) { return k * Math.log1p(Math.exp(v / k)); }
 
 export function terrainHeight(x, z) {
-  const n = simplex.fbm(x * 0.00018 + 3.1, z * 0.00018 - 2.7, 5, 2.0, 0.5);
-  let h = 110 + n * 240;
-  h += simplex.fbm(x * 0.0009 + 7, z * 0.0009 + 3, 3, 2.0, 0.5) * 30;
+  // Bölgesel karakter: harita her yerde aynı görünmesin. Çok geniş ölçekli gürültü kabartma
+  // çarpanını değiştirir; bazı bölgeler yayvan ova, bazıları engebeli tepelik olur.
+  const region = simplex.fbm(x * 0.000032 + 17, z * 0.000032 - 23, 2, 2.0, 0.5);
+  const relief = 0.55 + 0.85 * (0.5 + 0.5 * region);
+  const n = simplex.fbm(x * 0.00016 + 3.1, z * 0.00016 - 2.7, 5, 2.0, 0.5);
+  let h = 95 + n * 245 * relief;
+  // Sırt gürültüsü: |noise| tersi doğal vadi/sırt hatları verir, düzlüklerde devreye girmez
+  const ridge = 1 - Math.abs(simplex.fbm(x * 0.00040 - 8, z * 0.00040 + 14, 4, 2.05, 0.5));
+  h += ridge * ridge * 170 * relief * smoothstep(55, 230, h);
+  h += simplex.fbm(x * 0.0009 + 7, z * 0.0009 + 3, 3, 2.0, 0.5) * 26;
+  h += simplex.fbm(x * 0.0034 + 21, z * 0.0034 - 9, 2, 2.0, 0.5) * 5.5;   // ince yüzey kabartması
   h = softplus(h, 25);
   // Kenarlara doğru dağlar
   const edge = Math.max(Math.abs(x), Math.abs(z));
-  const mtn = smoothstep(10500, 18500, edge);
+  const mtn = smoothstep(MTN_IN, MTN_OUT, edge);
   if (mtn > 0) {
-    const m1 = simplex.fbm(x * 0.00032 + 11, z * 0.00032 - 5, 5, 2.1, 0.5);
-    const ridge = 1 - Math.abs(simplex.fbm(x * 0.00055 - 4, z * 0.00055 + 9, 3, 2.0, 0.5));
-    h += mtn * (500 + 1100 * (0.5 + 0.5 * m1) + 380 * ridge * ridge);
+    const m1 = simplex.fbm(x * 0.00030 + 11, z * 0.00030 - 5, 5, 2.1, 0.5);
+    const rg = 1 - Math.abs(simplex.fbm(x * 0.00050 - 4, z * 0.00050 + 9, 3, 2.0, 0.5));
+    h += mtn * (520 + 1150 * (0.5 + 0.5 * m1) + 420 * rg * rg);
   }
-  h *= baseFlatMask(x, z);
-  h = lerp(h, 12, townMask(x, z));
-  const rm = roadMask(x, z) * baseFlatMask(x, z);
-  h = lerp(h, 6, rm);
+  // Havaalanları: yerel düzlük + kendi kotu
+  for (const a of AIRPORTS) {
+    const m = airportFlatMask(a, x, z);
+    if (m < 0.999) h = lerp(a.elev, h, m);
+  }
+  h = lerp(h, 12, townMask(x, z) * 0.85);
+  const rm = roadMask(x, z);
+  h = lerp(h, Math.min(h, 60), rm);
   for (const L of LAKES) {
     const wob = 1 + 0.22 * simplex.noise(x * 0.0012 + L.x, z * 0.0012 + L.z);
     const d = (Math.hypot(x - L.x, z - L.z) / L.r) * wob;
@@ -104,23 +179,31 @@ export function terrainHeight(x, z) {
     const inner = smoothstep(1.06, 0.72, d);
     h = lerp(h, -16, inner);
   }
-  // Nehir yatağı: kenar dağlarına yaklaşırken daralır ve sığlaşır (dağ kaynağı); dağların içine kanyon oyulmaz
+  // Nehir yatağı: kenar dağlarına yaklaşırken daralır ve sığlaşır; dağların içine kanyon oyulmaz
   const rd = distToPolyline(x, z, RIVER) * (1 + 0.25 * simplex.noise(x * 0.002 + 1, z * 0.002 + 2));
-  const rt = smoothstep(6000, 10500, edge);
+  const rt = smoothstep(MTN_IN - 8000, MTN_IN, edge);
   const wf = 1 - 0.75 * rt;
   const rOuter = smoothstep(820 * wf, 300 * wf, rd) * (1 - rt);
   h = lerp(h, 6.5, rOuter);
-  const rInner = smoothstep(210 * wf, 105 * wf, rd) * (1 - smoothstep(9500, 10500, edge));
+  const rInner = smoothstep(210 * wf, 105 * wf, rd) * (1 - smoothstep(MTN_IN - 1500, MTN_IN, edge));
   h = lerp(h, -14 + 18 * rt, rInner);
   return h;
 }
 
 export function isWaterAt(x, z) { return terrainHeight(x, z) < WATER_LEVEL; }
 
+// Orman maskesi: iki ölçekli gürültü. Geniş ölçek orman bölgelerini, ince ölçek kenar
+// düzensizliğini verir. Dar eşik aralığı ağaçları dağıtmak yerine kümeleyerek gerçek
+// koruluklar oluşturur (aynı ağaç bütçesiyle çok daha dolu görünür).
 function forestMask(x, z) {
-  const f = simplex.fbm(x * 0.00055 + 50, z * 0.00055 + 50, 3, 2.0, 0.5);
-  const hills = smoothstep(40, 220, terrainHeight(x, z));
-  return smoothstep(0.08, 0.35, f + hills * 0.12);
+  const broad = simplex.fbm(x * 0.00040 + 50, z * 0.00040 + 50, 3, 2.0, 0.5);
+  const fine = simplex.fbm(x * 0.0018 - 12, z * 0.0018 + 31, 2, 2.0, 0.5);
+  const hills = smoothstep(40, 240, terrainHeight(x, z));
+  return smoothstep(0.02, 0.26, broad + hills * 0.14 + fine * 0.18);
+}
+// Bölgesel iklim: haritanın bazı bölümleri kurak (sarımsı), bazıları daha yeşil olur
+function biomeDry(x, z) {
+  return clamp(0.5 + 0.5 * simplex.fbm(x * 0.000045 - 61, z * 0.000045 + 44, 2, 2.0, 0.5), 0, 1);
 }
 // Tarla deseni: düzlüklerde dikdörtgen hücreler
 function fieldPattern(x, z) {
@@ -150,7 +233,33 @@ export const AIRBASE = {
 };
 AIRBASE.fuel = [{ x: -1010, z: 380, r: 10, h: 8 }, { x: -975, z: 380, r: 10, h: 8 }, { x: -1010, z: 410, r: 10, h: 8 }, { x: -975, z: 410, r: 10, h: 8 }];
 
+// Sivil havalimanı yerleşimi (yerel koordinat: +X pist ekseni, +Z pistin kuzey tarafı)
+export const CIVIL = {
+  rwyHalf: 1700, rwyW: 45,
+  taxiZ: 190, taxiW: 23, taxiHalf: 1760,
+  links: [-1420, -700, 0, 700, 1420],
+  apron: { x0: -940, x1: 940, z0: 201.5, z1: 560 },
+  cargo: { x0: 1080, x1: 1560, z0: 215, z1: 430 },
+  terminal: { x: 0, z: 655, w: 430, d: 68, h: 23 },
+  pier: { x: 0, z: 585, w: 300, d: 22, h: 8 },
+  tower: { x: 610, z: 640, r: 5.5, h: 42 },
+  stands: [-780, -600, -420, -240, -60, 120, 300, 480, 660, 840].map((x) => ({ x, z: 300 })),
+  hangars: [{ x: -1250, z: 430, w: 96, d: 74, h: 19 }, { x: -1250, z: 620, w: 96, d: 74, h: 19 }],
+  fuel: [{ x: 1350, z: 560, r: 11, h: 9 }, { x: 1310, z: 600, r: 11, h: 9 }],
+  carPark: { x: 0, z: 800, w: 380, d: 130 },
+};
+
+const _sp = { x: 0, z: 0 };
 export function surfaceTypeAt(x, z) {
+  const C = CIVIL, ca = AIRPORT_BY_ID.civil;
+  airportLocal(ca, x, z, _sp);
+  const lx = _sp.x, lz = _sp.z, ctw = C.taxiW / 2;
+  if (Math.abs(lx) <= C.rwyHalf && Math.abs(lz) <= C.rwyW / 2) return 'runway';
+  if (Math.abs(lx) <= C.taxiHalf && Math.abs(lz - C.taxiZ) <= ctw) return 'taxiway';
+  for (const cl of C.links) if (Math.abs(lx - cl) <= ctw && lz >= 0 && lz <= C.apron.z0 + 1) return 'taxiway';
+  if (lx >= C.apron.x0 && lx <= C.apron.x1 && lz >= C.apron.z0 && lz <= C.apron.z1) return 'apron';
+  if (lx >= C.cargo.x0 && lx <= C.cargo.x1 && lz >= C.cargo.z0 && lz <= C.cargo.z1) return 'apron';
+  if (Math.abs(lx) <= C.pier.w / 2 + 40 && lz > C.apron.z1 && lz <= C.terminal.z - C.terminal.d / 2) return 'apron';
   const A = AIRBASE;
   const L2 = A.runwayLength / 2, tw = A.taxiwayWidth / 2;
   if (Math.abs(x) <= L2 && Math.abs(z - A.runwayZ) <= A.runwayWidth / 2) return 'runway';
@@ -178,13 +287,26 @@ export function buildingBoxes() {
   for (const f of A.fuel) add(f.x, f.z, f.r * 2, f.r * 2, f.h + 1);
   add(A.waterTower.x, A.waterTower.z, 14, 14, 30);
   add(A.radar.x, A.radar.z, 14, 14, 24);
+  // Sivil havalimanı: yerel kutular dünya koordinatına çevrilerek eklenir (pist döndürülmüştür,
+  // bu yüzden eksen hizalı kutu biraz büyütülerek kapsayıcı hale getirilir)
+  const C = CIVIL, ca = AIRPORT_BY_ID.civil, w0 = { x: 0, z: 0 };
+  const addLocal = (lx, lz, w, d, h) => {
+    airportWorld(ca, lx, lz, w0);
+    const e = (Math.abs(w * ca.cos) + Math.abs(d * ca.sin)) / 2, f = (Math.abs(w * ca.sin) + Math.abs(d * ca.cos)) / 2;
+    boxes.push({ minX: w0.x - e, maxX: w0.x + e, minZ: w0.z - f, maxZ: w0.z + f, minY: ca.elev, maxY: ca.elev + h });
+  };
+  addLocal(C.terminal.x, C.terminal.z, C.terminal.w, C.terminal.d, C.terminal.h);
+  addLocal(C.pier.x, C.pier.z, C.pier.w, C.pier.d, C.pier.h);
+  addLocal(C.tower.x, C.tower.z, 16, 16, C.tower.h + 6);
+  for (const h of C.hangars) addLocal(h.x, h.z, h.w, h.d, h.h);
+  for (const f of C.fuel) addLocal(f.x, f.z, f.r * 2, f.r * 2, f.h + 1);
   return boxes;
 }
 
 export const QUALITY_PRESETS = {
-  low: { pixelRatio: 1, shadows: false, shadowMap: 0, drawDistance: 13000, trees: 6000, treeDistance: 5500, water: 'simple', terrainSegments: 24, anisotropy: 2, clouds: 40, lod: [4500, 9500] },
-  medium: { pixelRatio: 1.5, shadows: true, shadowMap: 1024, drawDistance: 21000, trees: 13000, treeDistance: 8500, water: 'reflective', terrainSegments: 32, anisotropy: 4, clouds: 70, lod: [7000, 15500] },
-  high: { pixelRatio: 2, shadows: true, shadowMap: 2048, drawDistance: 34000, trees: 24000, treeDistance: 13000, water: 'reflective', terrainSegments: 40, anisotropy: 8, clouds: 110, lod: [9500, 21000] },
+  low: { pixelRatio: 1, shadows: false, shadowMap: 0, drawDistance: 16000, trees: 19000, treeDistance: 5200, water: 'simple', terrainSegments: 24, anisotropy: 2, clouds: 46, lod: [4500, 9500] },
+  medium: { pixelRatio: 1.5, shadows: true, shadowMap: 1024, drawDistance: 26000, trees: 42000, treeDistance: 8000, water: 'reflective', terrainSegments: 32, anisotropy: 4, clouds: 80, lod: [7000, 15500] },
+  high: { pixelRatio: 2, shadows: true, shadowMap: 2048, drawDistance: 42000, trees: 72000, treeDistance: 12000, water: 'reflective', terrainSegments: 40, anisotropy: 8, clouds: 125, lod: [9500, 21000] },
 };
 
 export class World {
@@ -210,6 +332,7 @@ export class World {
     this.buildTown();
     this.buildAirbase();
     this.buildBaseDetails();
+    this.buildCivilAirport();
     this.buildClouds();
   }
 
@@ -298,8 +421,12 @@ export class World {
   // ---- Arazi: 12x12 parça, her biri 3 LOD (etekli) ----
   buildTerrain() {
     const q = this.quality;
-    const chunksPerSide = 12;
+    // 18x18 parça = 4 km'lik hücreler. Çözünürlük üç kademelidir: havaalanı/su çevresi 2x,
+    // iç bölge normal, dış dağ kuşağı yarı çözünürlük. Böylece harita 3,2 kat büyürken
+    // toplam örnekleme maliyeti eskisinin altında kalır.
+    const chunksPerSide = 18;
     const chunkSize = MAP_SIZE / chunksPerSide;
+    this.terrainChunkSize = chunkSize;
     const segHi = q.terrainSegments;
     const grass = this.track(makeGrassTexture(512));
     grass.anisotropy = q.anisotropy;
@@ -312,6 +439,9 @@ export class World {
       snow: new THREE.Color(0.93, 0.94, 0.96), fieldA: new THREE.Color(0.72, 0.60, 0.26),
       fieldB: new THREE.Color(0.38, 0.52, 0.20), fieldC: new THREE.Color(0.52, 0.40, 0.22),
       town: new THREE.Color(0.56, 0.53, 0.46), road: new THREE.Color(0.55, 0.62, 0.36),
+      fieldD: new THREE.Color(0.60, 0.55, 0.30), dry: new THREE.Color(0.68, 0.63, 0.36),
+      lush: new THREE.Color(0.22, 0.45, 0.17), scrub: new THREE.Color(0.45, 0.45, 0.30),
+      scree: new THREE.Color(0.52, 0.49, 0.45),
     };
     const tmp = new THREE.Color();
     const terrainGroup = new THREE.Group();
@@ -324,17 +454,20 @@ export class World {
     const ngrid = new Float32Array(nMax * nMax * 3);
     const isDetailChunk = (cxm, czm) => {
       const r = chunkSize * 0.72;
-      if (Math.abs(cxm) < 2400 + r && Math.abs(czm) < 1200 + r) return true;
+      for (const a of AIRPORTS) if (Math.hypot(cxm - a.x, czm - a.z) < a.halfX + a.fade * 0.5 + r) return true;
       if (distToPolyline(cxm, czm, RIVER) < r + 300) return true;
       for (const L of LAKES) if (Math.hypot(cxm - L.x, czm - L.z) < L.r * 1.9 + r) return true;
       return false;
     };
+    // Dış dağ kuşağı: yakından hiç uçulmayan bölge, yarı çözünürlükte örneklenir
+    const isCoarseChunk = (cxm, czm) => Math.max(Math.abs(cxm), Math.abs(czm)) > MTN_IN - chunkSize * 0.5;
     for (let cz = 0; cz < chunksPerSide; cz++) {
       for (let cx = 0; cx < chunksPerSide; cx++) {
         const x0 = -MAP_SIZE / 2 + cx * chunkSize;
         const z0 = -MAP_SIZE / 2 + cz * chunkSize;
-        const detail = isDetailChunk(x0 + chunkSize / 2, z0 + chunkSize / 2);
-        const segC = detail ? segHi * 2 : segHi;
+        const cxm = x0 + chunkSize / 2, czm = z0 + chunkSize / 2;
+        const detail = isDetailChunk(cxm, czm);
+        const segC = detail ? segHi * 2 : isCoarseChunk(cxm, czm) ? Math.max(8, segHi >> 1) : segHi;
         const n = segC + 1;
         const nb = n + 2; // kenarlıklı ızgara (normal hesabı için)
         const step = chunkSize / segC;
@@ -353,17 +486,26 @@ export class World {
             const f = forestMask(x, z);
             const varn = simplex.noise(x * 0.0021, z * 0.0021) * 0.5 + 0.5;
             tmp.copy(C.grassA).lerp(C.grassB, varn);
-            const plains = smoothstep(90, 25, h) * (1 - f) * smoothstep(0.08, 0.02, slope);
+            // Bölgesel iklim: kurak bölgeler samanlı, nemli bölgeler koyu yeşil
+            const dry = biomeDry(x, z);
+            tmp.lerp(C.dry, smoothstep(0.55, 0.95, dry) * 0.55);
+            tmp.lerp(C.lush, smoothstep(0.45, 0.08, dry) * 0.40);
+            // Yamaç yönü: güneye bakan yüzler daha açık (büyük ölçekte hacim hissi)
+            tmp.offsetHSL(0, 0, clamp(-dhz * 0.35, -0.05, 0.05));
+            const plains = smoothstep(110, 25, h) * (1 - f) * smoothstep(0.09, 0.02, slope);
             if (plains > 0.05) {
               const r = fieldPattern(x, z);
-              const fc = r < 0.3 ? C.fieldA : r < 0.55 ? C.fieldB : r < 0.7 ? C.fieldC : null;
-              if (fc) tmp.lerp(fc, plains * 0.75);
+              const fc = r < 0.26 ? C.fieldA : r < 0.48 ? C.fieldB : r < 0.62 ? C.fieldC : r < 0.72 ? C.fieldD : null;
+              if (fc) tmp.lerp(fc, plains * 0.8);
             }
-            tmp.lerp(C.forest, f * 0.8);
+            tmp.lerp(C.forest, f * 0.85);
+            // Orman üst sınırı üzerinde çalılık/bodur örtü
+            tmp.lerp(C.scrub, smoothstep(520, 900, h) * (1 - smoothstep(0.55, 1.1, slope)) * 0.7);
             if (h < WATER_LEVEL + 4) tmp.lerp(C.sand, smoothstep(WATER_LEVEL + 4, WATER_LEVEL - 4, h));
-            tmp.lerp(C.rock, smoothstep(0.35, 0.8, slope));
+            tmp.lerp(C.rock, smoothstep(0.32, 0.75, slope));
+            tmp.lerp(C.scree, smoothstep(0.75, 1.15, slope) * smoothstep(350, 650, h));
             tmp.lerp(C.high, smoothstep(320, 600, h));
-            tmp.lerp(C.snow, smoothstep(1100, 1450, h) * (1 - smoothstep(0.9, 1.4, slope)));
+            tmp.lerp(C.snow, smoothstep(1050, 1420, h) * (1 - smoothstep(0.9, 1.4, slope)));
             const tm = townMask(x, z);
             if (tm > 0.4) tmp.lerp(C.town, Math.min(1, (tm - 0.4) * 1.6) * 0.85);
             cgrid[i3] = tmp.r; cgrid[i3 + 1] = tmp.g; cgrid[i3 + 2] = tmp.b;
@@ -581,43 +723,74 @@ export class World {
   buildTrees() {
     const q = this.quality;
     const rand = mulberry32(9001);
-    const chunks = 6;
+    // Parça boyutu arazi ile aynı (4 km): 12 km'lik parçalarda tek bir parça açılınca
+    // binlerce uzak ağaç birden çiziliyordu.
+    const chunks = 18;
     const chunkSize = MAP_SIZE / chunks;
     const perChunk = [];
     for (let i = 0; i < chunks * chunks; i++) perChunk.push({ conifer: [], leafy: [] });
     let placed = 0, tries = 0;
-    const A = AIRBASE;
-    while (placed < q.trees && tries < q.trees * 30) {
-      tries++;
-      const x = (rand() - 0.5) * MAP_SIZE * 0.98;
-      const z = (rand() - 0.5) * MAP_SIZE * 0.98;
-      const f = forestMask(x, z);
-      if (rand() > f * f + 0.01) continue;
-      const h = terrainHeight(x, z);
-      if (h < WATER_LEVEL + 3 || h > 1250) continue;
-      if (Math.abs(x) < 2500 && Math.abs(z) < 1250) continue; // üs alanı
-      if (Math.hypot(x - TOWN.x, z - TOWN.z) < TOWN.r + 150 && rand() < 0.85) continue;
-      if (roadMask(x, z) > 0.9 && distToPolylineAny(x, z) < 20) continue;
-      const e = 10;
-      const slope = Math.hypot(terrainHeight(x + e, z) - terrainHeight(x - e, z), terrainHeight(x, z + e) - terrainHeight(x, z - e)) / (2 * e);
-      if (slope > 0.8) continue;
+    // Ağaçlar tek tek değil KORULUK olarak yerleşir: önce orman maskesine göre bir küme
+    // merkezi seçilir, sonra o merkezin çevresine 8-22 ağaç dağıtılır. Aynı ağaç bütçesiyle
+    // seyrek nokta dağılımı yerine gerçek koru/orman dokusu oluşur.
+    const blocked = (x, z) => {
+      for (const a of AIRPORTS) { airportLocal(a, x, z, _lp); if (Math.abs(_lp.x) < a.halfX * 0.62 && Math.abs(_lp.z) < a.halfZ * 0.95) return true; }
+      if (Math.hypot(x - TOWN.x, z - TOWN.z) < TOWN.r + 150) return true;
+      if (Math.hypot(x - TOWN2.x, z - TOWN2.z) < TOWN2.r + 150) return true;
+      return roadMask(x, z) > 0.9 && distToPolylineAny(x, z) < 22;
+    };
+    const drop = (x, z, h) => {
       const cx = clamp(Math.floor((x + MAP_SIZE / 2) / chunkSize), 0, chunks - 1);
       const cz = clamp(Math.floor((z + MAP_SIZE / 2) / chunkSize), 0, chunks - 1);
       const bucket = perChunk[cz * chunks + cx];
       const conifer = h > 160 || rand() < 0.5;
       (conifer ? bucket.conifer : bucket.leafy).push({ x, y: h, z, s: 0.75 + rand() * 0.7, r: rand() * Math.PI * 2, c: rand() });
       placed++;
+    };
+    // Ağaç bütçesi haritanın tamamına eşit dağıtılırsa 72x72 km'de her yer seyrek kalır.
+    // Bu yüzden bütçe, oyuncunun neredeyse tüm zamanını geçirdiği bölgeye — iki havaalanı
+    // arasındaki koridora ve havaalanı çevrelerine — ağırlıklı dağıtılır. Uzak köşeler
+    // tamamen boş kalmaz, yalnızca daha seyrektir.
+    const A0 = AIRPORTS[0], A1 = AIRPORTS[1];
+    const activity = (x, z) => {
+      const d = distToSegment(x, z, A0.x, A0.z, A1.x, A1.z);
+      return 0.26 + 0.74 * smoothstep(21000, 8000, d);
+    };
+    while (placed < q.trees && tries < q.trees * 3) {
+      tries++;
+      const x0 = (rand() - 0.5) * MAP_SIZE * 0.98;
+      const z0 = (rand() - 0.5) * MAP_SIZE * 0.98;
+      if (rand() > activity(x0, z0)) continue;
+      const f = forestMask(x0, z0);
+      if (rand() > f * 0.95 + 0.01) continue;
+      const h0 = terrainHeight(x0, z0);
+      if (h0 < WATER_LEVEL + 3 || h0 > 1250) continue;
+      if (blocked(x0, z0)) continue;
+      // Koru yarıçapı ve ağaç sayısı maske gücüne göre: maskenin güçlü olduğu yerde sık orman
+      const radius = 34 + rand() * 62;
+      const count = Math.round(7 + f * 16 + rand() * 5);
+      for (let k = 0; k < count && placed < q.trees; k++) {
+        const a = rand() * Math.PI * 2, rr = radius * Math.sqrt(rand());
+        const x = x0 + Math.cos(a) * rr, z = z0 + Math.sin(a) * rr;
+        const h = terrainHeight(x, z);
+        if (h < WATER_LEVEL + 3 || h > 1300) continue;
+        const e = 9;
+        const slope = Math.hypot(terrainHeight(x + e, z) - terrainHeight(x - e, z), terrainHeight(x, z + e) - terrainHeight(x, z - e)) / (2 * e);
+        if (slope > 0.85) continue;
+        drop(x, z, h);
+      }
     }
-    void A;
-    const trunk = new THREE.CylinderGeometry(0.3, 0.5, 4, 5); trunk.translate(0, 2, 0);
-    const cone1 = new THREE.ConeGeometry(2.6, 8, 7); cone1.translate(0, 7, 0);
-    const cone2 = new THREE.ConeGeometry(1.8, 6, 7); cone2.translate(0, 11, 0);
+    // Düşük üçgen bütçesi: ağaçlar kare maliyetinin en büyük kalemi olduğundan gövde ve
+    // taçlar mümkün olan en az segmentle kurulur (siluet uzaktan aynı okunur).
+    const trunk = new THREE.CylinderGeometry(0.3, 0.5, 4, 4, 1, true); trunk.translate(0, 2, 0);
+    const cone1 = new THREE.ConeGeometry(2.6, 8, 6); cone1.translate(0, 7, 0);
+    const cone2 = new THREE.ConeGeometry(1.8, 6, 6); cone2.translate(0, 11, 0);
     const colorize = (g, color) => { const n = g.attributes.position.count; const arr = new Float32Array(n * 3); for (let i = 0; i < n; i++) { arr[i * 3] = color.r; arr[i * 3 + 1] = color.g; arr[i * 3 + 2] = color.b; } g.setAttribute('color', new THREE.BufferAttribute(arr, 3)); return g; };
     const brown = new THREE.Color(0.32, 0.22, 0.12), darkGreen = new THREE.Color(0.14, 0.32, 0.14), leafGreen = new THREE.Color(0.28, 0.48, 0.18);
     colorize(trunk, brown); colorize(cone1, darkGreen); colorize(cone2, darkGreen);
     const coniferGeo = mergeGeometries([trunk, cone1, cone2].map((g) => (g.index ? g.toNonIndexed() : g)), false);
-    const trunk2 = new THREE.CylinderGeometry(0.35, 0.55, 5, 5); trunk2.translate(0, 2.5, 0);
-    const crown = new THREE.IcosahedronGeometry(3.6, 1); crown.translate(0, 7.5, 0);
+    const trunk2 = new THREE.CylinderGeometry(0.35, 0.55, 5, 4, 1, true); trunk2.translate(0, 2.5, 0);
+    const crown = new THREE.IcosahedronGeometry(3.6, 0); crown.translate(0, 7.5, 0);
     colorize(trunk2, brown); colorize(crown, leafGreen);
     const leafyGeo = mergeGeometries([trunk2, crown].map((g) => (g.index ? g.toNonIndexed() : g)), false);
     this.track(coniferGeo); this.track(leafyGeo);
@@ -733,16 +906,18 @@ export class World {
     const houseMat = this.track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }));
     const houses = [];
     const gridX = 30, gridZ = 27;
-    for (let gz = -40; gz <= 40; gz++) {
-      for (let gx = -40; gx <= 40; gx++) {
-        const x = TOWN.x + gx * gridX + (rand() - 0.5) * 8, z = TOWN.z + gz * gridZ + (rand() - 0.5) * 8;
-        const d = Math.hypot(x - TOWN.x, z - TOWN.z);
-        if (d > TOWN.r * (0.75 + 0.35 * rand())) continue;
-        if (rand() < 0.5) continue;
-        if (distToPolylineAny(x, z) < 12) continue;
-        const h = terrainHeight(x, z);
-        if (h < 3) continue;
-        houses.push({ x, y: h, z, rot: (rand() < 0.5 ? 0 : Math.PI / 2) + (rand() - 0.5) * 0.15, s: 0.8 + rand() * 0.5, c: rand() });
+    for (const T of [TOWN, TOWN2]) {
+      for (let gz = -40; gz <= 40; gz++) {
+        for (let gx = -40; gx <= 40; gx++) {
+          const x = T.x + gx * gridX + (rand() - 0.5) * 8, z = T.z + gz * gridZ + (rand() - 0.5) * 8;
+          const d = Math.hypot(x - T.x, z - T.z);
+          if (d > T.r * (0.75 + 0.35 * rand())) continue;
+          if (rand() < 0.5) continue;
+          if (distToPolylineAny(x, z) < 12) continue;
+          const h = terrainHeight(x, z);
+          if (h < 3) continue;
+          houses.push({ x, y: h, z, rot: (rand() < 0.5 ? 0 : Math.PI / 2) + (rand() - 0.5) * 0.15, s: 0.8 + rand() * 0.5, c: rand() });
+        }
       }
     }
     const im = new THREE.InstancedMesh(houseGeo, houseMat, houses.length);
@@ -761,7 +936,10 @@ export class World {
     const winTex = this.track(makeWindowsTexture(512, 256, 10, 4));
     const blockMat = this.track(new THREE.MeshStandardMaterial({ map: winTex, roughness: 0.85 }));
     const blocks = [];
-    const blockDefs = [[2600, 6650, 26, 16, 16], [2400, 7100, 22, 14, 13], [2850, 7150, 30, 16, 19], [2350, 6600, 20, 14, 12], [3000, 6650, 24, 15, 15]];
+    const blockDefs = [
+      [2600, 6650, 26, 16, 16], [2400, 7100, 22, 14, 13], [2850, 7150, 30, 16, 19], [2350, 6600, 20, 14, 12], [3000, 6650, 24, 15, 15],
+      [21200, -13800, 24, 15, 15], [21000, -13350, 20, 13, 12], [21500, -13300, 26, 15, 17], [20900, -13900, 18, 13, 11],
+    ];
     for (const [x, z, w, d, h] of blockDefs) {
       const g = new THREE.BoxGeometry(w, h, d);
       const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (w / 14), uv.getY(i) * (h / 8));
@@ -836,6 +1014,186 @@ export class World {
     bill.renderOrder = 3; flat.renderOrder = 2;
     this.group.add(flat); this.group.add(bill);
     this.clouds = [bill, flat];
+  }
+
+  // ---- Sivil havalimanı --------------------------------------------------
+  // Tümü yerel koordinatta kurulur (+X pist ekseni), sonunda grup döndürülüp yerine taşınır.
+  // Böylece pist istenen yöne çevrilebilir ve yüzey sorguları tek kod yolunu kullanır.
+  buildCivilAirport() {
+    const C = CIVIL, ap = AIRPORT_BY_ID.civil, q = this.quality;
+    const g = new THREE.Group();
+    g.name = 'civil-airport';
+    g.position.set(ap.x, ap.elev, ap.z);
+    g.rotation.y = -(ap.hdg - 90) * Math.PI / 180;
+    const asphalt = this.track(makeAsphaltTexture(512));
+    const concrete = this.track(makeConcreteTexture(512));
+    asphalt.anisotropy = q.anisotropy; concrete.anisotropy = q.anisotropy;
+    const asphaltMat = this.track(new THREE.MeshStandardMaterial({ map: asphalt, roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
+    const concreteMat = this.track(new THREE.MeshStandardMaterial({ map: concrete, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -3 }));
+    const whiteMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe6e6e0, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
+    const yellowMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd8b52a, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
+    const flat = (w, d, x, z, y, uvScale = 1) => {
+      const pg = new THREE.PlaneGeometry(w, d);
+      pg.rotateX(-Math.PI / 2); pg.translate(x, y, z);
+      const uv = pg.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (w / uvScale), uv.getY(i) * (d / uvScale));
+      return pg;
+    };
+    const tw = C.taxiW;
+    // Asfalt: pist, paralel taksi yolu, bağlantılar
+    const asphaltGeos = [
+      flat(C.rwyHalf * 2, C.rwyW, 0, 0, 0.05, 18),
+      flat(C.taxiHalf * 2, tw, 0, C.taxiZ, 0.05, 18),
+    ];
+    const z0 = C.rwyW / 2, z1 = C.taxiZ - tw / 2;
+    for (const lx of C.links) asphaltGeos.push(flat(tw, z1 - z0, lx, (z0 + z1) / 2, 0.05, 18));
+    // Taksi yolundan aprona bağlantılar
+    for (const lx of [-700, 0, 700]) asphaltGeos.push(flat(tw, C.apron.z0 - (C.taxiZ + tw / 2), lx, (C.apron.z0 + C.taxiZ + tw / 2) / 2, 0.05, 18));
+    // Pist sonu emniyet sahaları
+    for (const side of [-1, 1]) asphaltGeos.push(flat(90, C.rwyW, side * (C.rwyHalf + 45), 0, 0.04, 18));
+    const am = new THREE.Mesh(this.track(mergeGeometries(asphaltGeos, false)), asphaltMat);
+    am.receiveShadow = q.shadows; g.add(am);
+    // Beton: apron, kargo apronu, terminal önü, otopark
+    const conGeos = [
+      flat(C.apron.x1 - C.apron.x0, C.apron.z1 - C.apron.z0, (C.apron.x0 + C.apron.x1) / 2, (C.apron.z0 + C.apron.z1) / 2, 0.06, 14),
+      flat(C.cargo.x1 - C.cargo.x0, C.cargo.z1 - C.cargo.z0, (C.cargo.x0 + C.cargo.x1) / 2, (C.cargo.z0 + C.cargo.z1) / 2, 0.06, 14),
+      // Terminal önü: terminalin tamamı beton üzerinde otursun, apronla arada boşluk kalmasın
+      flat(C.terminal.w + 20, C.terminal.z + C.terminal.d / 2 + 30 - C.apron.z1, 0, (C.apron.z1 + C.terminal.z + C.terminal.d / 2 + 30) / 2, 0.06, 14),
+      flat(C.carPark.w, C.carPark.d, C.carPark.x, C.carPark.z, 0.06, 14),
+      // Otopark bağlantısı ve kargo apronu bağlantısı
+      flat(70, C.carPark.z - C.carPark.d / 2 - (C.terminal.z + C.terminal.d / 2 + 30), 0, (C.terminal.z + C.terminal.d / 2 + 30 + C.carPark.z - C.carPark.d / 2) / 2, 0.06, 14),
+      flat(C.cargo.x0 - C.apron.x1, 60, (C.apron.x1 + C.cargo.x0) / 2, 300, 0.06, 14),
+    ];
+    const cm = new THREE.Mesh(this.track(mergeGeometries(conGeos, false)), concreteMat);
+    cm.receiveShadow = q.shadows; g.add(cm);
+    // Pist işaretleri: orta çizgi, eşik şeritleri, kenar çizgileri, temas bölgesi
+    const marks = [];
+    for (let x = -C.rwyHalf + 40; x < C.rwyHalf - 40; x += 60) marks.push(flat(30, 0.9, x, 0, 0.11));
+    for (const side of [-1, 1]) {
+      marks.push(flat(C.rwyHalf * 2, 0.35, 0, side * (C.rwyW / 2 - 0.6), 0.11));
+      for (let k = 0; k < 8; k++) marks.push(flat(28, 1.6, side * (C.rwyHalf - 60), (k - 3.5) * 3.6, 0.11));   // eşik tarağı
+      for (const d of [150, 300, 450]) for (const s2 of [-1, 1]) marks.push(flat(22, 2.6, side * (C.rwyHalf - d), s2 * 9, 0.11));
+    }
+    const mm = new THREE.Mesh(this.track(mergeGeometries(marks, false)), whiteMat);
+    g.add(mm);
+    // Taksi yolu ve apron sarı çizgileri
+    const yel = [flat(C.taxiHalf * 2, 0.6, 0, C.taxiZ, 0.11)];
+    for (const st of C.stands) { yel.push(flat(0.6, 92, st.x, st.z + 46, 0.12)); yel.push(flat(34, 0.6, st.x, st.z, 0.12)); }
+    for (const lx of C.links) yel.push(flat(0.6, z1 - z0, lx, (z0 + z1) / 2, 0.11));
+    const ym = new THREE.Mesh(this.track(mergeGeometries(yel, false)), yellowMat);
+    g.add(ym);
+    // Pist numaraları (12 / 30)
+    for (const [i, side] of [[0, -1], [1, 1]]) {
+      const tex = this.track(makeTextTexture(ap.marks[i], 256, 128));
+      const pg = new THREE.PlaneGeometry(26, 42);
+      pg.rotateX(-Math.PI / 2); pg.rotateY(side > 0 ? Math.PI : 0);
+      const nm = new THREE.Mesh(this.track(pg), this.track(new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -9 })));
+      nm.position.set(side * (C.rwyHalf - 105), 0.12, 0);
+      g.add(nm);
+    }
+    // Terminal: uzun cam cepheli bina + parmak iskele
+    const winTex = this.track(makeWindowsTexture(512, 256, 16, 3));
+    const glassMat = this.track(new THREE.MeshStandardMaterial({ map: winTex, roughness: 0.45, metalness: 0.25 }));
+    const wallMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd6dadd, roughness: 0.8 }));
+    const roofMat = this.track(new THREE.MeshStandardMaterial({ color: 0x6f767c, roughness: 0.9 }));
+    const T = C.terminal;
+    const tBody = new THREE.BoxGeometry(T.w, T.h, T.d);
+    const tuv = tBody.attributes.uv; for (let i = 0; i < tuv.count; i++) tuv.setXY(i, tuv.getX(i) * (T.w / 26), tuv.getY(i) * (T.h / 6));
+    tBody.translate(T.x, T.h / 2, T.z);
+    const tMesh = new THREE.Mesh(this.track(tBody), glassMat); tMesh.castShadow = q.shadows; tMesh.receiveShadow = q.shadows; g.add(tMesh);
+    const tRoof = new THREE.BoxGeometry(T.w + 14, 2.2, T.d + 14); tRoof.translate(T.x, T.h + 1.1, T.z);
+    g.add(new THREE.Mesh(this.track(tRoof), roofMat));
+    // Çatı üstü teknik hacim: terminal uzaktan ince bir çubuk gibi görünmesin
+    const tPent = new THREE.BoxGeometry(T.w * 0.55, 6, T.d * 0.55); tPent.translate(T.x, T.h + 5.2, T.z);
+    const tp = new THREE.Mesh(this.track(tPent), roofMat); tp.castShadow = q.shadows; g.add(tp);
+    const P = C.pier;
+    const pBody = new THREE.BoxGeometry(P.w, P.h, P.d);
+    const puv = pBody.attributes.uv; for (let i = 0; i < puv.count; i++) puv.setXY(i, puv.getX(i) * (P.w / 26), puv.getY(i) * (P.h / 6));
+    pBody.translate(P.x, P.h / 2, P.z);
+    const pMesh = new THREE.Mesh(this.track(pBody), glassMat); pMesh.castShadow = q.shadows; g.add(pMesh);
+    // Körükler: iskeleden apron duraklarına
+    const jet = [];
+    for (const st of C.stands.filter((_, i) => i % 2 === 0)) {
+      const len = P.z - P.d / 2 - (st.z + 50);
+      if (len < 4) continue;
+      const b = new THREE.BoxGeometry(3.4, 3.2, len);
+      b.translate(st.x, 4.6, st.z + 50 + len / 2);
+      jet.push(b);
+      const leg = new THREE.CylinderGeometry(0.5, 0.5, 4.6, 6); leg.translate(st.x, 2.3, st.z + 52);
+      jet.push(leg.toNonIndexed ? leg : leg);
+    }
+    if (jet.length) {
+      for (const jg of jet) if (!jg.attributes.uv) jg.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(jg.attributes.position.count * 2), 2));
+      const jm = new THREE.Mesh(this.track(mergeGeometries(jet.map((x2) => (x2.index ? x2.toNonIndexed() : x2)), false)), wallMat);
+      jm.castShadow = q.shadows; g.add(jm);
+    }
+    // Kule
+    const tw2 = C.tower;
+    const shaft = new THREE.CylinderGeometry(tw2.r * 0.7, tw2.r, tw2.h, 12); shaft.translate(tw2.x, tw2.h / 2, tw2.z);
+    g.add(new THREE.Mesh(this.track(shaft), wallMat));
+    const cab = new THREE.CylinderGeometry(tw2.r * 1.9, tw2.r * 1.5, 6, 12); cab.translate(tw2.x, tw2.h + 3, tw2.z);
+    const cabMesh = new THREE.Mesh(this.track(cab), this.track(new THREE.MeshStandardMaterial({ color: 0x1d2a35, roughness: 0.25, metalness: 0.4 })));
+    cabMesh.castShadow = q.shadows; g.add(cabMesh);
+    const cabRoof = new THREE.CylinderGeometry(tw2.r * 2.1, tw2.r * 2.1, 0.8, 12); cabRoof.translate(tw2.x, tw2.h + 6.4, tw2.z);
+    g.add(new THREE.Mesh(this.track(cabRoof), roofMat));
+    // Hangarlar ve yakıt tankları
+    const hangarGeos = [], tankGeos = [];
+    for (const h of C.hangars) {
+      const b = new THREE.BoxGeometry(h.w, h.h, h.d); b.translate(h.x, h.h / 2, h.z); hangarGeos.push(b);
+      const arc = new THREE.CylinderGeometry(h.d / 2, h.d / 2, h.w, 14, 1, false, 0, Math.PI);
+      arc.rotateZ(Math.PI / 2); arc.translate(h.x, h.h, h.z); hangarGeos.push(arc);
+    }
+    for (const f of C.fuel) { const t2 = new THREE.CylinderGeometry(f.r, f.r, f.h, 14); t2.translate(f.x, f.h / 2, f.z); tankGeos.push(t2); }
+    const addM = (geos, mat, shadow) => {
+      if (!geos.length) return;
+      for (const gg of geos) if (!gg.attributes.uv) gg.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(gg.attributes.position.count * 2), 2));
+      const mesh = new THREE.Mesh(this.track(mergeGeometries(geos.map((x2) => (x2.index ? x2.toNonIndexed() : x2)), false)), mat);
+      mesh.castShadow = q.shadows && shadow; mesh.receiveShadow = q.shadows; g.add(mesh);
+    };
+    addM(hangarGeos, wallMat, true);
+    addM(tankGeos, this.track(new THREE.MeshStandardMaterial({ color: 0xc8ccce, roughness: 0.6, metalness: 0.3 })), true);
+    // Park halinde yolcu uçakları: apron boş bir beton levha gibi görünmesin.
+    // Kutu/silindirden kurulu düşük maliyetli siluet (uçak başına ~120 üçgen).
+    const planeGeos = [], planeDark = [];
+    const parkPlane = (px, pz, rot, scale) => {
+      const parts = [], dark = [];
+      const L = 38 * scale, R = 1.9 * scale, SP = 17 * scale;
+      const fus = new THREE.CylinderGeometry(R, R * 0.55, L, 8);
+      fus.rotateX(Math.PI / 2); fus.translate(0, R + 3.0 * scale, 0);
+      parts.push(fus);
+      const nose = new THREE.SphereGeometry(R, 8, 5); nose.scale(1, 1, 1.6); nose.translate(0, R + 3.0 * scale, -L / 2);
+      parts.push(nose);
+      const wing = new THREE.BoxGeometry(SP * 2, 0.55 * scale, 6.5 * scale);
+      wing.translate(0, R + 2.2 * scale, 1.5 * scale); parts.push(wing);
+      const tail = new THREE.BoxGeometry(0.6 * scale, 9.5 * scale, 7 * scale);
+      tail.translate(0, R + 7.5 * scale, L / 2 - 3.5 * scale); parts.push(tail);
+      const htail = new THREE.BoxGeometry(12 * scale, 0.45 * scale, 3.5 * scale);
+      htail.translate(0, R + 3.4 * scale, L / 2 - 2 * scale); parts.push(htail);
+      for (const sx of [-1, 1]) {
+        const nac = new THREE.CylinderGeometry(1.3 * scale, 1.15 * scale, 4.6 * scale, 8);
+        nac.rotateX(Math.PI / 2); nac.translate(sx * 6.2 * scale, R - 0.4 * scale, -0.5 * scale);
+        dark.push(nac);
+      }
+      const m4 = new THREE.Matrix4().makeRotationY(rot).setPosition(px, 0, pz);
+      for (const gg of parts) { gg.applyMatrix4(m4); planeGeos.push(gg); }
+      for (const gg of dark) { gg.applyMatrix4(m4); planeDark.push(gg); }
+    };
+    C.stands.forEach((st2, i) => { if (i % 3 !== 1) return; parkPlane(st2.x, st2.z + 26, Math.PI, 1); });
+    parkPlane((C.cargo.x0 + C.cargo.x1) / 2, (C.cargo.z0 + C.cargo.z1) / 2, Math.PI * 0.5, 0.92);
+    const planeMat = this.track(new THREE.MeshStandardMaterial({ color: 0xeceff2, roughness: 0.5, metalness: 0.1 }));
+    addM2(planeGeos, planeMat, g, q);
+    addM2(planeDark, this.track(new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.45, metalness: 0.5 })), g, q);
+    // Pist kenar ışıkları ve yaklaşma ışıkları (uzakta gizlenir: piksel altı parıldamayı önler)
+    const lights = [];
+    const lg = new THREE.SphereGeometry(0.42, 5, 4);
+    for (let x = -C.rwyHalf; x <= C.rwyHalf; x += 60) for (const s2 of [-1, 1]) { const b = lg.clone(); b.translate(x, 0.45, s2 * (C.rwyW / 2 + 1.6)); lights.push(b); }
+    for (let k = 1; k <= 8; k++) for (const s2 of [-1, 1]) { const b = lg.clone(); b.translate(s2 * (C.rwyHalf + k * 55), 0.5, 0); lights.push(b); }
+    const lm = new THREE.Mesh(this.track(mergeGeometries(lights, false)), this.track(new THREE.MeshStandardMaterial({ color: 0xf2f4e2, emissive: 0xfff3c8, emissiveIntensity: 0.55, roughness: 0.5 })));
+    g.add(lm);
+    this.civilLights = lm;
+    this.civilCenter = new THREE.Vector3(ap.x, ap.elev, ap.z);
+    this.group.add(g);
+    this.civilGroup = g;
   }
 
   buildAirbase() {
@@ -1481,7 +1839,7 @@ export class World {
     }
     // Arazi LOD (histerezisli: sınırda ileri geri geçiş yok)
     const [l1] = this.quality.lod;
-    const half = MAP_SIZE / 24 * 1.42;
+    const half = (this.terrainChunkSize || MAP_SIZE / 18) * 0.71;   // parça yarı köşegeni
     const lodBand = l1 * 0.07;
     for (const ch of this.terrainChunks) {
       const d = Math.max(0, Math.hypot(ch.center.x - cx, ch.center.z - cz) - half);
@@ -1493,12 +1851,26 @@ export class World {
     const baseDist = Math.hypot(cx, cy, cz);
     if (this.runwayLights) this.runwayLights.visible = band(this.runwayLights.visible, baseDist, 4500, 300);
     if (this.fenceMeshes) { const v = band(this.fenceMeshes[0].visible, baseDist, 2600, 200); for (const m of this.fenceMeshes) m.visible = v; }
+    if (this.civilLights) {
+      const d = Math.hypot(cx - this.civilCenter.x, cy - this.civilCenter.y, cz - this.civilCenter.z);
+      this.civilLights.visible = band(this.civilLights.visible, d, 4500, 300);
+    }
   }
 
   dispose() {
     for (const d of this.disposables) if (d && d.dispose) d.dispose();
     this.scene.remove(this.group);
   }
+}
+
+// Birden çok geometriyi tek ağa birleştirip gruba ekler (uv eksikse tamamlar)
+function addM2(geos, mat, group, q) {
+  if (!geos.length) return;
+  for (const gg of geos) if (!gg.attributes.uv) gg.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(gg.attributes.position.count * 2), 2));
+  const mesh = new THREE.Mesh(mergeGeometries(geos.map((x2) => (x2.index ? x2.toNonIndexed() : x2)), false), mat);
+  mesh.castShadow = q.shadows; mesh.receiveShadow = q.shadows;
+  group.add(mesh);
+  return mesh;
 }
 
 function distToPolylineAny(x, z) {

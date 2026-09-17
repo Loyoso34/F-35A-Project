@@ -11,7 +11,7 @@ index.html              Sayfa iskeleti, CSS, arayüz, import map
 manifest.webmanifest    PWA bildirimi
 sw.js                   Service worker (önbellek, çevrimdışı, güncelleme)
 js/main.js              Uygulama girişi, oyun döngüsü, menüler
-js/world.js             Arazi, gökyüzü, su, ormanlar, hava üssü
+js/world.js             Arazi, gökyüzü, su, ormanlar, iki havaalanı, kasabalar, yollar
 js/aircraft.js          Prosedürel F-35A modeli (fasetli alt gövde, silah yuvası kapakları, düz kokpit güvertesi)
 js/a321.js              Prosedürel Airbus A321neo modeli (gövde, kanat, LEAP motorlar, kapılar, A320 kokpiti)
 js/fleet.js             Uçak kayıt defteri: her uçağın aerodinamiği, kontrol kanunu, sistemleri, kamerası, sesi
@@ -67,7 +67,11 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 
 ## Airbus A321neo
 
-**Model.** Gerçek ölçüler: uzunluk 44,51 m, kanat açıklığı 35,8 m (sharklet dahil), yükseklik 11,8 m. Yuvarlatılmış gövde kesiti 18 istasyonluk bir tablodan loft edilir (düz alt yüzey yok). Dört yolcu kapısı, iki kanat üstü acil çıkış, iki kargo kapağı çerçeveleriyle birlikte modellenir; ayrıca VHF/SATCOM antenleri, pitot ve AoA probları, APU egzozu, kokpit camları ve radom vardır.
+**Model.** Gerçek ölçüler: uzunluk 44,51 m, kanat açıklığı 35,8 m (sharklet dahil), yükseklik 11,8 m. Yuvarlatılmış gövde kesiti 20 istasyonluk bir tablodan loft edilir (düz alt yüzey yok).
+
+**Burun ve radom.** Kesit tablosu merkez kaçıklığı (kambur) taşır: A320 ailesinde olduğu gibi radom ekseni gövde ekseninin ~0,56 m altındadır ve burun ucundan ön cama doğru yükselen bir sırt oluşur. Radom **ayrı bir küre değildir**; aynı kesit tablosunun ilk parçasının loft'udur, yalnızca malzemesi farklıdır. Radom ile kaplama aynı halkayı paylaştığı için geçişte ne dikiş ne çap sıçraması olur. Kokpit camları A320 ailesinin altı pencereli düzenindedir (iki ön cam, açılabilir DV penceresi, arka yan pencere) ve gövde eğrisini izleyen, koyu çerçeveli paneller olarak kurulur.
+
+Dört yolcu kapısı, iki kanat üstü acil çıkış, iki kargo kapağı çerçeveleriyle birlikte modellenir; ayrıca VHF blade antenler, SATCOM, pitot ve AoA probları, APU egzozu ve dikey stabilizatör kökünde dorsal fileto vardır. Takım kapakları yalnızca takım hareket ederken açılır (gerçek davranış), takım tam açık ya da kapalıyken kapanır.
 
 **Motorlar.** CFM LEAP-1A benzeri büyük baypaslı nacelle: giriş dudağı, fan kanalı, 18 kanatlı fan, spinner, pilon ve egzoz. Fan N1 ile orantılı döner.
 
@@ -81,6 +85,26 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 - **Spool gecikmesi:** rölantiden tam güce ~8 s (F-35'te ~3,5 s). Yaklaşmada gaz verince gecikmeyi hissedersiniz.
 - **Hız freni / yer spoyleri:** havada spoyler yarım açılır (hız freni), yerde tam açılır. Temastan sonra fren komutuyla kendiliğinden devreye girer.
 - **Ters itki:** yerde, 23 kt üzerinde ve fren komutuyla açılır; hız düşünce kendiliğinden kapanır.
+
+## Dünya ve havaalanları
+
+**Harita 72 x 72 km'dir.** Ortada ova ve tepelik araziler, kenarlarda (27 km'den sonra) dağ kuşağı, sekiz göl, doğudan batıya uzanan bir nehir, iki kasaba, yollar ve iki havaalanı vardır.
+
+**Arazi.** Yükseklik alanı dört katmandan oluşur: çok geniş ölçekli bir *bölge* gürültüsü kabartma şiddetini değiştirir (bazı bölgeler yayvan ova, bazıları engebeli tepelik olur), ana fbm ana hatları, sırt gürültüsü (`1 - |noise|`) doğal vadi ve sırt hatlarını, ince gürültü de yüzey kabartmasını verir. Renklendirme bölgesel iklime (kurak samanlı ↔ nemli koyu yeşil), yüksekliğe (çalılık → kaya → moloz → kar), eğime, tarla desenine ve yamaç yönüne göre köşe renklerinden gelir.
+
+**Havaalanları.** Her havaalanı kendi yerel çerçevesinde tanımlanır (`AIRPORTS` dizisi: merkez, pist yönü, kot, düzleştirme dikdörtgeni). Arazi düzleştirmesi, yüzey tipi sorgusu ve çarpışma kutuları tek kod yolundan geçtiği için yeni havaalanı eklemek bir kayıt satırı ve bir kurucu demektir.
+
+| | Anadolu Hava Üssü | Yeşilova Havalimanı |
+|---|---|---|
+| Tür | Askeri üs | Sivil havalimanı |
+| Konum | Harita merkezi (0, 0) | 24 km doğu-güneydoğu |
+| Pist | 09/27 · 3000 x 45 m | 12/30 · 3400 x 45 m |
+| Kot | 0 m | 185 m (yayla) |
+| Tesisler | Paralel taksi yolları, apron, sundurmalar, hangarlar, korumalı sığınaklar, kule, park halinde F-35'ler | Paralel taksi yolu, apron ve duraklar, cam cepheli terminal + parmak iskele, körükler, kargo apronu, hangarlar, kule, park halinde yolcu uçakları |
+
+İki havaalanı arası **yaklaşık 26 km (14 deniz mili)**: A321neo ile tırmanış-seyir-iniş içeren gerçek bir kısa hat uçuşu. Kalkış yeri **seçim ekranındaki KALKIŞ satırından** seçilir; kamera seçilen havaalanının üzerinde döner. Her iki havaalanı da her iki uçakla kalkış ve inişe uygundur.
+
+**Performans.** Arazi 18 x 18 = 324 parçaya bölünür ve üç kademede örneklenir: havaalanı/su çevresi 2x, iç bölge normal, dış dağ kuşağı yarı çözünürlük. Her parçanın iki LOD'u ve histerezisi vardır. Ağaç bütçesi haritanın tamamına eşit dağıtılmaz; iki havaalanı arasındaki koridora ağırlıklı ve **koruluk kümeleri** halinde yerleştirilir, böylece aynı bütçeyle seyrek nokta yerine gerçek orman dokusu oluşur. Ağaç parçaları da 4 km'lik hücrelerdir (mesafe kırpması isabetli olsun diye) ve ağaç geometrisi düşük segmentlidir.
 
 ## Rüzgâr
 
@@ -96,8 +120,9 @@ Aerodinamik her zaman **havaya göre bağıl hızla** hesaplanır, yer hızıyla
 - **Sol joystick:** yunuslama ve yatış. **Sağ kaydırıcı:** gaz kolu; üstteki turuncu bölge art yakıcı.
 - **RUDDER kaydırıcısı (alt orta):** yaylı analog dümen ve burun tekeri; parmağı/fareyi bırakınca tam merkeze döner. **Takım / Flap / Fren:** aç-kapat.
 - **☰ Menü (sol üst):** Duraklat, Kamera, Ses ve Işık düğmeleri bu çekmecede toplanır; dokununca yumuşak bir geçişle açılır, 7 s hareketsizlikte veya duraklatınca kendini kapatır. Ekranda sürekli yalnızca uçuş için gerekli kontroller kalır. Çekmece açıkken joystick alanı onun altından başlar, böylece uçuş girişi ile menü dokunuşları çakışmaz.
-- **Spoyler (yalnızca A321neo):** hız freni / yer spoyleri kolu. Klavyede **V**.
-- **Flap:** F-35'te aç/kapat, A321neo'da kol 0 → 1 → 2 → 3 → FULL sırayla ilerler; düğme etiketi geçerli kademeyi gösterir.
+- **Spoilers (yalnızca A321neo):** hız freni / yer spoyleri kolu. Klavyede **V**.
+- **Flaps:** F-35'te aç/kapat, A321neo'da kol 0 → 1 → 2 → 3 → FULL sırayla ilerler; düğme etiketi geçerli kademeyi gösterir.
+- **Uçak ve kamera düğmeleri İngilizcedir:** `Flaps`, `Spoilers`, `Camera`, `Landing Gear`. Kamera modu adları da İngilizcedir (CHASE / COCKPIT / FREE / FLYBY / LEFT WING / RIGHT WING / LANDING GEAR).
 - **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır) → uçuş geçişi (sabit dış kamera, Doppler sesi) → sol kanat → sağ kanat → iniş takımı. Kanat ve takım görünümleri gövdeye sabittir ve her uçak için ayrı konumlanır. Tam HUD yalnızca kokpit görünümünde çizilir; tüm dış görünümlerde üst ortada kompakt bir şerit sürekli **IAS / ALT / VS / HDG** gösterir, A321neo'da ayrıca **THR / GEAR / FLAP / SPD BRK / WIND**; altında kısa uyarılar (STALL, İNİŞ TAKIMI) çıkar. Dar ekranda sığmayan alanlar sondan düşer.
 - **Işık:** iniş ışıkları (takım açıkken burun önünü aydınlatır). Seyir ışıkları (kırmızı/yeşil/beyaz), flaşörler ve dönen ikaz ışıkları her zaman açıktır.
 - **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, L ışıklar, M ses, P/Esc duraklat.
@@ -122,11 +147,11 @@ Hedefi tutturmak için **uyarlanabilir çözünürlük** vardır: kare süresi 1
 
 | Ayar | Piksel oranı | Gölge | Çizim mesafesi | Ağaç | Bulut | Su dalga detayı |
 |------|-------------|-------|----------------|------|-------|-----------------|
-| Düşük | 1 | yok | 13 km | 6 000 | 40 | düşük |
-| Orta (varsayılan) | 1.5 | 1024 | 21 km | 13 000 | 70 | tam |
-| Yüksek | 2 | 2048 | 34 km | 24 000 | 110 | tam |
+| Düşük | 1 | yok | 16 km | 19 000 | 46 | düşük |
+| Orta (varsayılan) | 1.5 | 1024 | 26 km | 42 000 | 80 | tam |
+| Yüksek | 2 | 2048 | 42 km | 72 000 | 125 | tam |
 
-Dünya 40 × 40 km'dir: kenarlarda dağlar, ortada düzlükler ve tarlalar, dört göl, bir nehir, yollar, bir kasaba ve askeri hava üssü (paralel taksi yolları, apron, güneşlikler, hangarlar, korumalı sığınaklar, kule, park halinde F-35'ler, bakım atölyeleri, kışla ve filo binaları, yakıt sahası, mühimmat igloları, dikenli telli çevre çiti, nöbetçi kulübeli kapılar, çevre/servis yolları, otoparklar, askeri araçlar ve bitki örtüsü). Su yüzeyleri derinliğe göre renklenir (sığ turkuaz → derin koyu), kıyılar yumuşak geçişlidir ve gökyüzü/güneş yansıması Fresnel ile hesaplanır.
+Dünya 72 × 72 km'dir: kenarlarda dağlar, ortada düzlükler ve tarlalar, sekiz göl, bir nehir, yollar, iki kasaba, bir askeri hava üssü ve bir sivil havalimanı (paralel taksi yolları, apron, güneşlikler, hangarlar, korumalı sığınaklar, kule, park halinde F-35'ler, bakım atölyeleri, kışla ve filo binaları, yakıt sahası, mühimmat igloları, dikenli telli çevre çiti, nöbetçi kulübeli kapılar, çevre/servis yolları, otoparklar, askeri araçlar ve bitki örtüsü). Su yüzeyleri derinliğe göre renklenir (sığ turkuaz → derin koyu), kıyılar yumuşak geçişlidir ve gökyüzü/güneş yansıması Fresnel ile hesaplanır.
 
 ## Havaalanı çizim kararlılığı
 

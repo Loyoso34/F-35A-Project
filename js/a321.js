@@ -15,24 +15,35 @@ export const A321 = {
 };
 const st = (s) => s - A321.cgStation;
 
-// Gövde kesitleri: [istasyon, yarı genişlik, üst y, alt y]
+// Gövde kesitleri: [istasyon, yarı genişlik, üst y, alt y].
+// Kesit merkezi (yt+yb)/2'dir; böylece burun aşağı doğru kamburlanabilir (A320 ailesinin
+// düşük radom ekseni). Radom ayrı bir küre değil, bu tablonun ilk parçasının loft'udur.
 const SECTIONS = [
-  [0.00, 0.07, 0.34, 0.12], [0.60, 0.48, 0.66, -0.36], [1.30, 0.86, 0.99, -0.82],
-  [2.20, 1.24, 1.34, -1.24], [3.20, 1.55, 1.62, -1.56], [4.30, 1.79, 1.83, -1.80],
-  [5.50, 1.93, 1.95, -1.98], [6.80, 1.975, 1.99, -2.06], [12.0, 1.975, 1.99, -2.06],
+  [0.00, 0.050, -0.46, -0.66],   // radom ucu: gövde ekseninin ~0,56 m altında
+  [0.35, 0.330, -0.11, -0.97],
+  [0.80, 0.640, 0.26, -1.28],
+  [1.40, 0.960, 0.66, -1.55],
+  [2.10, 1.250, 1.02, -1.74],
+  [2.85, 1.490, 1.34, -1.87],   // radom kökü / basınç perdesi
+  [3.60, 1.680, 1.57, -1.94],   // ön cam tabanı
+  [4.50, 1.820, 1.78, -2.00],   // kokpit tavanı
+  [5.60, 1.930, 1.91, -2.04],
+  [6.80, 1.975, 1.99, -2.06], [12.0, 1.975, 1.99, -2.06],
   [20.0, 1.975, 1.99, -2.06], [28.0, 1.975, 1.99, -2.06], [33.0, 1.97, 1.99, -2.04],
   [35.5, 1.90, 2.03, -1.86], [38.0, 1.66, 2.16, -1.38], [40.5, 1.30, 2.30, -0.76],
   [42.5, 0.88, 2.40, -0.18], [43.8, 0.48, 2.44, 0.30], [44.51, 0.10, 2.42, 0.72],
 ];
+const RADOME_END = 5;            // SECTIONS içinde radom loft'unun bittiği indeks (istasyon 2,85)
 const NS = 15;                                    // kesit başına nokta (tam halka = 2*NS)
 const SE = 2.15;                                  // süperelips üssü (dolgun yuvarlak kesit)
 function ring(sec) {
   const [s, r, yt, yb] = sec, z = st(s), out = [];
+  const cy = (yt + yb) / 2, hy = (yt - yb) / 2;               // kesit merkezi ve yarı yüksekliği
   for (let i = 0; i < 2 * NS; i++) {
     const ang = Math.PI / 2 - (i / (2 * NS - 1)) * Math.PI;   // sağ yarı: üstten alta
     const ca = Math.cos(ang), sa = Math.sin(ang);
     const x = r * Math.sign(ca) * Math.pow(Math.abs(ca), 2 / SE);
-    const y = (sa >= 0 ? yt : -yb) * Math.sign(sa) * Math.pow(Math.abs(sa), 2 / SE);
+    const y = cy + hy * Math.sign(sa) * Math.pow(Math.abs(sa), 2 / SE);
     out.push({ x, y, z });
   }
   return out;
@@ -77,9 +88,10 @@ function surfacePoint(s, v) {
   const sec = [s, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t];
   const ang = Math.PI / 2 - v * Math.PI;
   const ca = Math.cos(ang), sa = Math.sin(ang);
+  const cy = (sec[2] + sec[3]) / 2, hy = (sec[2] - sec[3]) / 2;
   return {
     x: sec[1] * Math.sign(ca) * Math.pow(Math.abs(ca), 2 / SE),
-    y: (sa >= 0 ? sec[2] : -sec[3]) * Math.sign(sa) * Math.pow(Math.abs(sa), 2 / SE),
+    y: cy + hy * Math.sign(sa) * Math.pow(Math.abs(sa), 2 / SE),
     z: st(s),
   };
 }
@@ -118,6 +130,8 @@ export class A321neo {
       skin: this.track(new THREE.MeshStandardMaterial({ map: skin, roughnessMap: rough, roughness: 0.42, metalness: 0.06, envMapIntensity: 0.9 })),
       paint: this.track(new THREE.MeshStandardMaterial({ color: 0xf2f4f6, roughness: 0.42, metalness: 0.06, envMapIntensity: 0.9 })),
       belly: this.track(new THREE.MeshStandardMaterial({ color: 0xb2b8be, roughness: 0.55, metalness: 0.1 })),
+      // Radom: kompozit, mat ve gövdeden bir tık koyu — ayrı bir top değil, gövdenin devamı
+      radome: this.track(new THREE.MeshStandardMaterial({ color: 0xa8aeb4, roughness: 0.72, metalness: 0.04, envMapIntensity: 0.5 })),
       accent: this.track(new THREE.MeshStandardMaterial({ color: 0x1b3a6b, roughness: 0.4, metalness: 0.1 })),
       metal: this.track(new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.35, metalness: 0.85, envMapIntensity: 1.0 })),
       dark: this.track(new THREE.MeshStandardMaterial({ color: 0x1a1d21, roughness: 0.8, metalness: 0.2 })),
@@ -130,10 +144,15 @@ export class A321neo {
   }
 
   buildFuselage() {
-    const body = new THREE.Mesh(this.track(loftSkin(SECTIONS)), this.m.skin);
+    // Gövde iki parçadır ama TEK kesit tablosundan üretilir: radom ile kaplama aynı halkayı
+    // paylaşır (RADOME_END), bu yüzden geçişte ne dikiş ne de çap sıçraması olur.
+    const body = new THREE.Mesh(this.track(loftSkin(SECTIONS.slice(RADOME_END))), this.m.skin);
     body.castShadow = true; body.receiveShadow = true;
     this.group.add(body);
     this.parts.body = body;
+    const radome = new THREE.Mesh(this.track(loftSkin(SECTIONS.slice(0, RADOME_END + 1))), this.m.radome);
+    radome.castShadow = true; radome.receiveShadow = true;
+    this.group.add(radome);
     // Kanat-gövde birleşim kaportası (karın düz kalmaz): alttan taşan yumuşak şişkinlik
     const fair = [];
     for (const [s, w, yb] of [[15.0, 2.00, -2.05], [17.0, 2.55, -2.35], [19.5, 2.95, -2.62], [22.0, 3.05, -2.72], [25.0, 2.90, -2.66], [28.0, 2.45, -2.40], [30.5, 2.00, -2.10]]) {
@@ -239,13 +258,13 @@ export class A321neo {
 
   buildEngines() {
     this.parts.fans = [];
-    const R = 1.30, RI = 1.02, LEN = 4.35, zF = st(17.2);
+    const R = 1.34, RI = 1.05, LEN = 4.70, zF = st(17.0);
     for (const side of [-1, 1]) {
       const ex = side * 5.75, ey = wingY(5.75) - 1.55;
       const grp = new THREE.Group();
       grp.position.set(ex, ey, 0);
       // Nacelle dış kabuğu: giriş dudağı yuvarlak, arkaya doğru daralır
-      const prof = [[0.00, R * 0.86], [0.18, R * 0.99], [0.55, R], [1.60, R], [2.70, R * 0.95], [3.55, R * 0.86], [4.35, R * 0.78]];
+      const prof = [[0.00, R * 0.87], [0.16, R * 0.995], [0.50, R], [1.90, R], [2.90, R * 0.96], [3.90, R * 0.87], [4.70, R * 0.76]];
       const rows = prof.map(([dz, r]) => {
         const row = [];
         for (let i = 0; i <= 20; i++) { const a = (i / 20) * Math.PI * 2; row.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, z: zF + dz }); }
@@ -280,6 +299,10 @@ export class A321neo {
       fan.add(spinMesh);
       grp.add(fan);
       this.parts.fans.push(fan);
+      // Ters itki kaskat kuşağı: nacelle'in ortasında koyu bir bant
+      const rv = new THREE.CylinderGeometry(R * 0.985, R * 0.97, 0.52, 22, 1, true);
+      rv.rotateX(Math.PI / 2); rv.translate(0, 0, zF + 2.55);
+      grp.add(new THREE.Mesh(this.track(rv), this.track(new THREE.MeshStandardMaterial({ color: 0x8d949b, roughness: 0.5, metalness: 0.4, side: THREE.DoubleSide }))));
       // Egzoz konisi ve sıcak kısım
       const ex1 = new THREE.CylinderGeometry(0.62, 0.50, 1.15, 16, 1, true); ex1.rotateX(Math.PI / 2); ex1.translate(0, 0, zF + LEN + 0.45);
       grp.add(new THREE.Mesh(this.track(ex1), this.m.metal));
@@ -310,6 +333,19 @@ export class A321neo {
     };
     const fin = []; for (let j = 0; j <= 6; j++) fin.push(vRow(j / 6, 0, V.hinge));
     this.paintGeos.push(ensureOutward(loft(fin, { uScale: 1, vScale: 1 })));
+    // Dorsal fileto: hücum kenarı gövdeye dik bir kök yerine yayvan bir kama ile bağlanır
+    const dors = [];
+    for (let j = 0; j <= 5; j++) {
+      const f = j / 5;
+      const yTop = V.y0 + 1.30 * f;                         // fileto yalnızca kökün alt bölümünde
+      const zLE = st(V.rootLE - 3.4 * (1 - f) * (1 - f));   // öne doğru uzayan kama
+      const w = 0.22 * (1 - f) + V.tRoot * 0.5 * f;
+      dors.push([
+        { x: 0, y: yTop - 0.02, z: zLE }, { x: w, y: yTop, z: st(V.rootLE + 1.2 * f) },
+        { x: 0, y: yTop + 0.10, z: st(V.rootLE + 2.2) }, { x: -w, y: yTop, z: st(V.rootLE + 1.2 * f) },
+      ]);
+    }
+    this.paintGeos.push(ensureOutward(loft(dors, { uScale: 1, vScale: 1, closeRing: true })));
     const hz = (f) => { const le = V.rootLE + (V.tipLE - V.rootLE) * f, te = V.rootTE + (V.tipTE - V.rootTE) * f; return le + (te - le) * V.hinge; };
     const rud = []; for (let j = 0; j <= 4; j++) { const f = j / 4; rud.push(vRow(f, V.hinge - 0.01, 1).map((p) => ({ x: p.x, y: p.y - V.y0, z: p.z - st(hz(f)) + (st(hz(f)) - st(hz(0))) }))); }
     const rg = this.track(ensureOutward(loft(rud, { uScale: 1, vScale: 1 })));
@@ -423,46 +459,16 @@ export class A321neo {
 
   buildDetails() {
     const m = this.m;
-    // Kokpit camları: A320 ailesine özgü altı pencereli düzen
-    const winGeos = [];
-    const frameGeos = [];
-    const addWin = (side, s0, s1, v0, v1, shrink = 0) => {
-      const p = [surfacePoint(s0, v0), surfacePoint(s1, v0), surfacePoint(s1, v1), surfacePoint(s0, v1)];
-      const q = p.map((pt) => ({ x: side * (pt.x - shrink * Math.sign(pt.x || 1)), y: pt.y, z: pt.z }));
-      const g = new THREE.BufferGeometry();
-      const pos = [];
-      const order = side > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
-      for (const i of order) pos.push(q[i].x * 1.004, q[i].y * 1.004, q[i].z);
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(12), 2));
-      g.computeVertexNormals();
-      return g;
-    };
-    for (const side of [-1, 1]) {
-      winGeos.push(addWin(side, 3.35, 4.35, 0.215, 0.315));   // ön cam
-      winGeos.push(addWin(side, 4.45, 5.15, 0.225, 0.325));   // yan pencere 1
-      winGeos.push(addWin(side, 5.25, 5.85, 0.235, 0.325));   // yan pencere 2
-    }
-    this.group.add(new THREE.Mesh(this.track(mergeGeometries(winGeos, false)), m.glass));
-    // Radom ucu (koyu) ve burun sırtı
-    const radome = new THREE.SphereGeometry(0.60, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2);
-    radome.rotateX(-Math.PI / 2); radome.scale(1, 1, 1.9); radome.translate(0, 0.16, st(0.62));
-    this.group.add(new THREE.Mesh(this.track(radome), this.track(new THREE.MeshStandardMaterial({ color: 0x2b3238, roughness: 0.6 }))));
-    // Kapılar, acil çıkışlar, kargo kapakları (ince çerçeveli çıkartmalar)
-    // Kapı gövdesi gövdeden bir tık farklı tonda, çerçevesi belirgin koyu: uzaktan da okunur
-    // Çift yüzlü: bu ince çıkartmalarda sarım yönüne bağımlılık kalmasın (aynalanan tarafta kaybolmasın)
-    const doorMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe9ecef, roughness: 0.45, metalness: 0.06, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }));
-    const seamMat = this.track(new THREE.MeshStandardMaterial({ color: 0x424a52, roughness: 0.75, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }));
-    const panelGeos = [], seamGeos = [];
-    const addPanel = (side, s0, s1, v0, v1, into) => {
-      const cols = 4, rows = 4, pos = [], idx = [];
+    // Yüzeyi izleyen çıkartma paneli: gövde eğrisine oturur, aynalanan tarafta sarım çevrilir.
+    // Cam, kapı, çerçeve ve kargo kapakları aynı yardımcıyı kullanır.
+    const surfPanel = (side, s0, s1, v0, v1, lift, into, cols = 4, rows = 4) => {
+      const pos = [], idx = [];
       for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
         const p = surfacePoint(s0 + (s1 - s0) * (i / cols), v0 + (v1 - v0) * (j / rows));
-        pos.push(side * p.x * 1.002, p.y * 1.002, p.z);
+        pos.push(side * p.x * lift, p.y * lift, p.z);
       }
       for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
         const a = j * (cols + 1) + i, b = a + 1, c = a + cols + 1, d = c + 1;
-        // Sol tarafta x aynalandığı için sarım ters çevrilir (yüzler dışa bakar)
         if (side > 0) idx.push(a, c, b, b, c, d); else idx.push(a, b, c, b, d, c);
       }
       const g = new THREE.BufferGeometry();
@@ -471,6 +477,30 @@ export class A321neo {
       g.setIndex(idx); g.computeVertexNormals();
       into.push(g);
     };
+    // Kokpit camları: A320 ailesinin altı pencereli düzeni — iki ön cam, açılabilir DV penceresi
+    // ve arka yan pencere. Her camın arkasında koyu bir çerçeve paneli var (cam direkleri).
+    const winGeos = [], winFrameGeos = [];
+    const WINDOWS = [
+      [2.92, 3.62, 0.150, 0.352],   // ön cam (iç pano)
+      [3.70, 4.30, 0.163, 0.355],   // ön cam (dış pano)
+      [4.40, 5.02, 0.193, 0.350],   // DV penceresi (açılabilir)
+      [5.12, 5.66, 0.214, 0.344],   // arka yan pencere
+    ];
+    for (const side of [-1, 1]) for (const [a, b, v0, v1] of WINDOWS) {
+      surfPanel(side, a, b, v0, v1, 1.0045, winGeos, 3, 3);
+      surfPanel(side, a - 0.085, b + 0.085, v0 - 0.020, v1 + 0.020, 1.0025, winFrameGeos, 3, 3);
+    }
+    const frameMat = this.track(new THREE.MeshStandardMaterial({ color: 0x2a2f35, roughness: 0.55, metalness: 0.2, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 }));
+    this.group.add(new THREE.Mesh(this.track(mergeGeometries(winFrameGeos, false)), frameMat));
+    const glassMat = this.track(new THREE.MeshPhysicalMaterial({ color: 0x0c1218, roughness: 0.06, metalness: 0.5, clearcoat: 1, envMapIntensity: 1.3, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -10 }));
+    this.group.add(new THREE.Mesh(this.track(mergeGeometries(winGeos, false)), glassMat));
+    // Kapılar, acil çıkışlar, kargo kapakları (ince çerçeveli çıkartmalar)
+    // Kapı gövdesi gövdeden bir tık farklı tonda, çerçevesi belirgin koyu: uzaktan da okunur
+    // Çift yüzlü: bu ince çıkartmalarda sarım yönüne bağımlılık kalmasın (aynalanan tarafta kaybolmasın)
+    const doorMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe9ecef, roughness: 0.45, metalness: 0.06, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }));
+    const seamMat = this.track(new THREE.MeshStandardMaterial({ color: 0x424a52, roughness: 0.75, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }));
+    const panelGeos = [], seamGeos = [];
+    const addPanel = (side, s0, s1, v0, v1, into) => surfPanel(side, s0, s1, v0, v1, 1.002, into);
     for (const side of [-1, 1]) {
       // Yolcu kapıları (4 adet, ~1,85 m yüksek): iç panel + belirgin koyu çerçeve
       for (const s of [6.2, 15.6, 27.6, 37.0]) { addPanel(side, s, s + 0.92, 0.300, 0.590, panelGeos); addPanel(side, s - 0.10, s + 1.02, 0.283, 0.607, seamGeos); }
@@ -483,9 +513,19 @@ export class A321neo {
     this.group.add(new THREE.Mesh(this.track(mergeGeometries(panelGeos, false)), doorMat));
     // Antenler, pitot/statik problar, APU egzozu
     const met = [];
-    const vhf = new THREE.BoxGeometry(0.06, 0.62, 0.34); vhf.translate(0, 2.30, st(12.5)); met.push(vhf);
-    const vhf2 = new THREE.BoxGeometry(0.06, 0.48, 0.30); vhf2.translate(0, -2.32, st(9.0)); met.push(vhf2);
-    const satcom = new THREE.SphereGeometry(0.30, 10, 8); satcom.scale(1, 0.45, 1.5); satcom.translate(0, 2.05, st(24.0)); met.push(satcom);
+    // VHF blade antenler: ince, arkaya eğimli, gövdeden ~0,3 m taşar
+    const blade = (y, s0, h, sign) => {
+      const g = new THREE.BufferGeometry();
+      const z0 = st(s0), z1 = st(s0 + 0.40), z2 = st(s0 + 0.62);
+      const p = [0, y, z0, 0, y, z2, 0, y + sign * h, z1, 0.03, y, z0, 0.03, y, z2, 0.03, y + sign * h, z1];
+      g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+      g.setIndex([0, 1, 2, 5, 4, 3, 0, 3, 1, 1, 3, 4, 1, 4, 2, 2, 4, 5, 2, 5, 0, 0, 5, 3]);
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(12), 2));  // birleştirme için gerekli
+      g.computeVertexNormals();
+      return g;
+    };
+    met.push(blade(1.96, 12.5, 0.34, 1), blade(-2.02, 9.0, 0.26, -1), blade(1.99, 30.5, 0.28, 1));
+    const satcom = new THREE.SphereGeometry(0.28, 10, 8); satcom.scale(1, 0.40, 1.6); satcom.translate(0, 2.02, st(24.0)); met.push(satcom);
     for (const side of [-1, 1]) {
       const pitot = new THREE.CylinderGeometry(0.030, 0.030, 0.52, 6); pitot.rotateX(Math.PI / 2);
       const pp = surfacePoint(3.05, side > 0 ? 0.40 : 0.40);
@@ -709,8 +749,10 @@ export class A321neo {
       gr.pivot.rotation.set(0, 0, 0);
       if (gr.retractAxis === 'x') gr.pivot.rotation.x = a; else gr.pivot.rotation.z = a;
       gr.pivot.visible = gear > 0.001;
-      const doorOpen = Math.min(1, gear * 1.4);
-      for (const d of gr.doors) d.pivot.rotation.z = d.sign * (Math.PI / 2) * (1 - doorOpen) + d.sign * 0.32 * doorOpen;
+      // A320 ailesinde büyük takım kapakları yalnızca hareket sırasında açılır; takım tam açık
+      // ya da tam kapalıyken kapanırlar. Bu yüzden açıklık iki uçta da sıfırdır.
+      const doorOpen = Math.min(gear, 1 - gear) * 2;
+      for (const d of gr.doors) d.pivot.rotation.z = d.sign * (Math.PI / 2) * (1 - doorOpen);
     }
     // Fan dönüşü: N1 ile orantılı, ters itkide de döner
     const n1 = Math.max(engine, throttle * 0.2);

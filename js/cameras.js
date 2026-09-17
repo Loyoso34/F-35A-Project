@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import { clamp } from './noise.js';
 
 export const CAMERA_MODES = ['chase', 'cockpit', 'orbit', 'flyby', 'wingL', 'wingR', 'gear'];
-export const CAMERA_NAMES = { chase: 'TAKİP', cockpit: 'KOKPİT', orbit: 'SERBEST', flyby: 'UÇUŞ GEÇİŞİ', wingL: 'SOL KANAT', wingR: 'SAĞ KANAT', gear: 'İNİŞ TAKIMI' };
+// Kamera adları İngilizce: arayüzde uçak/kamera etiketleri tek dilde kalsın
+export const CAMERA_NAMES = { chase: 'CHASE', cockpit: 'COCKPIT', orbit: 'FREE', flyby: 'FLYBY', wingL: 'LEFT WING', wingR: 'RIGHT WING', gear: 'LANDING GEAR' };
 
 export class CameraRig {
   constructor(camera, aircraft, world = null, cfg = null) {

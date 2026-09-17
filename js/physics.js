@@ -103,12 +103,15 @@ export class FlightModel {
     this.reset();
   }
 
-  reset() {
-    const x = -1400, z = 0;
+  // Kalkış noktası (havaalanı) dışarıdan verilir; verilmezse son kullanılan nokta korunur.
+  reset(pose) {
+    if (pose) this.spawn = pose;
+    const sp = this.spawn || { x: -1400, z: 0, hdg: 90 };
+    const x = sp.x, z = sp.z;
     const gy = this.world.heightAt(x, z);
     this.groundY = gy;
     this.pos.set(x, gy - this.geom.wheelBottomY, z);
-    this.quat.setFromEuler(new THREE.Euler(0, -Math.PI / 2, 0));
+    this.quat.setFromEuler(new THREE.Euler(0, -sp.hdg * DEG, 0));
     this.vel.set(0, 0, 0);
     this.rates.p = this.rates.q = this.rates.r = 0;
     this.throttle = 0; this.afterburner = false; this.engine = 0; this.abLevel = 0;

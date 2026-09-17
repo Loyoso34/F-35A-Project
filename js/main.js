@@ -1,7 +1,7 @@
 // F-35A Simülatör – uygulama giriş noktası.
 import * as THREE from 'three';
 import { APP_VERSION } from './version.js';
-import { World, LAYER_TREES, QUALITY_PRESETS } from './world.js';
+import { World, LAYER_TREES, QUALITY_PRESETS, SPAWNS, spawnPose, AIRPORT_BY_ID } from './world.js';
 import { FlightModel, FIXED_DT } from './physics.js';
 import { FLEET, FLEET_ORDER, getAircraftConfig } from './fleet.js';
 import { Controls } from './controls.js';
@@ -269,6 +269,33 @@ class App {
       grid.appendChild(card);
       if (this.thumbData && this.thumbData[id]) cv.getContext('2d').putImageData(this.thumbData[id], 0, 0);
     }
+    this.buildSpawnRow();
+  }
+
+  // Kalkış havalimanı seçici: uçak kartlarının altında tek satır
+  buildSpawnRow() {
+    const row = this.ui.el.selApRow;
+    if (!row || row.childElementCount) return;
+    for (const sp of SPAWNS) {
+      const b = document.createElement('button');
+      b.className = 'ap-chip'; b.type = 'button'; b.id = 'ap-' + sp.id;
+      b.innerHTML = '<b></b><span></span>';
+      b.querySelector('b').textContent = sp.name;
+      b.querySelector('span').textContent = sp.sub;
+      b.addEventListener('click', () => this.setSpawn(sp.id));
+      row.appendChild(b);
+    }
+    this.setSpawn(this.settings.spawn || 'base', true);
+  }
+
+  setSpawn(id, quiet) {
+    if (!SPAWNS.some((s) => s.id === id)) id = SPAWNS[0].id;
+    this.settings.spawn = id;
+    if (!quiet) saveSettings(this.settings);
+    for (const sp of SPAWNS) {
+      const b = document.getElementById('ap-' + sp.id);
+      if (b) b.classList.toggle('on', sp.id === id);
+    }
   }
 
   // Kart önizlemeleri: gerçek modeller bir kez render hedefine çizilir (dış görsel bağımlılığı yok)
@@ -352,7 +379,7 @@ class App {
         this.installAircraft(id);
         this.ui.hide('loading');
       } else {
-        this.physics.reset();
+        this.physics.reset(spawnPose(this.settings.spawn));
         this.cameraRig.reset();
       }
       this.settings.aircraft = id;
@@ -376,6 +403,7 @@ class App {
     this.scene.add(this.aircraft.group);
     if (this.envMap && this.aircraft.setEnvironment) this.aircraft.setEnvironment(this.envMap);
     this.physics = new FlightModel(this.world, cfg);
+    this.physics.reset(spawnPose(this.settings.spawn));
     this.cameraRig.setAircraft(this.aircraft, cfg);
     this.cameraRig.modeIndex = 0;
     this.cameraRig.reset();
@@ -396,10 +424,12 @@ class App {
   // Seçim ekranı arka planı: üs üzerinde yavaş sinematik kamera
   updateSelectCamera(dt) {
     this.selT = (this.selT || 0.8) + dt * 0.05;
-    const c = this.camera, r = 360, cx = -120, cz = 470;
-    c.position.set(cx + Math.cos(this.selT) * r, 110 + Math.sin(this.selT * 0.6) * 22, cz + Math.sin(this.selT) * r);
+    // Kamera seçili kalkış havalimanının üzerinde döner: hangi üsten kalkacağı görünür
+    const ap = AIRPORT_BY_ID[(SPAWNS.find((s) => s.id === this.settings.spawn) || SPAWNS[0]).airport];
+    const c = this.camera, r = 360, cx = ap.x - 120, cz = ap.z + 470, cy = ap.elev + 110;
+    c.position.set(cx + Math.cos(this.selT) * r, cy + Math.sin(this.selT * 0.6) * 22, cz + Math.sin(this.selT) * r);
     c.up.set(0, 1, 0);
-    c.lookAt(cx, 8, cz);
+    c.lookAt(cx, ap.elev + 8, cz);
     if (c.fov !== 46) { c.fov = 46; c.updateProjectionMatrix(); }
   }
 
@@ -452,7 +482,7 @@ class App {
     else if (this.state === 'paused') this.resume();
   }
   restart() {
-    this.physics.reset();
+    this.physics.reset(spawnPose(this.settings.spawn));
     this.lightsOn = false; this.aircraft.setLandingLights(false); this.ui.setToggle(this.ui.el.btnLights, false);
     this.controls.resetLever(0);
     this.controls.setEnabled(true);
@@ -490,7 +520,7 @@ class App {
     ui.setToggle(ui.el.btnSpoiler, p.spoilerCmd > 0.5);
     // Çok kademeli flap kolunda etiket kademeyi gösterir
     const lab = ui.el.btnFlap.querySelector('.l');
-    if (lab) lab.textContent = p.sys.flapDetents.length > 2 ? 'Flap ' + p.flapLabel : 'Flap';
+    if (lab) lab.textContent = p.sys.flapDetents.length > 2 ? 'Flaps ' + p.flapLabel : 'Flaps';
   }
   toggleSpoilers() {
     if (this.state !== 'running' || !this.physics) return;
@@ -508,7 +538,7 @@ class App {
   }
   cycleCamera() {
     this.cameraRig.next();
-    this.ui.message('Kamera: ' + CAMERA_NAMES[this.cameraRig.mode], 1200);
+    this.ui.message('Camera: ' + CAMERA_NAMES[this.cameraRig.mode], 1200);
   }
   toggleSound() {
     this.settings.sound = this.settings.sound ? 0 : 1;
@@ -628,6 +658,8 @@ class App {
     }
 
     if (running) {
+      // Flap kolu kademesi değiştiyse düğme etiketini tazele (kademe fizik tarafından da değişebilir)
+      if (this.physics.flapIndex !== this._lastFlapIndex) { this._lastFlapIndex = this.physics.flapIndex; this.updateToggleButtons(); }
       this.controls.update(dt);
       const c = this.controls.state;
       this.physics.setControls({ pitch: c.pitch, roll: c.roll, yaw: c.yaw, throttle: c.throttle, afterburner: c.afterburner });

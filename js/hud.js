@@ -42,7 +42,7 @@ export class HUD {
     if (opts.extended) {
       items.push(['THR', String(Math.round((T.reverse > 0.05 ? -T.reverse : T.throttle) * 100)), '%']);
       items.push(['GEAR', T.gear > 0.99 ? 'DN' : T.gear < 0.01 ? 'UP' : '···', '']);
-      items.push(['FLAP', T.flapLabel || (T.flaps > 0.5 ? 'DN' : '0'), '']);
+      items.push(['FLAPS', T.flapLabel || (T.flaps > 0.5 ? 'DN' : '0'), '']);
       if (T.spoilers > 0.05) items.push(['SPD BRK', String(Math.round(T.spoilers * 100)), '%']);
       if (T.windKt > 0) items.push(['WIND', String(T.windDeg).padStart(3, '0') + '/' + Math.round(T.windKt), 'KT']);
     }

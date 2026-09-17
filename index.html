@@ -121,7 +121,8 @@
       border: 1.5px solid rgba(57,255,106,0.85); pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.45);
     }
     #right-col { position: absolute; right: calc(var(--sar) + 70px); bottom: calc(var(--sab) + 12px); display: flex; flex-direction: column; gap: 6px; }
-    #right-col .btn { width: 66px; min-height: 44px; }
+    #right-col .btn { width: 72px; min-height: 46px; }
+    #right-col .btn .l { line-height: 1.05; }
     /* ---- Uçak seçim ekranı ---- */
     #select { background: linear-gradient(160deg, rgba(6,10,16,0.82), rgba(6,10,16,0.94)); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: 24; }
     .sel-wrap { width: min(1100px, 96vw); max-height: 100%; display: flex; flex-direction: column; gap: 10px; }
@@ -147,7 +148,33 @@
     .ac-go { position: absolute; right: 11px; top: 11px; font-size: 10px; font-weight: 800; letter-spacing: 1.2px; padding: 4px 9px; border-radius: 999px; background: var(--ac); color: #06202a; opacity: 0; transform: translateY(-4px); transition: opacity 0.18s, transform 0.18s; }
     .ac-card:hover .ac-go, .ac-card.sel-active .ac-go { opacity: 1; transform: none; }
     .sel-hint { margin: 0; text-align: center; font-size: 11.5px; color: rgba(190,205,222,0.6); }
-    @media (max-height: 430px) { .ac-info { padding: 6px 10px 8px; } .ac-sub { display: none; } .ac-specs { margin-top: 4px; } }
+    /* Kalkış havalimanı seçici: kartların altında tek satır, büyük dokunma hedefleri */
+    .sel-ap { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+    .sel-ap-lbl { font-size: 10.5px; letter-spacing: 1.6px; text-transform: uppercase; color: rgba(190,205,222,0.55); font-weight: 700; }
+    .sel-ap-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    .ap-chip { min-height: 44px; padding: 6px 14px; border-radius: 9px; cursor: pointer; text-align: left;
+      background: rgba(16,24,34,0.72); border: 1px solid rgba(255,255,255,0.16); color: #cfdcea;
+      display: flex; flex-direction: column; justify-content: center; gap: 1px; font: inherit; }
+    .ap-chip b { font-size: 12.5px; font-weight: 700; color: #e8f0f8; }
+    .ap-chip span { font-size: 10px; color: rgba(185,200,216,0.62); }
+    .ap-chip.on { border-color: rgba(120,190,255,0.85); background: rgba(38,74,112,0.6); }
+    /* Alçak ekranlarda (telefon yatay) kartlar kısalır: kalkış seçici ve ipucu taşmasın */
+    @media (max-height: 460px) {
+      .sel-wrap { gap: 6px; }
+      .sel-title { font-size: 15px; letter-spacing: 1.8px; }
+      .sel-title small { font-size: 9.5px; margin-top: 1px; }
+      .sel-grid { gap: 9px; }
+      .ac-thumb { aspect-ratio: auto; height: 26vh; object-fit: cover; }
+      .ac-info { padding: 5px 10px 7px; }
+      .ac-sub { display: none; }
+      .ac-name { font-size: 14px; }
+      .ac-specs { margin-top: 3px; gap: 4px; }
+      .ac-specs span { font-size: 9px; padding: 1px 6px; }
+      .ap-chip { min-height: 40px; padding: 4px 11px; }
+      .ap-chip b { font-size: 11.5px; }
+      .sel-hint { font-size: 10px; }
+    }
+    @media (max-height: 380px) { .ac-specs { display: none; } .sel-hint { display: none; } .ac-thumb { height: 24vh; } }
     @media (max-width: 620px) { .sel-grid { grid-template-columns: 1fr; } .sel-wrap { overflow-y: auto; -webkit-overflow-scrolling: touch; } }
     .overlay {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -211,7 +238,7 @@
       <button class="btn" id="btn-menu" aria-label="Menü" aria-expanded="false" aria-controls="drawer"><span class="i">☰</span><span class="l">Menü</span></button>
       <div id="drawer" aria-hidden="true">
         <button class="btn" id="btn-pause" aria-label="Duraklat"><span class="i">⏸</span><span class="l">Duraklat</span></button>
-        <button class="btn" id="btn-camera" aria-label="Kamera"><span class="i">🎥</span><span class="l">Kamera</span></button>
+        <button class="btn" id="btn-camera" aria-label="Camera"><span class="i">🎥</span><span class="l" lang="en">Camera</span></button>
         <button class="btn" id="btn-sound" aria-label="Ses"><span class="i">🔊</span><span class="l">Ses</span></button>
         <button class="btn warn" id="btn-lights" aria-label="İniş ışıkları"><span class="i">💡</span><span class="l">Işık</span></button>
       </div>
@@ -221,10 +248,10 @@
     </div>
     <div id="rudder"><div id="rudder-track"></div><div id="rudder-knob"></div></div>
     <div id="right-col">
-      <button class="btn on" id="btn-gear"><span class="i">🛬</span><span class="l">Takım</span></button>
-      <button class="btn" id="btn-flap"><span class="i">🔽</span><span class="l">Flap</span></button>
+      <button class="btn on" id="btn-gear" aria-label="Landing Gear"><span class="i">🛬</span><span class="l" lang="en">Landing Gear</span></button>
+      <button class="btn" id="btn-flap" aria-label="Flaps"><span class="i">🔽</span><span class="l" lang="en">Flaps</span></button>
       <button class="btn on" id="btn-brake"><span class="i">🛑</span><span class="l">Fren</span></button>
-      <button class="btn" id="btn-spoiler" hidden><span class="i">🪶</span><span class="l">Spoyler</span></button>
+      <button class="btn" id="btn-spoiler" hidden aria-label="Spoilers"><span class="i">🪶</span><span class="l" lang="en">Spoilers</span></button>
     </div>
     <div class="zone" id="throttle">
       <div id="throttle-track"><div id="throttle-ab"></div><div id="throttle-fill"></div></div>
@@ -236,6 +263,7 @@
     <div class="sel-wrap">
       <h1 class="sel-title">Uçak Seç<small>Uçmak istediğiniz uçağa dokunun</small></h1>
       <div class="sel-grid" id="sel-grid"></div>
+      <div class="sel-ap" id="sel-ap"><span class="sel-ap-lbl">Kalkış</span><div class="sel-ap-row" id="sel-ap-row"></div></div>
       <p class="sel-hint" id="sel-hint">Uçağı sonradan Duraklat → Uçak Değiştir ile değiştirebilirsiniz.</p>
     </div>
   </div>
@@ -248,11 +276,12 @@
         <li><b>Sol joystick:</b> yunuslama (pitch) ve yatış (roll)</li>
         <li><b>Sağ kaydırıcı:</b> gaz kolu — en üstte art yakıcı (AB)</li>
         <li><b>Rudder kaydırıcısı (alt orta):</b> sürükle, bırakınca ortaya döner; yerde burun tekeri</li>
-        <li><b>İniş Takımı / Flap / Fren:</b> aç-kapat</li>
+        <li><b>Landing Gear / Flaps / Fren:</b> aç-kapat. <b>Spoilers</b> yalnızca A321neo'da</li>
         <li><b>Kalkış:</b> freni bırak, tam gaz, ~140 kt'ta burnu kaldır</li>
-        <li><b>☰ Menü:</b> Duraklat, Kamera (takip → kokpit → serbest → uçuş geçişi), Ses ve iniş Işıkları bu çekmecede</li>
-        <li><b>Klavye:</b> WASD/oklar, Q/E dümen, Shift/Ctrl gaz, G takım, F flap, V spoyler, B fren, L ışık, C kamera, P duraklat</li>
-        <li><b>A321neo:</b> Flap kolu 0 → 1 → 2 → 3 → FULL sırayla ilerler; yerde Fren ters itkiyi devreye sokar</li>
+        <li><b>☰ Menü:</b> Duraklat, <b>Camera</b> (chase → cockpit → free → flyby → left wing → right wing → landing gear), Ses ve iniş Işıkları bu çekmecede</li>
+        <li><b>Klavye:</b> WASD/oklar, Q/E dümen, Shift/Ctrl gaz, G gear, F flaps, V spoilers, B fren, L ışık, C camera, P duraklat</li>
+        <li><b>A321neo:</b> Flaps kolu 0 → 1 → 2 → 3 → FULL sırayla ilerler; yerde Fren ters itkiyi devreye sokar</li>
+        <li><b>İki havalimanı:</b> Anadolu Hava Üssü ve Yeşilova Havalimanı. Kalkış yerini seçim ekranından seçin</li>
       </ul>
     </div>
   </div>
