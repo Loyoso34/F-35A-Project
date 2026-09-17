@@ -73,6 +73,12 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 3. `git commit` ve `git push` yapın; GitHub Pages birkaç dakikada yeni sürümü sunar.
 4. Uygulamayı açan kullanıcılara "Yeni sürüm hazır" bildirimi çıkar; **Yenile** ile yeni sürüme geçerler. Ayarlar menüsünde geçerli sürüm görünür.
 
+## Kare hızı
+
+Oyun **60 fps'e sabitlenmiştir**. Render döngüsü sürüklenmesiz bir hedef zamanla ilerler: 60 Hz ekranda hiçbir kare atlanmaz, 90/120/144/165 Hz ekranlarda fazla kareler atlanıp ortalama tam 60 fps olur, 60'ın altında kalan cihazlarda yapay kare eklenmez. Fizik bundan bağımsızdır ve her koşulda 120 Hz sabit adımla çalışır.
+
+Hedefi tutturmak için **uyarlanabilir çözünürlük** vardır: kare süresi 19,5 ms'yi (≈51 fps) aşan süre birikince 3B render ölçeği kademeli düşer (en fazla %60'a kadar), cihaz 6 saniye boyunca hedefi tutturursa kademeli geri yükselir. Arayüz ve HUD her zaman tam çözünürlükte çizilir. Ayarlar → FPS göstergesi açıkken satır `58/60 fps · ölçek %88 · 134 çizim` biçiminde güncel durumu gösterir.
+
 ## Kalite ayarları
 
 | Ayar | Piksel oranı | Gölge | Çizim mesafesi | Ağaç | Bulut | Su dalga detayı |

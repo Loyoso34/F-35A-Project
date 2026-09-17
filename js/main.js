@@ -19,6 +19,12 @@ class App {
     this.accumulator = 0;
     this.lastTime = 0;
     this.frameCount = 0; this.fpsTime = 0;
+    // 60 fps kilidi: hedef kare zamanı (sürüklenmesiz), uyarlanabilir çözünürlük durumu
+    this.targetFps = 60;
+    this.frameMs = 1000 / 60;
+    this.nextRender = 0;
+    this.renderScale = 1;      // kalite ön ayarının piksel oranına uygulanan çarpan (0.6–1)
+    this.slowTime = 0; this.goodTime = 0;
     this.safe = { top: 0, right: 0, bottom: 0, left: 0 };
     this.ui.el.version.textContent = APP_VERSION;
     this.canvas = document.getElementById('gl');
@@ -95,7 +101,7 @@ class App {
   setupRenderer() {
     const q = QUALITY_PRESETS[this.settings.quality] || QUALITY_PRESETS.medium;
     const renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: q.pixelRatio <= 1.5, powerPreference: 'high-performance', alpha: false, stencil: false });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.pixelRatio));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, q.pixelRatio) * this.renderScale);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
     renderer.shadowMap.enabled = q.shadows;
@@ -188,8 +194,22 @@ class App {
     window.addEventListener('pagehide', () => { if (this.state === 'running') this.pause(); });
   }
 
+  // Kalite ön ayarının piksel oranı x uyarlanabilir ölçek. 60 fps tutturulamayınca ölçek düşer, tutturulunca geri yükselir.
+  basePixelRatio() {
+    const q = QUALITY_PRESETS[this.settings.quality] || QUALITY_PRESETS.medium;
+    return Math.min(window.devicePixelRatio || 1, q.pixelRatio);
+  }
+  applyPixelRatio() {
+    const pr = this.basePixelRatio() * this.renderScale;
+    if (Math.abs(this.renderer.getPixelRatio() - pr) < 0.001) return;
+    this.renderer.setPixelRatio(pr);
+    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    this.needsRender = true;
+  }
+
   onResize() {
     const w = window.innerWidth, h = window.innerHeight;
+    this.renderer.setPixelRatio(this.basePixelRatio() * this.renderScale);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -337,6 +357,7 @@ class App {
     this.world = new World(this.scene, this.renderer, q);
     this.physics.world = this.world;
     this.cameraRig.world = this.world;
+    this.renderScale = 1; this.slowTime = 0; this.goodTime = 0;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, preset.pixelRatio));
     this.renderer.shadowMap.enabled = preset.shadows;
     this.scene.traverse((o) => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach((m) => { m.needsUpdate = true; }); } });
@@ -392,9 +413,22 @@ class App {
     });
   }
 
+  // ---- 60 fps kilidi ----
+  // Hedef zaman ileri taşınır (sürüklenme yok): 60 Hz ekranda hiçbir kare atlanmaz, 120/144 Hz ekranda
+  // fazla kareler atlanır ve ortalama tam 60 fps olur. Cihaz 60'ı tutturamıyorsa kare eklenmez.
+  // Fizik bundan bağımsız: 120 Hz sabit adım.
+  framePacer(now) {
+    if (!this.nextRender) this.nextRender = now;
+    if (now < this.nextRender - 1) return false;
+    this.nextRender += this.frameMs;
+    if (this.nextRender < now - this.frameMs) this.nextRender = now + this.frameMs; // arka plandan dönüş / uzun takılma
+    return true;
+  }
+
   loop(now) {
     requestAnimationFrame((t) => this.loop(t));
     if (this.contextLost) return;
+    if (!this.framePacer(now)) return;   // 60 fps kilidi
     // Bazı tarayıcılar döndürmede resize olayını geç/eksik gönderir: boyutu her karede doğrula
     if (window.innerWidth !== this._lastW || window.innerHeight !== this._lastH) {
       this._lastW = window.innerWidth; this._lastH = window.innerHeight;
@@ -438,11 +472,26 @@ class App {
     }
     this.audio.setListener(this.cameraRig.mode === 'cockpit' ? 'cockpit' : 'external', this.cameraRig.doppler, this.cameraRig.distance);
     this.audio.update(dt, this.physics.telemetry, running);
+    // ---- Uyarlanabilir çözünürlük: 60 fps hedefini tutturmak için ----
+    // Kare süresi 19,5 ms'yi (≈51 fps) aşan süre birikince render ölçeği düşer; 6 s boyunca
+    // hedef tutturulursa kademeli geri yükselir. Arayüz ve HUD tam çözünürlükte kalır.
+    if (running && dt > 0) {
+      if (dt > 0.0195) { this.slowTime += dt; this.goodTime = 0; }
+      else { this.goodTime += dt; this.slowTime = Math.max(0, this.slowTime - dt * 0.25); }
+      if (this.slowTime > 0.6 && this.renderScale > 0.6) {
+        this.renderScale = Math.max(0.6, this.renderScale - 0.12);
+        this.slowTime = 0; this.goodTime = 0; this.applyPixelRatio();
+      } else if (this.goodTime > 6 && this.renderScale < 1) {
+        this.renderScale = Math.min(1, this.renderScale + 0.1);
+        this.goodTime = 0; this.applyPixelRatio();
+      }
+    }
     // FPS göstergesi
     if (this.settings.fps) {
       this.frameCount++; this.fpsTime += dt;
       if (this.fpsTime >= 0.5) {
-        this.ui.el.fps.textContent = Math.round(this.frameCount / this.fpsTime) + ' fps · ' + this.renderer.info.render.calls + ' çizim';
+        const sc = this.renderScale < 0.999 ? ' · ölçek %' + Math.round(this.renderScale * 100) : '';
+        this.ui.el.fps.textContent = Math.round(this.frameCount / this.fpsTime) + '/' + this.targetFps + ' fps' + sc + ' · ' + this.renderer.info.render.calls + ' çizim';
         this.frameCount = 0; this.fpsTime = 0;
       }
     }
