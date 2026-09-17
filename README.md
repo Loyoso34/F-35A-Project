@@ -58,7 +58,7 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 
 - **Sol joystick:** yunuslama ve yatış. **Sağ kaydırıcı:** gaz kolu; üstteki turuncu bölge art yakıcı.
 - **RUDDER kaydırıcısı (alt orta):** yaylı analog dümen ve burun tekeri; parmağı/fareyi bırakınca tam merkeze döner. **Takım / Flap / Fren:** aç-kapat.
-- **☰ Menü (sol üst):** Duraklat, Kamera, Ses ve Işık düğmeleri bu çekmecede toplanır; dokununca yumuşak bir geçişle açılır, 7 s hareketsizlikte veya duraklatınca kendini kapatır. Ekranda sürekli yalnızca uçuş için gerekli kontroller kalır.
+- **☰ Menü (sol üst):** Duraklat, Kamera, Ses ve Işık düğmeleri bu çekmecede toplanır; dokununca yumuşak bir geçişle açılır, 7 s hareketsizlikte veya duraklatınca kendini kapatır. Ekranda sürekli yalnızca uçuş için gerekli kontroller kalır. Çekmece açıkken joystick alanı onun altından başlar, böylece uçuş girişi ile menü dokunuşları çakışmaz.
 - **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır) → uçuş geçişi (sabit dış kamera, Doppler sesi). Tam HUD yalnızca kokpit görünümünde çizilir; tüm dış görünümlerde üst ortada kompakt bir şerit sürekli **IAS / ALT / VS / HDG** gösterir, altında kısa uyarılar (STALL, İNİŞ TAKIMI) çıkar.
 - **Işık:** iniş ışıkları (takım açıkken burun önünü aydınlatır). Seyir ışıkları (kırmızı/yeşil/beyaz), flaşörler ve dönen ikaz ışıkları her zaman açıktır.
 - **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, L ışıklar, M ses, P/Esc duraklat.
@@ -85,7 +85,16 @@ Dünya 40 × 40 km'dir: kenarlarda dağlar, ortada düzlükler ve tarlalar, dör
 
 ## Havaalanı çizim kararlılığı
 
-Pist, taksi yolları, apron ve işaretler arazinin yalnızca 5–10 cm üstündedir; bu fark uzaktan derinlik tamponunda çözülemez ve z-fighting (titreme) doğurur. Çözüm: yüzeyler `polygonOffset` ile katmanlanır (arazi < asfalt < beton < yollar < işaretler < pist numaraları); ofset birimleri pencere-derinlik çözünürlüğü cinsinden olduğundan her mesafede geçerlidir. Ayrıca eş düzlemli çakışan parçalar (taksi yolu bağlantıları, üs içi yol kesişimleri) geometrik olarak kaldırıldı, hangar kapı çıkartmaları ofsetlendi, gölge kamerası ışık uzayında doku hücresi ızgarasına hizalanarak düz yüzeylerde gölge yüzmesi önlendi ve dış kameraların yakın düzlemi 1 m'ye çekildi.
+Pist, taksi yolları, apron ve işaretler arazinin yalnızca 5–10 cm üstündedir; bu fark uzaktan derinlik tamponunda çözülemez ve z-fighting (titreme) doğurur. Çözüm:
+
+- **Derinlik katmanlaması:** yüzeyler `polygonOffset` ile sıralanır (arazi < asfalt < beton < yollar < işaretler < pist numaraları); ofset birimleri pencere-derinlik çözünürlüğü cinsinden olduğundan her mesafede geçerlidir.
+- **Eş düzlemli çakışmaların kaldırılması:** taksi yolu bağlantıları yalnızca pist ile taksi yolu kenarları arasında uzanır, üs içi yol kesişimleri parçalara bölündü, çift nizamiye geometrisi kaldırıldı, servis yolu taksi yolunu kesmiyor.
+- **Kesişen yollar iki katman:** kasaba sokakları ve üs yolları doğu-batı / kuzey-güney olarak ayrı ağlara ve ayrı ofsetlere bölündü; aynı malzemede eş düzlemli kavşak dörtgenleri artık derinlik yarışına girmez.
+- **LOD ve görünürlük histerezisi:** arazi LOD'u, ağaç parçaları, üs ışıkları ve çevre çiti eşik mesafesinde açılıp kapanmaz (eşik ± bant). Ölçüm: eşikte 4 saniye salınan kamerada eski kodda 54 arazi LOD sıçraması ve 53 ışık aç/kapa, yeni kodda 0.
+- **Piksel altı parıldama:** uzakta hairline kalan üs ışıkları ve tel örgü 3B mesafeye göre gizlenir (aynı zamanda orta mesafede ~40 bin üçgen tasarruf).
+- **Gölge ve kırpma:** gölge kamerası ışık uzayında doku hücresi ızgarasına hizalanır (düz yüzeylerde gölge yüzmesi yok), dış kameraların yakın düzlemi 1 m'ye çekildi.
+
+Ölçüm (pist/apron bölgesinde ardışık karelerde renk sıçratan piksel oranı): önce %0,5–3,7, sonra %0,012–0,07.
 
 ## Uçuş modeli
 

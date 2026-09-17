@@ -49,6 +49,7 @@ export class UI {
     const d = this.el.drawer, b = this.el.btnMenu;
     if (!d || !b) return;
     d.classList.toggle('open', open);
+    document.body.classList.toggle('menu-open', open);
     d.setAttribute('aria-hidden', String(!open));
     b.setAttribute('aria-expanded', String(open));
     b.classList.toggle('on', open);

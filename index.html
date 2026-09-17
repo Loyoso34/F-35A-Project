@@ -46,7 +46,9 @@
     #hud { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
     #touch { position: fixed; inset: 0; pointer-events: none; }
     #touch .zone { position: absolute; pointer-events: auto; }
-    #stick-zone { left: 0; top: calc(var(--sat) + 56px); bottom: 0; width: 40%; }
+    #stick-zone { left: 0; top: calc(var(--sat) + 56px); bottom: 0; width: 40%; transition: top 0.22s ease; }
+    /* Menü açıkken joystick alanı çekmecenin altından başlar: yanlışlıkla düğmeye basmak yerine uçuş girişi bozulmaz */
+    body.menu-open #stick-zone { top: calc(var(--sat) + 112px); }
     #view-zone { left: 40%; right: calc(var(--sar) + 150px); top: calc(var(--sat) + 56px); bottom: calc(var(--sab) + 64px); }
     #stick-base {
       position: absolute; width: 100px; height: 100px; border-radius: 50%;

@@ -32,7 +32,7 @@ const ROADS = [
   { name: 'town-east', w: 8, pts: [[2600, 6900], [3800, 7100], [5200, 6900], [6700, 6500], [7600, 6200]] },
   // Yollar kenar dağlarından önce biter: yol koridoru düzleştirmesi dağların içine kanyon açmasın
   { name: 'base-west', w: 9, pts: [[-1200, 1050], [-2500, 1300], [-4500, 1500], [-7500, 1700], [-10500, 1500]] },
-  { name: 'town-north', w: 7, pts: [[2600, 6900], [2650, 8300], [2900, 10200]] },
+  { name: 'town-north', w: 7, over: true, pts: [[2600, 6900], [2650, 8300], [2900, 10200]] },
 ];
 // Kasaba sokakları (yalnızca yol ağı ve ev yerleşimi için; arazi düzleştirmesine dahil değil)
 const TOWN_STREETS = [];
@@ -40,7 +40,7 @@ for (let i = -4; i <= 4; i++) {
   const half = Math.sqrt(Math.max(0, TOWN.r * TOWN.r - (i * 240) * (i * 240))) * 0.95;
   if (half < 200) continue;
   TOWN_STREETS.push({ w: 6, pts: [[TOWN.x - half, TOWN.z + i * 240], [TOWN.x + half, TOWN.z + i * 240]] });
-  TOWN_STREETS.push({ w: 6, pts: [[TOWN.x + i * 240, TOWN.z - half], [TOWN.x + i * 240, TOWN.z + half]] });
+  TOWN_STREETS.push({ w: 6, over: true, pts: [[TOWN.x + i * 240, TOWN.z - half], [TOWN.x + i * 240, TOWN.z + half]] });
 }
 
 function distToSegment(px, pz, ax, az, bx, bz) {
@@ -696,13 +696,19 @@ export class World {
   buildRoads() {
     const tex = this.track(makeRoadTexture(128, 256));
     tex.anisotropy = this.quality.anisotropy;
-    const mat = this.track(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -3 }));
-    const geos = [...ROADS, ...TOWN_STREETS].map((r) => this.roadGeometry(r.pts, r.w, 0.3, WATER_LEVEL + 9));
-    const merged = this.track(mergeGeometries(geos.map((g) => (g.index ? g.toNonIndexed() : g)), false));
-    geos.forEach((g) => g.dispose());
-    const mesh = new THREE.Mesh(merged, mat);
-    mesh.receiveShadow = false;
-    this.group.add(mesh);
+    // Kavşaklarda z-fighting olmaması için yollar iki katmana ayrılır: doğu-batı (alt) ve kuzey-güney (üst).
+    // Aynı malzemede eş düzlemli kesişen dörtgenler derinlik tamponunda yarışırdı; ayrı ofsetlerle sıra kesinleşir.
+    const mkMat = (units) => this.track(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: units }));
+    const all = [...ROADS, ...TOWN_STREETS];
+    for (const [over, units, yOff] of [[false, -3, 0.30], [true, -6, 0.33]]) {
+      const geos = all.filter((r) => !!r.over === over).map((r) => this.roadGeometry(r.pts, r.w, yOff, WATER_LEVEL + 9));
+      if (!geos.length) continue;
+      const merged = this.track(mergeGeometries(geos.map((g) => (g.index ? g.toNonIndexed() : g)), false));
+      geos.forEach((g) => g.dispose());
+      const mesh = new THREE.Mesh(merged, mkMat(units));
+      mesh.receiveShadow = false;
+      this.group.add(mesh);
+    }
     // Nehir köprüsü ayakları
     const pierMat = this.track(new THREE.MeshStandardMaterial({ color: 0x8d8f92, roughness: 0.8 }));
     const piers = [];
@@ -1158,8 +1164,10 @@ export class World {
     posts.forEach(([x, z], i) => { m4.makeTranslation(x, terrainHeight(x, z), z); postMesh.setMatrixAt(i, m4); });
     postMesh.instanceMatrix.needsUpdate = true; postMesh.computeBoundingSphere();
     grp.add(postMesh);
-    grp.add(new THREE.Mesh(this.track(mergeGeometries(chainGeos, false)), chainMat));
-    grp.add(new THREE.Mesh(this.track(mergeGeometries(barbGeos, false)), barbMat));
+    const chainMesh = new THREE.Mesh(this.track(mergeGeometries(chainGeos, false)), chainMat);
+    const barbMesh = new THREE.Mesh(this.track(mergeGeometries(barbGeos, false)), barbMat);
+    grp.add(chainMesh, barbMesh);
+    this.fenceMeshes = [chainMesh, barbMesh, postMesh];
 
     // --- Kapılar: nöbet kulübesi, bariyer kolları, beton bariyerler
     const plain = this.track(new THREE.MeshStandardMaterial({ color: 0xb8b4aa, roughness: 0.9 }));
@@ -1197,17 +1205,21 @@ export class World {
     const roadMat = this.track(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }));
     const inset = 14;
     const perim = [[F.x0 + inset, F.z1 - inset], [F.x0 + inset, F.z0 + inset], [F.x1 - inset, F.z0 + inset], [F.x1 - inset, F.z1 - inset], [F.x0 + inset, F.z1 - inset]];
-    const roadGeos = [this.roadGeometry(perim, 6, 0.28)];
+    const perimGeo = this.roadGeometry(perim, 6, 0.31);
+    const roadGeos = [];
     const serviceRoads = [
       [[0, A.gateZ + 60], [0, A.gateZ - 40], [0, 800]],                       // ana giriş -> hangar yolu
       [[-1200, A.gateZ + 30], [-1200, 900], [-1120, 760], [-1060, 700]],      // batı kapısı -> depolar
       [[A.hq.x, 560], [A.hq.x, 470]],                                          // HQ
-      [[-1400, 640], [-1400, 200]],                                            // yakıt sahası -> taksi yolu
+      [[-1400, 640], [-1400, 214]],                                            // yakıt sahası -> taksi yolu kenarı (taksi yolunu kesmez)
       [[-900, -560], [900, -560]],                                             // HAS arka yolu
       [[-1700, -300], [-1700, -700], [-1300, -700]],                           // mühimmat sahası
     ];
     for (const r of serviceRoads) roadGeos.push(this.roadGeometry(r, 6, 0.28));
     grp.add(new THREE.Mesh(this.track(mergeGeometries(roadGeos.map(ni), false)), roadMat));
+    // Çevre yolu ayrı katman (üstte): servis yollarıyla kavşaklarda derinlik yarışı olmaz
+    const perimMat = this.track(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -7 }));
+    grp.add(new THREE.Mesh(this.track(ni(perimGeo)), perimMat));
     roadGeos.forEach((g) => g.dispose());
 
     // --- Servis binaları: bakım atölyeleri, filo binası, kışla/yemekhane, jeneratör binası
@@ -1441,23 +1453,30 @@ export class World {
     this.sun.target.position.copy(target);
     this.sun.position.copy(target).addScaledVector(this.sunDir, 600);
     this.sun.target.updateMatrixWorld();
-    const cx = camera.position.x, cz = camera.position.z;
+    const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+    // Tüm mesafe eşiklerinde histerezis: eşik üzerinde duran kamerada kare kare açılıp kapanma (titreme) olmaz.
+    // Görünürse eşik + bant'a kadar açık kalır, gizliyse ancak eşik - bant'ta açılır.
+    const band = (visible, x, t, b) => (visible ? x < t + b : x < t - b);
     // Ağaç parçaları
     const td = this.quality.treeDistance;
     for (const c of this.treeChunks) {
-      const d = Math.hypot(c.center.x - cx, c.center.z - cz);
-      c.mesh.visible = d - c.radius < td;
+      const d = Math.hypot(c.center.x - cx, c.center.z - cz) - c.radius;
+      c.mesh.visible = band(c.mesh.visible, d, td, 250);
     }
-    // Arazi LOD
+    // Arazi LOD (histerezisli: sınırda ileri geri geçiş yok)
     const [l1] = this.quality.lod;
     const half = MAP_SIZE / 24 * 1.42;
+    const lodBand = l1 * 0.07;
     for (const ch of this.terrainChunks) {
       const d = Math.max(0, Math.hypot(ch.center.x - cx, ch.center.z - cz) - half);
-      const lod = d < l1 ? 0 : 1;
+      const lod = ch.lod === 0 ? (d > l1 + lodBand ? 1 : 0) : (d < l1 - lodBand ? 0 : 1);
       if (lod !== ch.lod) { ch.meshes[ch.lod].visible = false; ch.meshes[lod].visible = true; ch.lod = lod; }
     }
     this.waterUniforms.time.value = this.time;
-    if (this.runwayLights) this.runwayLights.visible = Math.hypot(cx, cz) < 4500;
+    // Üs ışıkları ve tel örgü: uzakta piksel altı kalıp parıldadıkları için 3B mesafeye göre kapatılır
+    const baseDist = Math.hypot(cx, cy, cz);
+    if (this.runwayLights) this.runwayLights.visible = band(this.runwayLights.visible, baseDist, 4500, 300);
+    if (this.fenceMeshes) { const v = band(this.fenceMeshes[0].visible, baseDist, 2600, 200); for (const m of this.fenceMeshes) m.visible = v; }
   }
 
   dispose() {
