@@ -180,10 +180,12 @@ export class Controls {
     tap('btn-gear', () => this.cb.onGear && this.cb.onGear());
     tap('btn-flap', () => this.cb.onFlaps && this.cb.onFlaps());
     tap('btn-brake', () => this.cb.onBrake && this.cb.onBrake());
-    tap('btn-camera', () => this.cb.onCamera && this.cb.onCamera());
-    tap('btn-sound', () => this.cb.onSound && this.cb.onSound());
-    tap('btn-pause', () => this.cb.onPause && this.cb.onPause());
-    tap('btn-lights', () => this.cb.onLights && this.cb.onLights());
+    const secondary = (fn) => () => { this.cb.onMenuActivity && this.cb.onMenuActivity(); fn(); };
+    tap('btn-menu', () => this.cb.onMenu && this.cb.onMenu());
+    tap('btn-camera', secondary(() => this.cb.onCamera && this.cb.onCamera()));
+    tap('btn-sound', secondary(() => this.cb.onSound && this.cb.onSound()));
+    tap('btn-pause', secondary(() => this.cb.onPause && this.cb.onPause()));
+    tap('btn-lights', secondary(() => this.cb.onLights && this.cb.onLights()));
   }
 
   // ---- Serbest kamera için sürükleme / pinch (merkez bölge) ----

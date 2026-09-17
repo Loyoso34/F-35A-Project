@@ -89,8 +89,21 @@
     .btn.on { background: rgba(57,255,106,0.16); border-color: rgba(57,255,106,0.85); color: var(--hud); }
     .btn.warn.on { background: rgba(255,170,60,0.18); border-color: rgba(255,170,60,0.9); color: #ffc46a; }
     .btn.pressed { background: rgba(255,255,255,0.28); }
-    #top-left { position: absolute; left: calc(var(--sal) + 8px); top: calc(var(--sat) + 8px); display: flex; gap: 6px; }
-    #top-left .btn { width: 52px; padding: 3px 4px; }
+    #top-left { position: absolute; left: calc(var(--sal) + 8px); top: calc(var(--sat) + 8px); display: flex; align-items: flex-start; gap: 6px; z-index: 3; }
+    #top-left .btn { width: 48px; height: 44px; padding: 2px 3px; }
+    #btn-menu { position: relative; z-index: 2; }
+    /* İkincil kontroller çekmecesi: menü düğmesinin sağında 2x2 ızgara; kapalıyken görünmez ve dokunulamaz */
+    #drawer {
+      display: grid; grid-template-columns: repeat(2, 52px); gap: 6px; padding: 4px; margin: -4px; border-radius: 12px;
+      opacity: 0; transform: translateX(-10px) scale(0.94); transform-origin: left top; pointer-events: none; visibility: hidden;
+      transition: opacity 0.18s ease, transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1), visibility 0s linear 0.24s;
+    }
+    #drawer.open { opacity: 1; transform: none; pointer-events: auto; visibility: visible; transition-delay: 0s, 0s, 0s; }
+    #drawer .btn { width: 52px; transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1), background 0.15s; }
+    #drawer .btn .l { font-size: 8.5px; letter-spacing: 0.2px; }
+    #drawer:not(.open) .btn { pointer-events: none; }
+    #drawer .btn:nth-child(2) { transition-delay: 0.03s; } #drawer .btn:nth-child(3) { transition-delay: 0.06s; } #drawer .btn:nth-child(4) { transition-delay: 0.09s; }
+    #drawer:not(.open) .btn { transform: translateX(-8px); }
     #rudder { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--sab) + 10px); width: 210px; height: 44px; pointer-events: auto; }
     #rudder-track {
       position: absolute; inset: 0; border-radius: 22px; background: rgba(10,16,24,0.5); border: 1.5px solid rgba(255,255,255,0.26);
@@ -164,10 +177,13 @@
   <div id="touch" hidden>
     <div class="zone" id="view-zone"></div>
     <div id="top-left">
-      <button class="btn" id="btn-pause" aria-label="Duraklat"><span class="i">⏸</span><span class="l">Duraklat</span></button>
-      <button class="btn" id="btn-camera" aria-label="Kamera"><span class="i">🎥</span><span class="l">Kamera</span></button>
-      <button class="btn" id="btn-sound" aria-label="Ses"><span class="i">🔊</span><span class="l">Ses</span></button>
-      <button class="btn warn" id="btn-lights" aria-label="İniş ışıkları"><span class="i">💡</span><span class="l">Işık</span></button>
+      <button class="btn" id="btn-menu" aria-label="Menü" aria-expanded="false" aria-controls="drawer"><span class="i">☰</span><span class="l">Menü</span></button>
+      <div id="drawer" aria-hidden="true">
+        <button class="btn" id="btn-pause" aria-label="Duraklat"><span class="i">⏸</span><span class="l">Duraklat</span></button>
+        <button class="btn" id="btn-camera" aria-label="Kamera"><span class="i">🎥</span><span class="l">Kamera</span></button>
+        <button class="btn" id="btn-sound" aria-label="Ses"><span class="i">🔊</span><span class="l">Ses</span></button>
+        <button class="btn warn" id="btn-lights" aria-label="İniş ışıkları"><span class="i">💡</span><span class="l">Işık</span></button>
+      </div>
     </div>
     <div class="zone" id="stick-zone">
       <div id="stick-base"><div id="stick-knob"></div></div>
@@ -194,7 +210,7 @@
         <li><b>Rudder kaydırıcısı (alt orta):</b> sürükle, bırakınca ortaya döner; yerde burun tekeri</li>
         <li><b>İniş Takımı / Flap / Fren:</b> aç-kapat</li>
         <li><b>Kalkış:</b> freni bırak, tam gaz, ~140 kt'ta burnu kaldır</li>
-        <li><b>Işık:</b> iniş/taksi ışıkları (L). <b>Kamera:</b> takip → kokpit → serbest → uçuş geçişi</li>
+        <li><b>☰ Menü:</b> Duraklat, Kamera (takip → kokpit → serbest → uçuş geçişi), Ses ve iniş Işıkları bu çekmecede</li>
         <li><b>Klavye:</b> WASD/oklar, Q/E dümen, Shift/Ctrl gaz, G takım, F flap, B fren, L ışık, C kamera, P duraklat</li>
       </ul>
     </div>

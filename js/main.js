@@ -65,6 +65,8 @@ class App {
       onSound: () => this.toggleSound(),
       onPause: () => this.togglePause(),
       onLights: () => this.toggleLights(),
+      onMenu: () => this.ui.toggleMenu(),
+      onMenuActivity: () => this.ui.menuActivity(),
       onViewDrag: (dx, dy) => this.cameraRig.drag(dx, dy),
       onViewPinch: (f) => this.cameraRig.zoom(f),
     });
@@ -244,6 +246,7 @@ class App {
     this.checkOrientation();
   }
   pause() {
+    this.ui.setMenu(false);
     if (this.state !== 'running') return;
     this.state = 'paused';
     this.controls.setEnabled(false);

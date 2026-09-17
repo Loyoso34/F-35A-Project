@@ -14,6 +14,7 @@ export class UI {
       guide: $('guide'), guideClose: $('guide-close'),
       touch: $('touch'), msg: $('msg'), fps: $('fps'),
       btnGear: $('btn-gear'), btnFlap: $('btn-flap'), btnBrake: $('btn-brake'), btnSound: $('btn-sound'), btnLights: $('btn-lights'),
+      btnMenu: $('btn-menu'), drawer: $('drawer'),
     };
     this.el.guideClose.addEventListener('click', () => this.hide('guide'));
     this.el.standaloneHintClose.addEventListener('click', () => this.hide('standaloneHint'));
@@ -43,6 +44,20 @@ export class UI {
     });
   }
   setToggle(btn, on) { btn.classList.toggle('on', !!on); }
+  // İkincil kontroller çekmecesi (Duraklat / Kamera / Ses / Işık): açılır-kapanır, 7 s hareketsizlikte kendini kapatır
+  setMenu(open) {
+    const d = this.el.drawer, b = this.el.btnMenu;
+    if (!d || !b) return;
+    d.classList.toggle('open', open);
+    d.setAttribute('aria-hidden', String(!open));
+    b.setAttribute('aria-expanded', String(open));
+    b.classList.toggle('on', open);
+    clearTimeout(this._menuTimer);
+    if (open) this._menuTimer = setTimeout(() => this.setMenu(false), this.menuAutoClose || 7000);
+  }
+  toggleMenu() { this.setMenu(!this.isMenuOpen()); }
+  isMenuOpen() { return !!(this.el.drawer && this.el.drawer.classList.contains('open')); }
+  menuActivity() { if (this.isMenuOpen()) this.setMenu(true); }
   showCrash(reason) { this.el.crashReason.textContent = reason; this.show('crash'); }
 }
 

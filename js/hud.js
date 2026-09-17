@@ -28,6 +28,38 @@ export class HUD {
     return { x: (v.x * 0.5 + 0.5) * this.w, y: (-v.y * 0.5 + 0.5) * this.h, behind };
   }
 
+  // Dış kameralar: üst ortada kompakt uçuş bilgisi şeridi (IAS / ALT / VS / HDG) – fizik telemetrisinden, her karede
+  drawExternalInfo(T, opts) {
+    const ctx = this.ctx; const { w } = this;
+    const vs = Math.round(T.vsFpm / 50) * 50;
+    const items = [
+      ['IAS', String(Math.round(T.kias)), 'KT'],
+      ['ALT', Math.round(T.altFt).toLocaleString('en-US'), 'FT'],
+      ['VS', (vs > 0 ? '+' : '') + vs, 'FPM'],
+      ['HDG', String(Math.round(T.heading) % 360).padStart(3, '0'), ''],
+    ];
+    const fL = '600 9px -apple-system, "Segoe UI", Roboto, sans-serif', fV = 'bold 14px "SF Mono", Menlo, Consolas, monospace', fU = '600 8px -apple-system, "Segoe UI", Roboto, sans-serif';
+    const gap = 14, padX = 12, hgt = 26;
+    const widths = items.map(([l, v, u]) => { ctx.font = fL; let x = ctx.measureText(l).width + 5; ctx.font = fV; x += ctx.measureText(v).width; if (u) { ctx.font = fU; x += 3 + ctx.measureText(u).width; } return x; });
+    const total = widths.reduce((a, b) => a + b, 0) + gap * (items.length - 1) + padX * 2;
+    const x0 = Math.round(w / 2 - total / 2), y0 = opts.safe.top + 8;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0)';
+    ctx.fillStyle = 'rgba(8,14,22,0.62)'; ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x0, y0, total, hgt, 8); ctx.fill(); ctx.stroke();
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    let x = x0 + padX; const cy = y0 + hgt / 2 + 0.5;
+    items.forEach(([l, v, u], i) => {
+      ctx.font = fL; ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillText(l, x, cy); x += ctx.measureText(l).width + 5;
+      ctx.font = fV; ctx.fillStyle = GREEN; ctx.fillText(v, x, cy); x += ctx.measureText(v).width;
+      if (u) { ctx.font = fU; ctx.fillStyle = 'rgba(255,255,255,0.45)'; x += 3; ctx.fillText(u, x, cy + 1); x += ctx.measureText(u).width; }
+      x += gap;
+    });
+    ctx.restore();
+    this.externalInfoDrawn = true;
+    this.externalInfoBox = { x: x0, y: y0, w: total, h: hgt };
+  }
+
   // Dış kameralarda yalnızca küçük, yeşil olmayan uyarılar (stall / takım)
   drawExternalWarnings(T, opts) {
     const ctx = this.ctx; const { w } = this;
@@ -37,7 +69,7 @@ export class HUD {
     ctx.font = 'bold 13px -apple-system, "Segoe UI", Roboto, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4;
-    const y = opts.safe.top + 70;
+    const y = opts.safe.top + 50;
     if (T.stall && on) { ctx.fillStyle = '#ff6a6a'; ctx.fillText('STALL', w / 2, y); }
     else if (T.stallWarn && on) { ctx.fillStyle = '#ffc46a'; ctx.fillText('STALL UYARISI', w / 2, y); }
     if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = '#ffc46a'; ctx.fillText('İNİŞ TAKIMI', w / 2, y + 18); }
@@ -50,7 +82,7 @@ export class HUD {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     if (!T) return;
-    if (opts.externalOnly) { this.drawExternalWarnings(T, opts); return; }
+    if (opts.externalOnly) { this.drawExternalInfo(T, opts); this.drawExternalWarnings(T, opts); return; }
     if (!opts.visible) return;
     this.blink += opts.dt || 0.016;
     ctx.save();

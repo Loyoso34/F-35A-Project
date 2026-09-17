@@ -27,7 +27,7 @@ export class CameraRig {
   applyMode() {
     const m = this.mode;
     this.camera.fov = m === 'cockpit' ? 72 : m === 'orbit' ? 50 : m === 'flyby' ? 42 : 58;
-    this.camera.near = m === 'cockpit' ? 0.25 : 0.5;
+    this.camera.near = m === 'cockpit' ? 0.25 : 1.0;   // dış kameralar uçağa 8 m'den yaklaşmaz; daha yakın near derinlik hassasiyetini boşa harcar
     this.camera.updateProjectionMatrix();
     this.aircraft.setCockpitView(m === 'cockpit');
   }

@@ -30,8 +30,9 @@ const TOWN = { x: 2600, z: 6900, r: 1250 };
 const ROADS = [
   { name: 'base-town', w: 9, pts: [[0, 1050], [300, 2200], [1000, 3400], [1700, 4200], [2100, 5200], [2500, 6100], [2600, 6900]] },
   { name: 'town-east', w: 8, pts: [[2600, 6900], [3800, 7100], [5200, 6900], [6700, 6500], [7600, 6200]] },
-  { name: 'base-west', w: 9, pts: [[-1200, 1050], [-2500, 1300], [-4500, 1500], [-7500, 1700], [-11000, 1500], [-14500, 1200], [-19500, 900]] },
-  { name: 'town-north', w: 7, pts: [[2600, 6900], [2650, 8300], [2900, 10200], [3400, 12500], [3800, 15000]] },
+  // Yollar kenar dağlarından önce biter: yol koridoru düzleştirmesi dağların içine kanyon açmasın
+  { name: 'base-west', w: 9, pts: [[-1200, 1050], [-2500, 1300], [-4500, 1500], [-7500, 1700], [-10500, 1500]] },
+  { name: 'town-north', w: 7, pts: [[2600, 6900], [2650, 8300], [2900, 10200]] },
 ];
 // Kasaba sokakları (yalnızca yol ağı ve ev yerleşimi için; arazi düzleştirmesine dahil değil)
 const TOWN_STREETS = [];
@@ -72,7 +73,9 @@ function townMask(x, z) {
 function roadMask(x, z) {
   let d = Infinity;
   for (const r of ROADS) { const dd = distToPolyline(x, z, r.pts); if (dd < d) d = dd; }
-  return smoothstep(520, 230, d);
+  // Dağ bölgesinde koridor düzleştirmesi sönümlenir (güvenlik payı)
+  const edge = Math.max(Math.abs(x), Math.abs(z));
+  return smoothstep(520, 230, d) * (1 - smoothstep(9500, 12000, edge));
 }
 function softplus(v, k) { return k * Math.log1p(Math.exp(v / k)); }
 
@@ -101,11 +104,14 @@ export function terrainHeight(x, z) {
     const inner = smoothstep(1.06, 0.72, d);
     h = lerp(h, -16, inner);
   }
+  // Nehir yatağı: kenar dağlarına yaklaşırken daralır ve sığlaşır (dağ kaynağı); dağların içine kanyon oyulmaz
   const rd = distToPolyline(x, z, RIVER) * (1 + 0.25 * simplex.noise(x * 0.002 + 1, z * 0.002 + 2));
-  const rOuter = smoothstep(820, 300, rd);
+  const rt = smoothstep(6000, 10500, edge);
+  const wf = 1 - 0.75 * rt;
+  const rOuter = smoothstep(820 * wf, 300 * wf, rd) * (1 - rt);
   h = lerp(h, 6.5, rOuter);
-  const rInner = smoothstep(210, 105, rd);
-  h = lerp(h, -14, rInner);
+  const rInner = smoothstep(210 * wf, 105 * wf, rd) * (1 - smoothstep(9500, 10500, edge));
+  h = lerp(h, -14 + 18 * rt, rInner);
   return h;
 }
 
@@ -690,7 +696,7 @@ export class World {
   buildRoads() {
     const tex = this.track(makeRoadTexture(128, 256));
     tex.anisotropy = this.quality.anisotropy;
-    const mat = this.track(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+    const mat = this.track(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -3 }));
     const geos = [...ROADS, ...TOWN_STREETS].map((r) => this.roadGeometry(r.pts, r.w, 0.3, WATER_LEVEL + 9));
     const merged = this.track(mergeGeometries(geos.map((g) => (g.index ? g.toNonIndexed() : g)), false));
     geos.forEach((g) => g.dispose());
@@ -832,10 +838,13 @@ export class World {
     const asphalt = this.track(makeAsphaltTexture(512));
     const concrete = this.track(makeConcreteTexture(512));
     asphalt.anisotropy = q.anisotropy; concrete.anisotropy = q.anisotropy;
-    const asphaltMat = this.track(new THREE.MeshStandardMaterial({ map: asphalt, roughness: 0.92 }));
-    const concreteMat = this.track(new THREE.MeshStandardMaterial({ map: concrete, roughness: 0.85 }));
-    const whiteMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe6e6e0, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-    const yellowMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd8b52a, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    // Derinlik katmanlaması: arazi (0) < asfalt < beton < yollar < işaretler < pist numaraları.
+    // polygonOffset "units" pencere-derinlik çözünürlüğü cinsinden olduğundan her mesafede z-fighting'i keser
+    // (5–10 cm'lik fiziksel yükseklik farkları uzaktan çözülemez).
+    const asphaltMat = this.track(new THREE.MeshStandardMaterial({ map: asphalt, roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
+    const concreteMat = this.track(new THREE.MeshStandardMaterial({ map: concrete, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -3 }));
+    const whiteMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe6e6e0, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
+    const yellowMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd8b52a, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
     const base = new THREE.Group();
     base.name = 'airbase';
     const flat = (w, d, x, z, y, uvScale = 1) => {
@@ -855,14 +864,23 @@ export class World {
       flat(A.runwayLength + 60, tw, 0, A.taxiwayZ, 0.05, 18),
       flat(A.runwayLength + 60, tw, 0, A.taxiwayNorthZ, 0.05, 18),
       flat(1620, tw, 0, A.hasLaneZ, 0.05, 18),
-      flat(tw, -A.hasLaneZ + A.taxiwayNorthZ + 2, 0, (A.taxiwayNorthZ + A.hasLaneZ) / 2, 0.05, 18),
+      flat(tw, (A.taxiwayNorthZ - tw / 2) - (A.hasLaneZ + tw / 2), 0, ((A.taxiwayNorthZ - tw / 2) + (A.hasLaneZ + tw / 2)) / 2, 0.05, 18),
     ];
-    for (const lx of A.links) { const zEnd = Math.abs(lx) <= 725 ? A.apron.z0 + 2 : A.taxiwayZ; asphaltGeos.push(flat(tw, zEnd, lx, zEnd / 2, 0.05, 18)); }
-    for (const lx of A.linksNorth) asphaltGeos.push(flat(tw, -A.taxiwayNorthZ, lx, A.taxiwayNorthZ / 2, 0.05, 18));
+    // Bağlantı taksi yolları yalnızca pist kenarı ile taksi yolu kenarı arasında (çakışan eş düzlemli yüzey yok;
+    // apron kenarı taksi yolunun uzak kenarıyla çakışık olduğundan ek parça gerekmez)
+    const linkZ0 = W / 2, linkZ1 = A.taxiwayZ - tw / 2;
+    for (const lx of A.links) asphaltGeos.push(flat(tw, linkZ1 - linkZ0, lx, (linkZ0 + linkZ1) / 2, 0.05, 18));
+    const nZ0 = A.taxiwayNorthZ + tw / 2, nZ1 = -W / 2;
+    for (const lx of A.linksNorth) asphaltGeos.push(flat(tw, nZ1 - nZ0, lx, (nZ0 + nZ1) / 2, 0.05, 18));
     // Pist kenarı toprak sahalar (kırılma sahası)
     for (const side of [-1, 1]) asphaltGeos.push(flat(80, W, side * (L + 40), 0, 0.04, 18));
     // Üs iç yolları
-    asphaltGeos.push(flat(10, 480, -830, 810, 0.06, 20), flat(1720, 10, 0, 800, 0.06, 20), flat(10, 300, 830, 650, 0.06, 20), flat(10, 300, 0, 900, 0.06, 20), flat(240, 10, 1000, 500, 0.06, 20));
+    // (kesişimlerde çakışma olmaması için yollar parçalara bölünür; z=800 yolu tam geçer, dikey yollar ona kadar gelir)
+    asphaltGeos.push(flat(1720, 10, 0, 800, 0.06, 20));
+    asphaltGeos.push(flat(10, 235, -830, 687.5, 0.06, 20), flat(10, 245, -830, 927.5, 0.06, 20));   // batı yolu (z 570–795, 805–1050)
+    asphaltGeos.push(flat(10, 295, 830, 647.5, 0.06, 20));                                          // doğu yolu (z 500–795)
+    asphaltGeos.push(flat(10, 25, 0, 782.5, 0.06, 20), flat(10, 245, 0, 927.5, 0.06, 20));         // orta yol (beton bitişi 770'ten 795'e, 805–1050)
+    asphaltGeos.push(flat(240, 10, 1000, 500, 0.06, 20));
     const asphaltMesh = new THREE.Mesh(this.track(mergeGeometries(asphaltGeos, false)), asphaltMat);
     asphaltMesh.receiveShadow = q.shadows;
     base.add(asphaltMesh);
@@ -896,15 +914,15 @@ export class World {
     }
     for (let x = -L + 120; x < L - 120; x += 50) white.push(flat(30, 0.9, x + 15, 0, y));
     base.add(new THREE.Mesh(this.track(mergeGeometries(white, false)), whiteMat));
-    const numMat = (t) => this.track(new THREE.MeshBasicMaterial({ map: this.track(makeTextTexture(t, { w: 256, h: 256, font: 'bold 190px Arial', color: '#e8e8e2' })), transparent: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+    const numMat = (t) => this.track(new THREE.MeshBasicMaterial({ map: this.track(makeTextTexture(t, { w: 256, h: 256, font: 'bold 190px Arial', color: '#e8e8e2' })), transparent: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -8 }));
     const numGeo = this.track(new THREE.PlaneGeometry(18, 18));
     const n09 = new THREE.Mesh(numGeo, numMat('09')); n09.rotation.set(-Math.PI / 2, 0, -Math.PI / 2); n09.position.set(-L + 75, 0.1, 0); base.add(n09);
     const n27 = new THREE.Mesh(numGeo, numMat('27')); n27.rotation.set(-Math.PI / 2, 0, Math.PI / 2); n27.position.set(L - 75, 0.1, 0); base.add(n27);
 
     // Sarı taksi hatları ve park yerleri
     const yellow = [flat(A.runwayLength + 20, 0.35, 0, A.taxiwayZ, y), flat(A.runwayLength + 20, 0.35, 0, A.taxiwayNorthZ, y), flat(1600, 0.35, 0, A.hasLaneZ, y)];
-    for (const lx of A.links) { const zEnd = Math.abs(lx) <= 725 ? A.apron.z0 + 2 : A.taxiwayZ; yellow.push(flat(0.35, zEnd - 10, lx, zEnd / 2 + 5, y)); }
-    for (const lx of A.linksNorth) yellow.push(flat(0.35, -A.taxiwayNorthZ - 10, lx, A.taxiwayNorthZ / 2 - 5, y));
+    for (const lx of A.links) yellow.push(flat(0.35, linkZ1 - linkZ0 - 2, lx, (linkZ0 + linkZ1) / 2 + 1, y));
+    for (const lx of A.linksNorth) yellow.push(flat(0.35, nZ1 - nZ0 - 2, lx, (nZ0 + nZ1) / 2 - 1, y));
     yellow.push(flat(0.35, -A.hasLaneZ + A.taxiwayNorthZ, 0, (A.taxiwayNorthZ + A.hasLaneZ) / 2, y));
     yellow.push(flat(ap.x1 - ap.x0 - 40, 0.35, 0, 300, y));
     for (const p of A.parking) { yellow.push(flat(0.35, 40, p.x, p.z + 10, y + 0.01)); yellow.push(flat(24, 0.35, p.x, p.z - 6, y + 0.01)); }
@@ -916,7 +934,7 @@ export class World {
     const wallMat = this.track(new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.85, metalness: 0.0 }));
     const roofMat = this.track(new THREE.MeshStandardMaterial({ color: 0x6f757b, roughness: 0.9, metalness: 0.0 }));
     const doorTex = this.track(makeHangarDoorTexture(512, 256));
-    const doorMat = this.track(new THREE.MeshStandardMaterial({ map: doorTex, roughness: 0.8, metalness: 0.0 }));
+    const doorMat = this.track(new THREE.MeshStandardMaterial({ map: doorTex, roughness: 0.8, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
     const plainMat = this.track(new THREE.MeshStandardMaterial({ color: 0xb8b4aa, roughness: 0.9, metalness: 0.0 }));
     const hasMat = this.track(new THREE.MeshStandardMaterial({ color: 0x8e8c84, roughness: 0.95, metalness: 0.0 }));
     const hangarGeos = [], roofGeos = [], doorGeos = [], plainGeos = [], hasGeos = [];
@@ -977,10 +995,7 @@ export class World {
     const pole = new THREE.CylinderGeometry(0.12, 0.15, 8, 6); pole.translate(-1600, 4, 120); plainGeos.push(pole);
     const sock = new THREE.ConeGeometry(0.6, 3.2, 8); sock.rotateZ(-Math.PI / 2); sock.rotateY(0.4); sock.translate(-1598.5, 7.8, 120.6);
     base.add(new THREE.Mesh(this.track(sock), this.track(new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.9 }))));
-    // Nizamiye ve çevre duvarı parçaları
-    const gate = new THREE.BoxGeometry(12, 4, 6); gate.translate(-8, 2, A.gateZ); plainGeos.push(gate);
-    const gate2 = new THREE.BoxGeometry(12, 4, 6); gate2.translate(8, 2, A.gateZ); plainGeos.push(gate2);
-    const gateRoof = new THREE.BoxGeometry(36, 0.5, 8); gateRoof.translate(0, 5, A.gateZ); plainGeos.push(gateRoof);
+    // (Nizamiye buildBaseDetails içinde: nöbetçi kulübesi, sundurma, bariyerler)
     // Depolar (üs)
     for (const [x, z, w, d, h] of [[-1100, 620, 40, 20, 7], [-1160, 620, 40, 20, 7], [-1100, 660, 40, 20, 7], [1180, 420, 30, 18, 6], [1180, 470, 30, 18, 6]]) {
       const g = new THREE.BoxGeometry(w, h, d); g.translate(x, h / 2, z); plainGeos.push(g);
@@ -1179,7 +1194,7 @@ export class World {
     }
     // --- Çevre yolu (çit içinde) ve servis yolları
     const roadTex = this.track(makeRoadTexture(128, 256)); roadTex.anisotropy = q.anisotropy;
-    const roadMat = this.track(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+    const roadMat = this.track(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }));
     const inset = 14;
     const perim = [[F.x0 + inset, F.z1 - inset], [F.x0 + inset, F.z0 + inset], [F.x1 - inset, F.z0 + inset], [F.x1 - inset, F.z1 - inset], [F.x0 + inset, F.z1 - inset]];
     const roadGeos = [this.roadGeometry(perim, 6, 0.28)];
@@ -1216,7 +1231,7 @@ export class World {
     building(1500, 860, 40, 18, 6, 0, 'plain');        // depo
     building(1600, 700, 24, 12, 5, 0, 'plain');        // araç bakım
     // Bakım atölyesi kapıları (koyu dikdörtgenler)
-    const doorMat = this.track(new THREE.MeshStandardMaterial({ color: 0x3b4046, roughness: 0.8 }));
+    const doorMat = this.track(new THREE.MeshStandardMaterial({ color: 0x3b4046, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
     const doorGeos = [];
     for (const [x, z] of [[-820, 853], [-780, 893]]) { const d = new THREE.PlaneGeometry(8, 5); d.translate(x, 2.5, z + 0.01); doorGeos.push(d); }
     grp.add(new THREE.Mesh(this.track(mergeGeometries([...doorGeos, ...gateSigns], false)), doorMat));
@@ -1262,7 +1277,7 @@ export class World {
     for (const lx of A.links) for (const z of [A.taxiwayZ - 20, 32]) { const sg = new THREE.BoxGeometry(1.4, 0.7, 0.2); sg.translate(lx + 16, 0.5, z); signGeos.push(ni(sg)); }
     for (const lx of A.linksNorth) { const sg = new THREE.BoxGeometry(1.4, 0.7, 0.2); sg.translate(lx + 16, 0.5, -32); signGeos.push(ni(sg)); }
     grp.add(new THREE.Mesh(this.track(mergeGeometries(signGeos, false)), signMat));
-    const holdMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd8b52a, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const holdMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd8b52a, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -7 }));
     const holdGeos = [];
     const flatY = (w, d, x, z) => { const g = new THREE.PlaneGeometry(w, d); g.rotateX(-Math.PI / 2); g.translate(x, 0.1, z); return g; };
     for (const lx of A.links) { holdGeos.push(flatY(A.taxiwayWidth, 0.3, lx, 40)); holdGeos.push(flatY(A.taxiwayWidth, 0.3, lx, 41.2)); }
@@ -1337,11 +1352,11 @@ export class World {
     place(humvee, humvees); place(truck, trucks); place(tanker, tankers); place(fire, fires); place(gpu, gpus); place(container, containers); place(containerTan, containersTan);
 
     // --- Otoparklar (asfalt) ve aydınlatma direkleri
-    const asph = this.track(new THREE.MeshStandardMaterial({ color: 0x3a3c3f, roughness: 0.95 }));
+    const asph = this.track(new THREE.MeshStandardMaterial({ color: 0x3a3c3f, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }));
     const lotGeos = [];
     for (const [x, z, w, d] of [[A.hq.x - 40, 484, 70, 24], [-1250, 885, 40, 22], [1480, 905, 60, 20], [-300, 1000 + 8, 60, 16]]) lotGeos.push(flatY(w, d, x, z));
     grp.add(new THREE.Mesh(this.track(mergeGeometries(lotGeos, false)), asph));
-    const lotMarkMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe6e6e0, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+    const lotMarkMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe6e6e0, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -7 }));
     const lotMarkGeos = [];
     for (const [x, z, w, d] of [[A.hq.x - 40, 484, 70, 24], [-1250, 885, 40, 22], [1480, 905, 60, 20], [-300, 1000 + 8, 60, 16]]) {
       for (let sx = -w / 2 + 2; sx <= w / 2 - 2; sx += 2.7) { lotMarkGeos.push(flatY(0.12, d * 0.42, x + sx, z - d * 0.27)); lotMarkGeos.push(flatY(0.12, d * 0.42, x + sx, z + d * 0.27)); }
@@ -1410,8 +1425,21 @@ export class World {
   update(dt, camera, aircraftPos) {
     this.time += dt;
     this.sky.position.copy(camera.position);
-    this.sun.target.position.copy(aircraftPos);
-    this.sun.position.copy(aircraftPos).addScaledVector(this.sunDir, 600);
+    // Gölge kamerası: hedefi ışık uzayında doku hücresi (texel) ızgarasına yuvarla -> düz yüzeylerde gölge "yüzmesi" olmaz
+    const target = this._shadowTarget || (this._shadowTarget = new THREE.Vector3());
+    target.copy(aircraftPos);
+    if (this.sun.castShadow) {
+      const cam = this.sun.shadow.camera;
+      const texel = (cam.right - cam.left) / this.sun.shadow.mapSize.width;
+      const m = this._lightBasis || (this._lightBasis = new THREE.Matrix4().lookAt(new THREE.Vector3(), this.sunDir.clone().negate(), new THREE.Vector3(0, 1, 0)));
+      const inv = this._lightBasisInv || (this._lightBasisInv = m.clone().invert());
+      target.applyMatrix4(inv);
+      target.x = Math.round(target.x / texel) * texel;
+      target.y = Math.round(target.y / texel) * texel;
+      target.applyMatrix4(m);
+    }
+    this.sun.target.position.copy(target);
+    this.sun.position.copy(target).addScaledVector(this.sunDir, 600);
     this.sun.target.updateMatrixWorld();
     const cx = camera.position.x, cz = camera.position.z;
     // Ağaç parçaları
