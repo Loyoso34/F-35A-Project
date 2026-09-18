@@ -196,6 +196,13 @@ export class Controls {
     if (!hud) return;
     hud.addEventListener('pointerdown', (e) => {
       if (!this.enabled) return;
+      // Çift dokunuş: bakışı ileri toparla. Mobilde kokpitte etrafa bakındıktan sonra
+      // hızlıca öne dönmenin en doğal yolu.
+      const now = performance.now();
+      if (this.viewPointers.size === 0 && now - (this._lastViewTap || 0) < 300) {
+        this.cb.onViewRecenter && this.cb.onViewRecenter();
+      }
+      this._lastViewTap = now;
       this.viewPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       hud.setPointerCapture && hud.setPointerCapture(e.pointerId);
       if (this.viewPointers.size === 2) {
@@ -238,6 +245,7 @@ export class Controls {
         case 'KeyM': this.cb.onSound && this.cb.onSound(); break;
         case 'KeyL': this.cb.onLights && this.cb.onLights(); break;
         case 'KeyV': this.cb.onSpoilers && this.cb.onSpoilers(); break;
+        case 'KeyR': this.cb.onViewRecenter && this.cb.onViewRecenter(); break;   // bakışı ortala
         case 'KeyP': case 'Escape': this.cb.onPause && this.cb.onPause(); break;
         // Shift+D: geliştirici fizik paneli (§40). Normal oyunda kapalı.
         case 'KeyD': if (e.shiftKey) this.cb.onPhysDebug && this.cb.onPhysDebug(); break;

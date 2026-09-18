@@ -38,7 +38,7 @@ class App {
 
   async init() {
     const ui = this.ui;
-    ui.setLoading('Grafik başlatılıyor…', 0.05);
+    ui.setLoading('Starting graphics…', 0.05);
     await this.nextFrame();
     this.setupRenderer();
     this.scene = new THREE.Scene();
@@ -46,7 +46,7 @@ class App {
     this.camera.layers.enable(LAYER_TREES);
     this.scene.add(this.camera);
 
-    ui.setLoading('Arazi ve hava üssü oluşturuluyor…', 0.2);
+    ui.setLoading('Building terrain and airports…', 0.2);
     await this.nextFrame();
     this.world = new World(this.scene, this.renderer, this.settings.quality);
 
@@ -72,24 +72,25 @@ class App {
       onMenuActivity: () => this.ui.menuActivity(),
       onViewDrag: (dx, dy) => this.cameraRig.drag(dx, dy),
       onViewPinch: (f) => this.cameraRig.zoom(f),
+      onViewRecenter: () => this.cameraRig.recenterLook(),
     });
     this.bindUI();
     this.bindSystem();
     this.onResize();
     this.applySettingsToUI();
 
-    ui.setLoading('Uçak önizlemeleri hazırlanıyor…', 0.85);
+    ui.setLoading('Preparing aircraft previews…', 0.85);
     await this.nextFrame();
     await this.buildThumbnails();
     this.updateSelectCamera(0);
     this.world.update(0, this.camera, this.camera.position);
 
-    ui.setLoading('Hazır', 1);
+    ui.setLoading('Ready', 1);
     await this.nextFrame();
     ui.hide('loading');
     this.buildSelectGrid();
     this.showSelect();
-    if (isIOS() && !isStandalone()) ui.el.selHint.textContent = 'iPhone: Paylaş → Ana Ekrana Ekle ile tam ekran oynayın.';
+    if (isIOS() && !isStandalone()) ui.el.selHint.textContent = 'iPhone: use Share → Add to Home Screen to play full screen.';
     this.registerSW();
     this.checkOrientation();
     this.lastTime = performance.now();
@@ -134,7 +135,7 @@ class App {
       this.scene.environment = this.envMap;
       this.scene.environmentIntensity = 0.55;
     } catch (e) {
-      console.warn('Ortam haritası oluşturulamadı', e);
+      console.warn('Could not build the environment map', e);
     }
   }
 
@@ -153,13 +154,13 @@ class App {
     ui.bindSeg(el.tiltSeg, 't', async (v) => {
       const on = v === '1';
       const ok = await this.controls.setTiltEnabled(on);
-      if (on && !ok) { ui.setSeg(el.tiltSeg, 't', 0); ui.message('Eğim izni verilmedi'); this.settings.tilt = 0; }
+      if (on && !ok) { ui.setSeg(el.tiltSeg, 't', 0); ui.message('Tilt permission denied'); this.settings.tilt = 0; }
       else this.settings.tilt = on ? 1 : 0;
       saveSettings(this.settings);
     });
     ui.bindSeg(el.soundSeg, 's', (v) => { this.settings.sound = v === '1' ? 1 : 0; saveSettings(this.settings); this.applySound(); });
     ui.bindSeg(el.fpsSeg, 'f', (v) => { this.settings.fps = v === '1' ? 1 : 0; saveSettings(this.settings); el.fps.textContent = ''; });
-    el.btnCalibrate.addEventListener('click', () => { this.controls.calibrate(); ui.message('Eğim kalibre edildi'); });
+    el.btnCalibrate.addEventListener('click', () => { this.controls.calibrate(); ui.message('Tilt calibrated'); });
   }
   applySettingsToUI() {
     const ui = this.ui, el = ui.el;
@@ -264,7 +265,7 @@ class App {
       info.querySelector('.ac-sub').textContent = cfg.sub;
       for (const t of cfg.specs) { const sp = document.createElement('span'); sp.textContent = t; info.querySelector('.ac-specs').appendChild(sp); }
       const go = document.createElement('span');
-      go.className = 'ac-go'; go.textContent = 'UÇ →';
+      go.className = 'ac-go'; go.textContent = 'FLY →';
       card.append(cv, info, go);
       card.addEventListener('click', () => this.pickAircraft(id));
       grid.appendChild(card);
@@ -340,7 +341,7 @@ class App {
         const cv = document.getElementById('thumb-' + id);
         if (cv) cv.getContext('2d').putImageData(img, 0, 0);
       } catch (e) {
-        console.warn('önizleme oluşturulamadı', id, e);
+        console.warn('preview could not be generated', id, e);
       } finally {
         if (ac) { scene.remove(ac.group); ac.dispose(); }
       }
@@ -374,7 +375,7 @@ class App {
       const cfg = getAircraftConfig(id);
       this.ui.hide('select');
       if (this.aircraftId !== id || !this.aircraft) {
-        this.ui.setLoading(cfg.name + ' hazırlanıyor…', 0.35);
+        this.ui.setLoading(cfg.name + ' loading…', 0.35);
         this.ui.show('loading');
         await this.nextFrame(); await this.nextFrame();
         this.installAircraft(id);
@@ -494,16 +495,16 @@ class App {
     this.lastTime = performance.now();
     this.accumulator = 0;
     this.syncAircraft(0);
-    this.ui.message('Pist 09 eşiği – fren açık, motor rölanti');
+    this.ui.message('Runway 09 threshold — brakes set, engines at idle');
   }
   toggleGear() {
     if (this.state !== 'running') return;
     if (!this.physics.toggleGear()) {
-      this.ui.message('İniş takımı yerde kilitli (ağırlık tekerde)', 1800);
+      this.ui.message('Landing gear locked on ground (weight on wheels)', 1800);
       return;
     }
     this.updateToggleButtons();
-    this.ui.message(this.physics.gearCmd ? 'İniş takımı açılıyor' : 'İniş takımı kapanıyor', 1500);
+    this.ui.message(this.physics.gearCmd ? 'Landing gear extending' : 'Landing gear retracting', 1500);
   }
   toggleFlaps() {
     if (this.state !== 'running') return;
@@ -531,14 +532,14 @@ class App {
     if (!this.physics.sys.spoilers) return;
     this.physics.toggleSpoilers();
     this.updateToggleButtons();
-    this.ui.message(this.physics.spoilerCmd ? 'Hız frenleri açık' : 'Hız frenleri kapalı', 1100);
+    this.ui.message(this.physics.spoilerCmd ? 'Speed brakes extended' : 'Speed brakes retracted', 1100);
   }
   toggleLights() {
     if (this.state !== 'running') return;
     this.lightsOn = !this.lightsOn;
     this.aircraft.setLandingLights(this.lightsOn);
     this.ui.setToggle(this.ui.el.btnLights, this.lightsOn);
-    this.ui.message(this.lightsOn ? 'İniş ışıkları açık' : 'İniş ışıkları kapalı', 1200);
+    this.ui.message(this.lightsOn ? 'Landing lights on' : 'Landing lights off', 1200);
   }
   cycleCamera() {
     this.cameraRig.next();
@@ -558,7 +559,7 @@ class App {
     const wasRunning = this.state === 'running';
     if (wasRunning) this.pause();
     this.ui.hide('settings'); this.ui.hide('pause');
-    this.ui.setLoading('Kalite değiştiriliyor…', 0.3);
+    this.ui.setLoading('Applying quality setting…', 0.3);
     this.ui.show('loading');
     await this.nextFrame(); await this.nextFrame();
     const preset = QUALITY_PRESETS[q];
@@ -599,14 +600,14 @@ class App {
         if (!ctrl) return;
         const ch = new MessageChannel();
         ch.port1.onmessage = (e) => {
-          if (e.data && e.data.version && e.data.version !== APP_VERSION) this.ui.el.version.textContent = APP_VERSION + ' (önbellek ' + e.data.version + ')';
+          if (e.data && e.data.version && e.data.version !== APP_VERSION) this.ui.el.version.textContent = APP_VERSION + ' (cache ' + e.data.version + ')';
         };
         ctrl.postMessage({ type: 'GET_VERSION' }, [ch.port2]);
       };
       if (navigator.serviceWorker.controller) ask(); else navigator.serviceWorker.addEventListener('controllerchange', ask, { once: true });
       // Periyodik güncelleme denetimi
       setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
-    }).catch((err) => console.warn('SW kaydı başarısız', err));
+    }).catch((err) => console.warn('Service worker registration failed', err));
   }
 
   // ---- Döngü ----
@@ -620,7 +621,7 @@ class App {
     const el = document.getElementById('physdbg');
     if (el) el.hidden = !this.physDebug;
     if (!this.physDebug && el) el.textContent = '';
-    this.ui.message(this.physDebug ? 'Fizik paneli açık (Shift+D)' : 'Fizik paneli kapalı');
+    this.ui.message(this.physDebug ? 'Physics panel on (Shift+D)' : 'Physics panel off');
   }
 
   drawPhysDebug() {
@@ -650,7 +651,7 @@ class App {
     L.push(`       pMax ${n(f.pMax * DEGR, 0)}°/s  nHedef ${n(f.nTarget)}  nMevcut ${n(f.nAvail)}`);
     L.push(`       αKomut ${n(f.aCmd * DEGR, 1)}°  g-harman ${n(f.wG)}  yetki ${n(f.auth)}`);
     L.push(`<b>AERO</b>  ayrılma ${n(d.sepFrac)}  kuyrukEtk ${n(d.tailEff)}  CLmax ${n(d.CLmaxCfg)}`);
-    L.push(`       αtrim ${n(d.alphaTrim * DEGR, 1)}°  yerde ${p.onGround ? 'evet' : 'hayır'}  kırpma ${d.rateClamped ? 'EVET' : 'hayır'}`);
+    L.push(`       αtrim ${n(d.alphaTrim * DEGR, 1)}°  yerde ${p.onGround ? 'yes' : 'no'}  kırpma ${d.rateClamped ? 'YES' : 'no'}`);
     el.innerHTML = L.join('\n');
   }
 
@@ -761,8 +762,8 @@ class App {
     if (this.settings.fps) {
       this.frameCount++; this.fpsTime += dt;
       if (this.fpsTime >= 0.5) {
-        const sc = this.renderScale < 0.999 ? ' · ölçek %' + Math.round(this.renderScale * 100) : '';
-        this.ui.el.fps.textContent = Math.round(this.frameCount / this.fpsTime) + '/' + this.targetFps + ' fps' + sc + ' · ' + this.renderer.info.render.calls + ' çizim';
+        const sc = this.renderScale < 0.999 ? ' · scale ' + Math.round(this.renderScale * 100) : '';
+        this.ui.el.fps.textContent = Math.round(this.frameCount / this.fpsTime) + '/' + this.targetFps + ' fps' + sc + ' · ' + this.renderer.info.render.calls + ' draws';
         this.frameCount = 0; this.fpsTime = 0;
       }
     }

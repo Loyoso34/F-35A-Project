@@ -1,4 +1,4 @@
-# Uçuş Simülatörü — F-35A Lightning II & Airbus A321neo (PWA)
+# FFS — Flight Simulator (F-35A Lightning II & Airbus A321neo, PWA)
 
 iPhone Safari (iOS 17+), Android Chrome ve masaüstü tarayıcılarda çalışan, ana ekrana eklenebilen (PWA) bir uçuş simülatörü. Derleme adımı yoktur; yalnızca statik dosyalardan oluşur ve Three.js CDN üzerinden sabit sürümle yüklenir.
 
@@ -37,6 +37,22 @@ icons/                  Ana ekran ikonları (tools/make_icons.py ile üretilir)
 tools/make_icons.py     İkon üretici (yalnızca Python standart kütüphanesi)
 .nojekyll               GitHub Pages'in dosyaları olduğu gibi sunması için
 ```
+
+## Kameralar
+
+Oyun **serbest kamerayla** başlar; kokpitte başlamaz. Kamera sırası:
+
+```
+Free Camera -> Cockpit -> Chase -> Flyby -> Left Wing -> Right Wing -> Landing Gear
+```
+
+- **Free Camera**: uçağın çevresinde sınırsız yatay dönüş, alttan ve üstten bakış
+  (−66°..+80°), 14–600 m arası yumuşak yakınlaştırma. Sabit bir takip kamerası değildir.
+- **Cockpit**: gerçek pilot göz noktası. **Serbest bakış** vardır — sağa/sola ±145°,
+  yukarı +78°, aşağı −72°. Çift dokunuş veya **R** bakışı ileri toplar.
+- Tüm bakış girdileri bir HEDEFE yazılır, kamera hedefe üstel olarak yaklaşır. Parmak
+  kalkınca hedef sabitlenir ve hareket temiz biçimde durur: atalet ya da sıçrama yoktur.
+- Hız ve irtifa şeridi **her** kamerada çizilir, yalnızca kokpitte değil.
 
 ## Uçuş modeli mimarisi
 

@@ -72,12 +72,12 @@ const TOWN2 = { x: 21200, z: -13600, r: 1050 };
 // havaalanı döndürülebilir ve tüm sorgular (yüzey tipi, düzleştirme) tek kod yolundan geçer.
 export const AIRPORTS = [
   {
-    id: 'base', name: 'Anadolu Hava Üssü', sub: 'Askeri üs', kind: 'military',
+    id: 'base', name: 'Anadolu Air Base', sub: 'Military base', kind: 'military',
     x: 0, z: 0, hdg: 90, elev: 0, halfX: 4600, halfZ: 1500, fade: 2400,
     rwy: { len: 3000, w: 45 }, marks: ['09', '27'],
   },
   {
-    id: 'civil', name: 'Yeşilova Havalimanı', sub: 'Sivil havalimanı', kind: 'civil',
+    id: 'civil', name: 'Yesilova Airport', sub: 'Civil airport', kind: 'civil',
     x: 24000, z: -10000, hdg: 120, elev: 185, halfX: 2900, halfZ: 1250, fade: 2600,
     rwy: { len: 3400, w: 45 }, marks: ['12', '30'],
   },
@@ -85,8 +85,8 @@ export const AIRPORTS = [
 export const AIRPORT_BY_ID = Object.fromEntries(AIRPORTS.map((a) => [a.id, a]));
 // Kalkış noktaları: pist başında, pist yönüne dönük. Seçim ekranı bu listeden beslenir.
 export const SPAWNS = [
-  { id: 'base', airport: 'base', name: 'Anadolu Hava Üssü', sub: 'Askeri üs · Pist 09/27 · 3000 m', lx: -1400, lz: 0, hdg: 90 },
-  { id: 'civil', airport: 'civil', name: 'Yeşilova Havalimanı', sub: 'Sivil · Pist 12/30 · 3400 m · 185 m', lx: -1600, lz: 0, hdg: 120 },
+  { id: 'base', airport: 'base', name: 'Anadolu Air Base', sub: 'Military base · Runway 09/27 · 3000 m', lx: -1400, lz: 0, hdg: 90 },
+  { id: 'civil', airport: 'civil', name: 'Yesilova Airport', sub: 'Civil · Runway 12/30 · 3400 m · elev 185 m', lx: -1600, lz: 0, hdg: 120 },
 ];
 for (const a of AIRPORTS) { const r = a.hdg * Math.PI / 180; a.cos = Math.cos(r); a.sin = Math.sin(r); }
 // Dünya -> havaalanı yerel koordinatı. hdg=90 için birim dönüşüm (lx = x, lz = z).
@@ -1617,7 +1617,7 @@ export class World {
       for (const p of all) this.buildingBoxes.push({ minX: p.x - 6, maxX: p.x + 6, minZ: p.z - 8, maxZ: p.z + 8, minY: 0, maxY: 4.5 });
       this.parkedCount = mats.length;
     } catch (e) {
-      console.warn('Park halindeki uçaklar oluşturulamadı', e);
+      console.warn('Could not build parked aircraft', e);
     }
 
     // Araçlar (basit kutular)

@@ -11,29 +11,72 @@ export const A321 = {
   cgStation: 20.6,
   wheelBottomY: -4.35,
   noseGearZ: 5.1 - 20.6, mainGearZ: 23.5 - 20.6, mainGearX: 3.8,
-  pilotEye: new THREE.Vector3(-0.44, 0.92, 4.9 - 20.6),
+  // Göz noktası: kokpit zemininin ~1,34 m, glareshield tepesinin ~0,16 m üstünde;
+  // yanal olarak kaptan koltuğu hizasında (-0,44 m). Ön cam bandının üst üçte birinde durur.
+  pilotEye: new THREE.Vector3(-0.44, 0.98, 4.9 - 20.6),
 };
 const st = (s) => s - A321.cgStation;
 
 // Gövde kesitleri: [istasyon, yarı genişlik, üst y, alt y].
 // Kesit merkezi (yt+yb)/2'dir; böylece burun aşağı doğru kamburlanabilir (A320 ailesinin
 // düşük radom ekseni). Radom ayrı bir küre değil, bu tablonun ilk parçasının loft'udur.
+// A320 ailesinin ayırt edici özelliği DÜŞÜK (sarkık) burun eksenidir: radom ucu
+// kabin ekseninin ~1,1 m ALTINDADIR. Önceki tabloda uç yalnızca 0,53 m aşağıdaydı,
+// bu yüzden kesit merkezi neredeyse sabit kalıyor ve burun simetrik bir MERMİ/balon
+// gibi görünüyordu (kullanıcının "çok yuvarlak, jenerik" tarifi). Artık:
+//   - kesit merkezi c(s) uçta -1,125'ten kabinde -0,035'e yükselir (gerçek sarkma),
+//   - ALT hat neredeyse düz (yb -1,30 -> -2,02: 3,5 m'de yalnızca 0,72 m),
+//   - ÜST hat dik iner (yt -0,95 -> +1,38: aynı mesafede 2,33 m),
+// yani yandan bakıldığında burun A320'nin karakteristik "aşağı bakan" siluetini alır.
+// Kesitler dairesele yakın (h/2 ≈ w), çünkü A320 ön gövdesi dairesel kesitlidir.
 const SECTIONS = [
-  [0.00, 0.050, -0.46, -0.66],   // radom ucu: gövde ekseninin ~0,56 m altında
-  [0.35, 0.330, -0.11, -0.97],
-  [0.80, 0.640, 0.26, -1.28],
-  [1.40, 0.960, 0.66, -1.55],
-  [2.10, 1.250, 1.02, -1.74],
-  [2.85, 1.490, 1.34, -1.87],   // radom kökü / basınç perdesi
-  [3.60, 1.680, 1.57, -1.94],   // ön cam tabanı
-  [4.50, 1.820, 1.78, -2.00],   // kokpit tavanı
-  [5.60, 1.930, 1.91, -2.04],
+  [0.00, 0.085, -1.045, -1.215], // radom ucu — kabin ekseninin ~1,13 m altında.
+                                 // Yarı genişlik ≈ yarı yükseklik: uç YUVARLAK bir kapak,
+                                 // sıfır genişlikli bir yarık değil (yarıkta gölgeleme bozuluyordu).
+  [0.16, 0.205, -0.900, -1.410],
+  [0.35, 0.360, -0.700, -1.560],
+  [0.65, 0.600, -0.330, -1.680],
+  [1.05, 0.850, -0.02, -1.79],
+  [1.50, 1.070, 0.30, -1.87],
+  [2.00, 1.270, 0.62, -1.93],
+  [2.50, 1.440, 0.90, -1.97],
+  [3.05, 1.590, 1.17, -2.00],   // radom kökü / basınç perdesi
+  [3.55, 1.700, 1.38, -2.02],   // ön cam tabanı
+  [4.20, 1.800, 1.58, -2.04],
+  [4.90, 1.870, 1.73, -2.05],   // pilot göz istasyonu
+  [5.70, 1.925, 1.85, -2.06],
   [6.80, 1.975, 1.99, -2.06], [12.0, 1.975, 1.99, -2.06],
   [20.0, 1.975, 1.99, -2.06], [28.0, 1.975, 1.99, -2.06], [33.0, 1.97, 1.99, -2.04],
   [35.5, 1.90, 2.03, -1.86], [38.0, 1.66, 2.16, -1.38], [40.5, 1.30, 2.30, -0.76],
   [42.5, 0.88, 2.40, -0.18], [43.8, 0.48, 2.44, 0.30], [44.51, 0.10, 2.42, 0.72],
 ];
-const RADOME_END = 5;            // SECTIONS içinde radom loft'unun bittiği indeks (istasyon 2,85)
+// Kokpit camları — [s0, s1, v0ön, v1ön, v0arka, v1arka]; v: 0 kesit tepesi, 1 kesit altı.
+// Bant öne doğru DERİNLEŞİR: ön cam en yüksek, arka çeyrek pencere en alçak. Gerçek
+// A320'de ayırt edici olan tam da bu daralma ve alt kenarın eğimidir.
+// Modül düzeyindedir çünkü hem DIŞ cam panelleri hem KOKPİT KABUĞUNDAKİ açıklıklar
+// bu tek tablodan üretilir; ikisi asla birbirinden kayamaz.
+// v değerleri PİLOT GÖZ NOKTASINDAN ölçülen görüş açısına göre seçildi: ön camın üst
+// kenarı göz hizasının ~18° ÜSTÜNDE, alt kenarı ~24° ALTINDA kalır. Önceki değerlerde
+// bant çok aşağıdaydı (-41°..+8°): pilot çoğunlukla üst çerçeveye bakıyor, dışarıyı
+// ince bir yarıktan görüyordu.
+export const COCKPIT_WINDOWS = [
+  [2.98, 3.88, 0.034, 0.291, 0.042, 0.278],   // No.1 ön cam (büyük, dik eğimli)
+  [3.95, 4.54, 0.046, 0.274, 0.056, 0.262],   // No.2 ön cam
+  [4.62, 5.16, 0.070, 0.254, 0.088, 0.240],   // DV penceresi (açılabilir)
+  [5.24, 5.70, 0.104, 0.231, 0.124, 0.216],   // arka çeyrek pencere
+];
+// Bir (istasyon, v) noktası herhangi bir camın içine düşüyor mu? Kabuk açıklıkları için.
+function inWindow(sv, v, pad = 0) {
+  for (const [a, b, v0, v1, v0b, v1b] of COCKPIT_WINDOWS) {
+    if (sv < a - pad || sv > b + pad) continue;
+    const f = (sv - a) / Math.max(1e-6, b - a);
+    const top = v0 + (v0b - v0) * f, bot = v1 + (v1b - v1) * f;
+    if (v >= top - pad && v <= bot + pad) return true;
+  }
+  return false;
+}
+
+const RADOME_END = 7;            // radom derzi istasyon 2,50 — ön camın belirgin biçimde önünde
 const NS = 15;                                    // kesit başına nokta (tam halka = 2*NS)
 const SE = 2.15;                                  // süperelips üssü (dolgun yuvarlak kesit)
 function ring(sec) {
@@ -131,7 +174,7 @@ export class A321neo {
       paint: this.track(new THREE.MeshStandardMaterial({ color: 0xf2f4f6, roughness: 0.42, metalness: 0.06, envMapIntensity: 0.9 })),
       belly: this.track(new THREE.MeshStandardMaterial({ color: 0xb2b8be, roughness: 0.55, metalness: 0.1 })),
       // Radom: kompozit, mat ve gövdeden bir tık koyu — ayrı bir top değil, gövdenin devamı
-      radome: this.track(new THREE.MeshStandardMaterial({ color: 0xa8aeb4, roughness: 0.72, metalness: 0.04, envMapIntensity: 0.5 })),
+      radome: this.track(new THREE.MeshStandardMaterial({ color: 0xdcdfe2, roughness: 0.66, metalness: 0.04, envMapIntensity: 0.5 })),
       accent: this.track(new THREE.MeshStandardMaterial({ color: 0x1b3a6b, roughness: 0.4, metalness: 0.1 })),
       metal: this.track(new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.35, metalness: 0.85, envMapIntensity: 1.0 })),
       dark: this.track(new THREE.MeshStandardMaterial({ color: 0x1a1d21, roughness: 0.8, metalness: 0.2 })),
@@ -461,10 +504,17 @@ export class A321neo {
     const m = this.m;
     // Yüzeyi izleyen çıkartma paneli: gövde eğrisine oturur, aynalanan tarafta sarım çevrilir.
     // Cam, kapı, çerçeve ve kargo kapakları aynı yardımcıyı kullanır.
-    const surfPanel = (side, s0, s1, v0, v1, lift, into, cols = 4, rows = 4) => {
+    // v0b/v1b verilirse panel (istasyon, v) uzayında bir YAMUK olur: ön ve arka kenarın
+    // v aralıkları farklı olabilir. A320 kokpit camları buna ihtiyaç duyar — ön cam
+    // arkadaki yan camlardan belirgin biçimde DAHA YÜKSEKTİR ve alt kenar öne doğru
+    // aşağı iner. Dikdörtgen panellerle bant "otobüs camı" gibi düz görünüyordu.
+    const surfPanel = (side, s0, s1, v0, v1, lift, into, cols = 4, rows = 4, v0b = null, v1b = null) => {
       const pos = [], idx = [];
+      const va = v0b === null ? v0 : v0b, vb = v1b === null ? v1 : v1b;
       for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
-        const p = surfacePoint(s0 + (s1 - s0) * (i / cols), v0 + (v1 - v0) * (j / rows));
+        const fi = i / cols;
+        const vt = v0 + (va - v0) * fi, vBot = v1 + (vb - v1) * fi;
+        const p = surfacePoint(s0 + (s1 - s0) * fi, vt + (vBot - vt) * (j / rows));
         pos.push(side * p.x * lift, p.y * lift, p.z);
       }
       for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
@@ -480,20 +530,22 @@ export class A321neo {
     // Kokpit camları: A320 ailesinin altı pencereli düzeni — iki ön cam, açılabilir DV penceresi
     // ve arka yan pencere. Her camın arkasında koyu bir çerçeve paneli var (cam direkleri).
     const winGeos = [], winFrameGeos = [];
-    const WINDOWS = [
-      [2.92, 3.62, 0.150, 0.352],   // ön cam (iç pano)
-      [3.70, 4.30, 0.163, 0.355],   // ön cam (dış pano)
-      [4.40, 5.02, 0.193, 0.350],   // DV penceresi (açılabilir)
-      [5.12, 5.66, 0.214, 0.344],   // arka yan pencere
-    ];
-    for (const side of [-1, 1]) for (const [a, b, v0, v1] of WINDOWS) {
-      surfPanel(side, a, b, v0, v1, 1.0045, winGeos, 3, 3);
-      surfPanel(side, a - 0.085, b + 0.085, v0 - 0.020, v1 + 0.020, 1.0025, winFrameGeos, 3, 3);
+    // [s0, s1, v0ön, v1ön, v0arka, v1arka] — v: 0 kesit tepesi, 1 kesit altı.
+    // Bant öne doğru DERİNLEŞİR: ön cam en yüksek, arka çeyrek pencere en alçak.
+    // Gerçek A320'de ayırt edici olan tam da bu daralma ve alt kenarın eğimidir.
+    for (const side of [-1, 1]) for (const [a, b, v0, v1, v0b, v1b] of COCKPIT_WINDOWS) {
+      surfPanel(side, a, b, v0, v1, 1.0045, winGeos, 4, 4, v0b, v1b);
+      surfPanel(side, a - 0.10, b + 0.10, v0 - 0.026, v1 + 0.026, 1.0025, winFrameGeos, 4, 4, v0b - 0.026, v1b + 0.026);
     }
     const frameMat = this.track(new THREE.MeshStandardMaterial({ color: 0x2a2f35, roughness: 0.55, metalness: 0.2, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 }));
     this.group.add(new THREE.Mesh(this.track(mergeGeometries(winFrameGeos, false)), frameMat));
     const glassMat = this.track(new THREE.MeshPhysicalMaterial({ color: 0x0c1218, roughness: 0.06, metalness: 0.5, clearcoat: 1, envMapIntensity: 1.3, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -10 }));
-    this.group.add(new THREE.Mesh(this.track(mergeGeometries(winGeos, false)), glassMat));
+    // Kokpit camı DIŞARIDAN koyu ve yansımalı görünür (opak malzeme). Bu yüzden
+    // KOKPİT GÖRÜNÜMÜNDE gizlenir: aksi halde pilot koyu cama bakar ve dışarısı
+    // tamamen kararır. Çerçeveler görünür kalır, böylece ön cam yapısı yerinde durur.
+    const glassMesh = new THREE.Mesh(this.track(mergeGeometries(winGeos, false)), glassMat);
+    this.group.add(glassMesh);
+    this.parts.cockpitGlass = glassMesh;
     // Kapılar, acil çıkışlar, kargo kapakları (ince çerçeveli çıkartmalar)
     // Kapı gövdesi gövdeden bir tık farklı tonda, çerçevesi belirgin koyu: uzaktan da okunur
     // Çift yüzlü: bu ince çıkartmalarda sarım yönüne bağımlılık kalmasın (aynalanan tarafta kaybolmasın)
@@ -541,20 +593,83 @@ export class A321neo {
     const m = this.m;
     const g = new THREE.Group();
     const Z = (s) => st(s);
+    // Kokpit İÇ DONANIMI ayrı bir grupta ve 0,48 m aşağıda durur.
+    // Önceden pilot göz noktası (y=0,92) glareshield'in (y=1,26) ALTINDA kalıyordu:
+    // yani pilot panelin arkasına bakıyordu, dışarıyı göremiyordu. Artık göz noktası
+    // glareshield tepesinin ~0,16 m üstünde — gerçek A320'deki gibi panelin üzerinden
+    // bakılır, pist ve ufuk doğal biçimde görünür.
+    // Kabuk ve tavan paneli kaydırılmaz: kabuğun tavanı cam bandının üstünde kalmalı.
+    const gi = new THREE.Group();
+    gi.position.y = -0.46;
+    g.add(gi);
+    // Gösterge paneli + glareshield + FCU ayrıca 0,26 m daha aşağıda durur.
+    // Bunlar pilotun İLERİ bakışını kapatmamalıdır: FCU tam göz hizasındayken
+    // düz ileri bakışta ekranın ortasını kapatıyor, dışarısı görünmüyordu.
+    // Şimdi FCU üst kenarı göz hizasının ~14° altında kalır; ufuk ve pist açıktır,
+    // panel ise hafif aşağı bakınca doğal biçimde görünür.
+    const gp = new THREE.Group();
+    gp.position.y = -0.26;
+    gi.add(gp);
     // Zemin, yan duvarlar ve tavan (kokpit görünümünde dış ışık sızmasın)
-    const shell = [];
-    for (const [s, w, y0, y1] of [[3.1, 0.95, 0.15, 1.55], [4.0, 1.42, 0.05, 1.62], [5.2, 1.55, 0.00, 1.66], [6.6, 1.58, 0.00, 1.66], [7.4, 1.50, 0.02, 1.62]]) {
-      const row = [{ x: -w, y: y0, z: Z(s) }, { x: -w, y: y1, z: Z(s) }, { x: w, y: y1, z: Z(s) }, { x: w, y: y0, z: Z(s) }];
-      shell.push(row);
+    // KOKPİT ASTARI (kabuk).
+    //
+    // Eskiden bu, gövdenin içinde duran basit bir KUTU TÜPtü. Pilot o kutunun ön
+    // ağzından dışarı bakıyordu, dolayısıyla görüşü kutunun kenarları kırpıyordu:
+    // dışarısı dar bir yarık gibi görünüyor, köşe kirişleri ekranı çaprazlamasına
+    // kesiyordu. Camların kendisi hiç işe karışmıyordu.
+    //
+    // Artık astar GÖVDE KESİTİNİ izler (içeriden ~%1,5 içeride) ve cam bandına denk
+    // gelen dörtgenler ATLANIR. Sonuç: içerisi kapalı ve karanlık, dışarısı yalnızca
+    // gerçek cam açıklıklarından görünür — yani görüşü uçağın cam çerçeveleri sınırlar.
+    const SH_S = []; for (let sv = 3.00; sv <= 7.401; sv += 0.11) SH_S.push(+sv.toFixed(2));
+    // Halka adımı (1/44 = 0,023 v) cam çerçevesinin payından (0,026) küçük: kesim izi
+      // her zaman çerçevenin altında kalır, ama üçgen sayısı gereksiz yere şişmez.
+      const SH_N = 88;
+    {
+      const rows = SH_S.map((sv) => {
+        const row = [];
+        for (let i = 0; i < SH_N; i++) {
+          // v: 0 tepe -> 1 alt, sağ yarıdan sol yarıya tam tur
+          const h = i / (SH_N / 2);
+          const v = h <= 1 ? h : 2 - h;
+          const sign = h <= 1 ? 1 : -1;
+          const q = surfacePoint(sv, Math.min(0.9999, Math.max(0.0001, v)));
+          row.push({ x: sign * q.x * 0.985, y: q.y * 0.985, z: q.z, v, sv });
+        }
+        return row;
+      });
+      const pos = [], idx = [];
+      for (const r of rows) for (const q of r) pos.push(q.x, q.y, q.z);
+      const M = SH_N;
+      for (let i = 0; i < rows.length - 1; i++) for (let k = 0; k < M; k++) {
+        const k1 = (k + 1) % M;
+        // Dörtgenin köşelerinden biri cam bandına düşüyorsa yüzey açılır: açıklık
+        // camdan bir hücre BÜYÜK olur, asla küçük değil (küçük olsaydı camın kenarında
+        // karanlık bir şerit kalırdı). Örnekleme yeterince sık olduğu için bu taşma
+        // cam çerçevesinin altında kalır ve görünmez.
+        const cells = [[i, k], [i, k1], [i + 1, k], [i + 1, k1]];
+        let open = false;
+        for (const [ii, kk] of cells) { const q = rows[ii][kk]; if (inWindow(q.sv, q.v, 0)) { open = true; break; } }
+        if (open) continue;
+        const a = i * M + k, b = i * M + k1, c = (i + 1) * M + k, d = (i + 1) * M + k1;
+        idx.push(a, c, b, b, c, d);
+      }
+      const sg = new THREE.BufferGeometry();
+      sg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      sg.setIndex(idx); sg.computeVertexNormals();
+      g.add(new THREE.Mesh(this.track(sg), m.cockpit));
+      // Arka bölme: kabin tarafından ışık sızmasın
+      const bulk = new THREE.CircleGeometry(1.95, 20);
+      bulk.translate(0, -0.03, Z(7.42));
+      g.add(new THREE.Mesh(this.track(bulk), m.cockpit));
     }
-    g.add(new THREE.Mesh(this.track(loft(shell, { uScale: 1, vScale: 1 })), m.cockpit));
     const floor = new THREE.BoxGeometry(3.1, 0.08, 4.3); floor.translate(0, 0.12, Z(5.3));
-    g.add(new THREE.Mesh(this.track(floor), m.cockpit));
+    gi.add(new THREE.Mesh(this.track(floor), m.cockpit));
     // Gösterge paneli ve 6 ekran (PFD / ND x2, ECAM x2)
     const panel = new THREE.BoxGeometry(2.05, 0.66, 0.28); panel.rotateX(-0.22); panel.translate(0, 0.86, Z(3.95));
-    g.add(new THREE.Mesh(this.track(panel), m.dark));
+    gp.add(new THREE.Mesh(this.track(panel), m.dark));
     const glare = new THREE.BoxGeometry(2.25, 0.16, 0.52); glare.rotateX(-0.18); glare.translate(0, 1.26, Z(3.85));
-    g.add(new THREE.Mesh(this.track(glare), m.cockpit));
+    gp.add(new THREE.Mesh(this.track(glare), m.cockpit));
     const screens = [
       ['pfd', -0.76], ['nd', -0.30], ['ecam', 0.02], ['ecam', 0.02], ['nd', 0.34], ['pfd', 0.78],
     ];
@@ -564,20 +679,20 @@ export class A321neo {
     const place = (kind, x, y, z, w, h) => {
       const q = new THREE.Mesh(this.track(new THREE.PlaneGeometry(w, h)), mats[kind]);
       q.position.set(x, y, z); q.rotation.x = 0.22;
-      g.add(q);
+      gp.add(q);
     };
     for (const [kind, x] of [['pfd', -0.76], ['nd', -0.34], ['nd', 0.34], ['pfd', 0.76]]) place(kind, x, 0.93, Z(3.95) + 0.16, 0.36, 0.30);
     place('ecam', 0, 1.02, Z(3.95) + 0.15, 0.32, 0.26);
     place('ecam', 0, 0.72, Z(3.95) + 0.20, 0.32, 0.26);
     // FCU (otopilot paneli) glareshield üstünde
     const fcu = new THREE.BoxGeometry(1.35, 0.17, 0.20); fcu.rotateX(-0.5); fcu.translate(0, 1.36, Z(3.72));
-    g.add(new THREE.Mesh(this.track(fcu), m.dark));
+    gp.add(new THREE.Mesh(this.track(fcu), m.dark));
     const fcuFace = new THREE.Mesh(this.track(new THREE.PlaneGeometry(1.25, 0.12)), this.track(new THREE.MeshStandardMaterial({ color: 0x0b1016, emissive: 0x1b6f3a, emissiveIntensity: 0.7, roughness: 0.4 })));
     fcuFace.position.set(0, 1.39, Z(3.72) + 0.09); fcuFace.rotation.x = 0.5;
-    g.add(fcuFace);
+    gp.add(fcuFace);
     // Orta konsol (pedestal): gaz kolları, flap ve hız freni kolları, radyolar
     const ped = new THREE.BoxGeometry(0.52, 0.30, 1.50); ped.rotateX(-0.12); ped.translate(0, 0.46, Z(5.05));
-    g.add(new THREE.Mesh(this.track(ped), m.dark));
+    gi.add(new THREE.Mesh(this.track(ped), m.dark));
     const thrGrp = new THREE.Group();
     for (const dx of [-0.11, 0.11]) {
       const lev = new THREE.BoxGeometry(0.075, 0.30, 0.10); lev.translate(dx, 0.15, 0);
@@ -585,14 +700,14 @@ export class A321neo {
       thrGrp.add(new THREE.Mesh(this.track(lev), m.metal), new THREE.Mesh(this.track(knob), this.track(new THREE.MeshStandardMaterial({ color: 0x14181c, roughness: 0.6 }))));
     }
     thrGrp.position.set(0, 0.52, Z(4.72));
-    g.add(thrGrp);
+    gi.add(thrGrp);
     this.parts.thrustLevers = thrGrp;
     const flapLever = new THREE.Mesh(this.track(new THREE.BoxGeometry(0.06, 0.26, 0.07)), m.metal);
     flapLever.position.set(0.18, 0.66, Z(5.35));
-    g.add(flapLever); this.parts.flapLever = flapLever;
+    gi.add(flapLever); this.parts.flapLever = flapLever;
     const sbLever = new THREE.Mesh(this.track(new THREE.BoxGeometry(0.05, 0.22, 0.06)), this.track(new THREE.MeshStandardMaterial({ color: 0x2c3238, roughness: 0.6 })));
     sbLever.position.set(-0.18, 0.64, Z(5.25));
-    g.add(sbLever); this.parts.sbLever = sbLever;
+    gi.add(sbLever); this.parts.sbLever = sbLever;
     // Sidestick'ler (kaptan sol, yardımcı sağ) ve iniş takımı kolu
     this.parts.sidesticks = [];
     for (const side of [-1, 1]) {
@@ -601,7 +716,7 @@ export class A321neo {
       const grip = new THREE.CapsuleGeometry(0.045, 0.12, 4, 8); grip.translate(0, 0.36, 0);
       s.add(new THREE.Mesh(this.track(col), m.dark), new THREE.Mesh(this.track(grip), this.track(new THREE.MeshStandardMaterial({ color: 0x20252a, roughness: 0.7 }))));
       s.position.set(side * 0.62, 0.50, Z(4.95));
-      g.add(s);
+      gi.add(s);
       this.parts.sidesticks.push(s);
       // Koltuklar
       const seat = new THREE.Group();
@@ -609,11 +724,11 @@ export class A321neo {
       const back = new THREE.BoxGeometry(0.52, 0.72, 0.12); back.rotateX(-0.18); back.translate(0, 0.84, 0.30);
       seat.add(new THREE.Mesh(this.track(cush), m.seat), new THREE.Mesh(this.track(back), m.seat));
       seat.position.set(side * 0.44, 0, Z(5.35));
-      g.add(seat);
+      gi.add(seat);
     }
     const gearLever = new THREE.Mesh(this.track(new THREE.BoxGeometry(0.05, 0.16, 0.05)), this.track(new THREE.MeshStandardMaterial({ color: 0xd8dade, roughness: 0.4 })));
     gearLever.position.set(0.55, 0.95, Z(4.18));
-    g.add(gearLever); this.parts.gearLever = gearLever;
+    gi.add(gearLever); this.parts.gearLever = gearLever;
     // Tavan paneli
     const oh = new THREE.BoxGeometry(1.25, 0.20, 1.10); oh.rotateX(0.32); oh.translate(0, 1.62, Z(5.20));
     g.add(new THREE.Mesh(this.track(oh), m.dark));
@@ -698,6 +813,7 @@ export class A321neo {
 
   setCockpitView(on) {
     this.parts.cockpit.visible = !!on;
+    if (this.parts.cockpitGlass) this.parts.cockpitGlass.visible = !on;
     if (this.parts.surfaces) this.parts.surfaces.visible = true;
   }
   setEnvironment(envMap) {

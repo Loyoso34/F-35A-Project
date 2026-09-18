@@ -84,8 +84,8 @@ export class HUD {
     ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4;
     const y = opts.safe.top + 50;
     if (T.stall && on) { ctx.fillStyle = '#ff6a6a'; ctx.fillText('STALL', w / 2, y); }
-    else if (T.stallWarn && on) { ctx.fillStyle = '#ffc46a'; ctx.fillText('STALL UYARISI', w / 2, y); }
-    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = '#ffc46a'; ctx.fillText('İNİŞ TAKIMI', w / 2, y + 18); }
+    else if (T.stallWarn && on) { ctx.fillStyle = '#ffc46a'; ctx.fillText('STALL WARNING', w / 2, y); }
+    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = '#ffc46a'; ctx.fillText('LANDING GEAR', w / 2, y + 18); }
     ctx.restore();
   }
 

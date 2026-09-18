@@ -11,8 +11,8 @@ const DEG = Math.PI / 180;
 const F35_CFG = {
   id: 'f35a',
   name: 'F-35A Lightning II',
-  sub: 'Tek kişilik, 5. nesil çok rollü savaş uçağı',
-  specs: ['Uzunluk 15,7 m', 'Açıklık 10,7 m', 'Maks. Mach 1,6'],
+  sub: 'Single-seat 5th-generation multirole fighter',
+  specs: ['Length 15.7 m', 'Wingspan 10.7 m', 'Max Mach 1.6'],
   accent: '#39ff6a',
   build: (o) => new F35A(o),
   geom: {
@@ -40,9 +40,9 @@ const F35_CFG = {
   limits: { alphaWarn: 19 * DEG, hardLandVs: -6.5, landRoll: 12 * DEG, groundRoll: 15 * DEG, landPitch: [-4 * DEG, 15 * DEG], offRunwayV: [55, 60] },
   systems: { flapDetents: [0, 1], flapNames: ['0', 'İNİŞ'], flapRate: 1 / 3, slatLead: 0, gearRate: 1 / 6, spoilers: null, reverse: 0 },
   cameras: {
-    cockpitEye: [F35.pilotEye.x, F35.pilotEye.y, F35.pilotEye.z], cockpitFov: 72, cockpitNear: 0.25,
+    cockpitEye: [F35.pilotEye.x, F35.pilotEye.y, F35.pilotEye.z], cockpitFov: 58, cockpitNear: 0.10, cockpitPitch: -4 * DEG,
     chase: { dist: [21, 30], vRef: 320, up: 2.8, ahead: 70, lookUp: 1.5, fov: 58 },
-    orbit: { dist: 28, min: 12, max: 70, lookUp: 1, fov: 50 },
+    orbit: { dist: 26, min: 6, max: 260, lookUp: 1, fov: 50 },
     flyby: { fov: 42, ahead: [180, 900], side: [60, 150], up: 3, vScale: 4.5, reset: 1300 },
     wing: { eye: [0.55, 0.85, -2.1], look: [5.0, -0.45, 2.2], fov: 62 },
     gear: { eye: [1.05, -0.15, -1.9], look: [1.75, -2.4, 0.8], fov: 58 },
@@ -59,8 +59,8 @@ const F35_CFG = {
 const A321_CFG = {
   id: 'a321',
   name: 'Airbus A321neo',
-  sub: 'Dar gövdeli, iki motorlu yolcu uçağı',
-  specs: ['Uzunluk 44,5 m', 'Açıklık 35,8 m', 'MTOW 97 t'],
+  sub: 'Twin-engine narrow-body airliner',
+  specs: ['Length 44.5 m', 'Wingspan 35.8 m', 'MTOW 97 t'],
   accent: '#4aa8ff',
   build: (o) => new A321neo(o),
   geom: {
@@ -85,9 +85,9 @@ const A321_CFG = {
     spoilers: { rate: 2.2, groundAuto: true, airFrac: 0.5 }, reverse: 0.38,
   },
   cameras: {
-    cockpitEye: [A321.pilotEye.x, A321.pilotEye.y, A321.pilotEye.z], cockpitFov: 70, cockpitNear: 0.25,
+    cockpitEye: [A321.pilotEye.x, A321.pilotEye.y, A321.pilotEye.z], cockpitFov: 55, cockpitNear: 0.10, cockpitPitch: -6 * DEG,
     chase: { dist: [58, 86], vRef: 260, up: 8.5, ahead: 150, lookUp: 2.0, fov: 55 },
-    orbit: { dist: 78, min: 32, max: 220, lookUp: 1.5, fov: 50 },
+    orbit: { dist: 62, min: 14, max: 600, lookUp: 1.5, fov: 50 },
     flyby: { fov: 40, ahead: [280, 1150], side: [120, 280], up: 8, vScale: 5.0, reset: 2200 },
     wing: { eye: [1.82, 0.30, -0.8], look: [9.5, -1.5, 5.0], fov: 66 },
     gear: { eye: [2.15, -1.55, 0.1], look: [3.8, -4.1, 2.9], fov: 60 },

@@ -1,8 +1,8 @@
 {
-  "name": "Uçuş Simülatörü — F-35A & A321neo",
-  "short_name": "Uçuş Sim",
-  "description": "F-35A Lightning II ve Airbus A321neo uçuş simülatörü",
-  "lang": "tr",
+  "name": "FFS — Flight Simulator",
+  "short_name": "FFS",
+  "description": "FFS — a flight simulator featuring the F-35A Lightning II and Airbus A321neo",
+  "lang": "en",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

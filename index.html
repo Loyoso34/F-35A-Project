@@ -1,15 +1,15 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Uçuş Sim">
+  <meta name="apple-mobile-web-app-title" content="FFS">
   <meta name="theme-color" content="#0b1016">
-  <meta name="description" content="F-35A Lightning II uçuş simülatörü (PWA)">
-  <title>Uçuş Simülatörü — F-35A & A321neo</title>
+  <meta name="description" content="FFS — Flight Simulator: F-35A Lightning II and Airbus A321neo (PWA)">
+  <title>FFS — Flight Simulator</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
@@ -246,12 +246,12 @@
   <div id="touch" hidden>
     <div class="zone" id="view-zone"></div>
     <div id="top-left">
-      <button class="btn" id="btn-menu" aria-label="Menü" aria-expanded="false" aria-controls="drawer"><span class="i">☰</span><span class="l">Menü</span></button>
+      <button class="btn" id="btn-menu" aria-label="Menu" aria-expanded="false" aria-controls="drawer"><span class="i">☰</span><span class="l">Menu</span></button>
       <div id="drawer" aria-hidden="true">
-        <button class="btn" id="btn-pause" aria-label="Duraklat"><span class="i">⏸</span><span class="l">Duraklat</span></button>
+        <button class="btn" id="btn-pause" aria-label="Pause"><span class="i">⏸</span><span class="l">Pause</span></button>
         <button class="btn" id="btn-camera" aria-label="Camera"><span class="i">🎥</span><span class="l" lang="en">Camera</span></button>
-        <button class="btn" id="btn-sound" aria-label="Ses"><span class="i">🔊</span><span class="l">Ses</span></button>
-        <button class="btn warn" id="btn-lights" aria-label="İniş ışıkları"><span class="i">💡</span><span class="l">Işık</span></button>
+        <button class="btn" id="btn-sound" aria-label="Sound"><span class="i">🔊</span><span class="l">Sound</span></button>
+        <button class="btn warn" id="btn-lights" aria-label="Landing Lights"><span class="i">💡</span><span class="l">Lights</span></button>
       </div>
     </div>
     <div class="zone" id="stick-zone">
@@ -261,7 +261,7 @@
     <div id="right-col">
       <button class="btn on" id="btn-gear" aria-label="Landing Gear"><span class="i">🛬</span><span class="l" lang="en">Landing Gear</span></button>
       <button class="btn" id="btn-flap" aria-label="Flaps"><span class="i">🔽</span><span class="l" lang="en">Flaps</span></button>
-      <button class="btn on" id="btn-brake"><span class="i">🛑</span><span class="l">Fren</span></button>
+      <button class="btn on" id="btn-brake"><span class="i">🛑</span><span class="l">Brakes</span></button>
       <button class="btn" id="btn-spoiler" hidden aria-label="Spoilers"><span class="i">🪶</span><span class="l" lang="en">Spoilers</span></button>
     </div>
     <div class="zone" id="throttle">
@@ -272,123 +272,124 @@
 
   <div id="select" class="overlay" hidden>
     <div class="sel-wrap">
-      <h1 class="sel-title">Uçak Seç<small>Uçmak istediğiniz uçağa dokunun</small></h1>
+      <h1 class="sel-title">Select Aircraft<small>Tap the aircraft you want to fly</small></h1>
       <div class="sel-grid" id="sel-grid"></div>
-      <div class="sel-ap" id="sel-ap"><span class="sel-ap-lbl">Kalkış</span><div class="sel-ap-row" id="sel-ap-row"></div></div>
-      <p class="sel-hint" id="sel-hint">Uçağı sonradan Duraklat → Uçak Değiştir ile değiştirebilirsiniz.</p>
+      <div class="sel-ap" id="sel-ap"><span class="sel-ap-lbl">Departure</span><div class="sel-ap-row" id="sel-ap-row"></div></div>
+      <p class="sel-hint" id="sel-hint">You can change aircraft later from Pause → Change Aircraft.</p>
     </div>
   </div>
 
   <div id="guide" hidden>
     <div class="panel">
-      <button class="close" id="guide-close" aria-label="Kapat">✕</button>
-      <h2>Kontroller</h2>
+      <button class="close" id="guide-close" aria-label="Close">✕</button>
+      <h2>Controls</h2>
       <ul>
-        <li><b>Sol joystick:</b> yunuslama (pitch) ve yatış (roll)</li>
-        <li><b>Sağ kaydırıcı:</b> gaz kolu — en üstte art yakıcı (AB)</li>
-        <li><b>Rudder kaydırıcısı (alt orta):</b> sürükle, bırakınca ortaya döner; yerde burun tekeri</li>
-        <li><b>Landing Gear / Flaps / Fren:</b> aç-kapat. <b>Spoilers</b> yalnızca A321neo'da</li>
-        <li><b>Kalkış:</b> freni bırak, tam gaz, ~140 kt'ta burnu kaldır</li>
-        <li><b>☰ Menü:</b> Duraklat, <b>Camera</b> (chase → cockpit → free → flyby → left wing → right wing → landing gear), Ses ve iniş Işıkları bu çekmecede</li>
-        <li><b>Klavye:</b> WASD/oklar, Q/E dümen, Shift/Ctrl gaz, G gear, F flaps, V spoilers, B fren, L ışık, C camera, P duraklat</li>
-        <li><b>A321neo:</b> Flaps kolu 0 → 1 → 2 → 3 → FULL sırayla ilerler; yerde Fren ters itkiyi devreye sokar</li>
-        <li><b>İki havalimanı:</b> Anadolu Hava Üssü ve Yeşilova Havalimanı. Kalkış yerini seçim ekranından seçin</li>
+        <li><b>Left stick:</b> pitch and roll</li>
+        <li><b>Right slider:</b> throttle — afterburner (AB) at the top</li>
+        <li><b>Rudder slider (bottom centre):</b> drag it; it springs back to centre. On the ground it steers the nosewheel</li>
+        <li><b>Landing Gear / Flaps / Brakes:</b> toggle on and off. <b>Spoilers</b> A321neo only</li>
+        <li><b>Take-off:</b> release the brakes, full throttle, rotate at about 140 kt</li>
+        <li><b>☰ Menu:</b> Duraklat, <b>Camera</b> (free camera → cockpit → chase → flyby → left wing → right wing → landing gear), Sound and Landing Lights are in this drawer</li>
+        <li><b>Keyboard:</b> WASD/arrows, Q/E rudder, Shift/Ctrl throttle, G gear, F flaps, V spoilers, B brakes, L lights, C camera, P pause</li>
+        <li><b>A321neo:</b> the flap lever steps 0 → 1 → 2 → 3 → FULL; on the ground the brake also engages reverse thrust</li>
+        <li><b>Two airports:</b> Anadolu Air Base and Yesilova Airport. Pick your departure point on the selection screen</li>
       </ul>
     </div>
   </div>
 
   <div class="overlay" id="loading">
     <div class="panel" style="text-align:center">
-      <h1>F-35A Simülatör</h1>
-      <p id="loading-text">Yükleniyor…</p>
+      <h1>FFS</h1>
+      <p class="small">Flight Simulator</p>
+      <p id="loading-text">Loading…</p>
       <div class="bar"><div id="loading-bar"></div></div>
     </div>
   </div>
 
   <div class="overlay" id="start-screen" hidden>
     <div class="panel" style="text-align:center">
-      <h1>F-35A Lightning II</h1>
-      <p>Uçuş Simülatörü</p>
-      <button class="big" id="btn-start">Başla</button>
+      <h1>FFS</h1>
+      <p>Flight Simulator — F-35A Lightning II &amp; Airbus A321neo</p>
+      <button class="big" id="btn-start">Start</button>
       <p class="small" id="start-hint"></p>
     </div>
   </div>
 
   <div class="overlay" id="pause-menu" hidden>
     <div class="panel">
-      <h2>Duraklatıldı</h2>
+      <h2>Paused</h2>
       <div class="row">
-        <button class="btn" id="btn-resume">Devam</button>
-        <button class="btn" id="btn-restart">Yeniden Başla</button>
-        <button class="btn" id="btn-aircraft">Uçak Değiştir</button>
-        <button class="btn" id="btn-settings">Ayarlar</button>
+        <button class="btn" id="btn-resume">Resume</button>
+        <button class="btn" id="btn-restart">Restart</button>
+        <button class="btn" id="btn-aircraft">Change Aircraft</button>
+        <button class="btn" id="btn-settings">Settings</button>
       </div>
     </div>
   </div>
 
   <div class="overlay" id="settings" hidden>
     <div class="panel">
-      <h2>Ayarlar</h2>
-      <div class="opt"><span>Grafik kalitesi</span>
+      <h2>Settings</h2>
+      <div class="opt"><span>Graphics quality</span>
         <div class="seg" id="quality-seg">
-          <button data-q="low">Düşük</button>
-          <button data-q="medium" class="on">Orta</button>
-          <button data-q="high">Yüksek</button>
+          <button data-q="low">Low</button>
+          <button data-q="medium" class="on">Medium</button>
+          <button data-q="high">High</button>
         </div>
       </div>
-      <div class="opt"><span>Eğim kontrolü (telefonu yatır)</span>
+      <div class="opt"><span>Tilt control (tilt the phone)</span>
         <div class="seg" id="tilt-seg">
-          <button data-t="0" class="on">Kapalı</button>
-          <button data-t="1">Açık</button>
+          <button data-t="0" class="on">Off</button>
+          <button data-t="1">On</button>
         </div>
       </div>
-      <div class="opt"><span>Eğim sıfırlama</span><button class="btn" id="btn-calibrate">Kalibre Et</button></div>
+      <div class="opt"><span>Tilt calibration</span><button class="btn" id="btn-calibrate">Calibrate</button></div>
       <div class="opt"><span>Ses</span>
         <div class="seg" id="sound-seg">
-          <button data-s="1" class="on">Açık</button>
-          <button data-s="0">Kapalı</button>
+          <button data-s="1" class="on">On</button>
+          <button data-s="0">Off</button>
         </div>
       </div>
-      <div class="opt"><span>Performans göstergesi</span>
+      <div class="opt"><span>Performance counter</span>
         <div class="seg" id="fps-seg">
-          <button data-f="0" class="on">Kapalı</button>
-          <button data-f="1">Açık</button>
+          <button data-f="0" class="on">Off</button>
+          <button data-f="1">On</button>
         </div>
       </div>
-      <p class="small">Sürüm: <span id="version"></span> · Kalite değişikliği sahneyi yeniden yükler.</p>
-      <div class="row"><button class="btn" id="btn-settings-close">Kapat</button></div>
+      <p class="small">Version: <span id="version"></span> · Changing quality reloads the scene.</p>
+      <div class="row"><button class="btn" id="btn-settings-close">Close</button></div>
     </div>
   </div>
 
   <div class="overlay" id="crash" hidden>
     <div class="panel" style="text-align:center">
-      <h2>Uçak Düştü</h2>
+      <h2>Crashed</h2>
       <p id="crash-reason"></p>
-      <button class="big" id="btn-crash-restart">Yeniden Başla</button>
+      <button class="big" id="btn-crash-restart">Restart</button>
     </div>
   </div>
 
   <div class="overlay" id="orient-overlay" hidden>
     <div class="phone"></div>
-    <h2>Telefonu yatay çevirin</h2>
-    <p class="small">Simülatör yatay modda çalışır.</p>
+    <h2>Rotate your phone to landscape</h2>
+    <p class="small">The simulator runs in landscape orientation.</p>
   </div>
 
   <div class="overlay" id="context-lost" hidden>
     <div class="panel" style="text-align:center">
-      <h2>Grafik bağlamı kaybedildi</h2>
-      <p>Geri yükleniyor… Gerekirse sayfayı yenileyin.</p>
-      <button class="big" id="btn-reload">Yenile</button>
+      <h2>Graphics context lost</h2>
+      <p>Restoring… reload the page if needed.</p>
+      <button class="big" id="btn-reload">Reload</button>
     </div>
   </div>
 
   <div class="toast" id="standalone-hint" hidden>
-    <span>Tam ekran için: Paylaş → Ana Ekrana Ekle</span>
-    <button class="btn" id="standalone-hint-close">Tamam</button>
+    <span>For full screen: Share → Add to Home Screen</span>
+    <button class="btn" id="standalone-hint-close">OK</button>
   </div>
   <div class="toast" id="update-toast" hidden>
-    <span>Yeni sürüm hazır</span>
-    <button class="btn" id="btn-update">Yenile</button>
+    <span>A new version is ready</span>
+    <button class="btn" id="btn-update">Reload</button>
   </div>
 
   <script type="module" src="./js/main.js"></script>

@@ -298,18 +298,18 @@ export class FlightModel {
       const paved = surface === 'runway' || surface === 'taxiway' || surface === 'apron';
       const vy = vel.y;
       if (!this.wasOnGround) {
-        if (surface === 'water') return this.crash('Suya çarptınız');
-        if (this.gearPos < 0.98) return this.crash('İniş takımı açık değildi');
-        if (vy < LIM.hardLandVs) return this.crash('Sert iniş (' + Math.abs(vy * 196.85).toFixed(0) + ' ft/dk)');
-        if (Math.abs(roll) > LIM.landRoll) return this.crash('Yatık iniş – kanat ucu yere çarptı');
-        if (pitch < LIM.landPitch[0] || pitch > LIM.landPitch[1]) return this.crash(pitch > 0 ? 'Kuyruk yere çarptı' : 'Burun tekeri kırıldı');
-        if (!paved && V > LIM.offRunwayV[0]) return this.crash('Pist dışına yüksek hızda iniş');
+        if (surface === 'water') return this.crash('Crashed into the water');
+        if (this.gearPos < 0.98) return this.crash('Landing gear was not down');
+        if (vy < LIM.hardLandVs) return this.crash('Hard landing (' + Math.abs(vy * 196.85).toFixed(0) + ' ft/min)');
+        if (Math.abs(roll) > LIM.landRoll) return this.crash('Landed banked — wingtip struck the ground');
+        if (pitch < LIM.landPitch[0] || pitch > LIM.landPitch[1]) return this.crash(pitch > 0 ? 'Tail strike' : 'Nose gear collapsed');
+        if (!paved && V > LIM.offRunwayV[0]) return this.crash('Landed off the runway at high speed');
       } else {
-        if (surface === 'water') return this.crash('Suya girdiniz');
-        if (this.gearPos < 0.98) return this.crash('Gövde üstü sürtünme');
-        if (Math.abs(roll) > LIM.groundRoll) return this.crash('Kanat ucu yere çarptı');
-        if (!paved && V > LIM.offRunwayV[1]) return this.crash('Pist dışında kontrol kaybı');
-        if (agl < clearance - 1.5) return this.crash('Yere çarptınız');
+        if (surface === 'water') return this.crash('Entered the water');
+        if (this.gearPos < 0.98) return this.crash('Belly scrape');
+        if (Math.abs(roll) > LIM.groundRoll) return this.crash('Wingtip struck the ground');
+        if (!paved && V > LIM.offRunwayV[1]) return this.crash('Lost control off the runway');
+        if (agl < clearance - 1.5) return this.crash('Crashed into the ground');
       }
       if (vel.y < 0) vel.y = 0;
       pos.y = groundY + clearance;
@@ -359,9 +359,9 @@ export class FlightModel {
     }
 
     // ---------------- Çarpışma ----------------
-    if (!onGround && agl < clearance - 0.5) return this.crash('Yere çarptınız');
-    if (surface === 'water' && pos.y - 1.0 < WATER_LEVEL) return this.crash('Suya çarptınız');
-    if (this.world.hitsBuilding(pos.x, pos.y, pos.z, 4)) return this.crash('Binaya çarptınız');
+    if (!onGround && agl < clearance - 0.5) return this.crash('Crashed into the ground');
+    if (surface === 'water' && pos.y - 1.0 < WATER_LEVEL) return this.crash('Crashed into the water');
+    if (this.world.hitsBuilding(pos.x, pos.y, pos.z, 4)) return this.crash('Crashed into a building');
     if (pos.y > 25000) { pos.y = 25000; if (vel.y > 0) vel.y = 0; }
     const half = this.world.halfSize - 100;
     if (Math.abs(pos.x) > half || Math.abs(pos.z) > half) {
