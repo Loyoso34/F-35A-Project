@@ -5,9 +5,10 @@ import { Simplex2D, mulberry32, smoothstep, clamp, lerp } from './noise.js';
 import {
   makeGrassTexture, makeAsphaltTexture, makeConcreteTexture, makeWaterNormalTexture,
   makeHangarWallTexture, makeHangarDoorTexture, makeTextTexture, makeCloudTexture, makeRoadTexture, makeWindowsTexture,
-  makeChainLinkTexture, makeBarbedWireTexture, makeOliveTexture,
+  makeChainLinkTexture, makeBarbedWireTexture, makeOliveTexture, makeFacadeTexture,
 } from './textures.js';
 import { buildStaticAircraftGeometries } from './aircraft.js';
+import { City, makeZoning, ZONE } from './city.js';
 
 export const MAP_SIZE = 72000;   // 72 x 72 km: iki havaalanı arası uçuş anlamlı bir mesafe olsun
 export const WATER_LEVEL = -4;
@@ -31,6 +32,37 @@ const RIVER = [
   [-18500, 1400], [-23500, 900], [-29000, 300],
 ];
 const TOWN = { x: 2600, z: 6900, r: 1250 };
+
+// ---- Deniz ve kıyı -------------------------------------------------------
+// Güneyde büyük bir körfez. Kıyı çizgisi düz bir kenar değil: iki ölçekli gürültüyle
+// koylar ve burunlar oluşur. Şehrin güney cephesi bu kıyıya bakar.
+const COAST_Z = 20800;
+export function coastLineZ(x) {
+  return COAST_Z
+    + 1500 * simplex.fbm(x * 0.000085 + 7.3, 11.7, 3, 2.0, 0.5)
+    + 520 * simplex.fbm(x * 0.00042 - 3.1, 21.4, 2, 2.0, 0.5);
+}
+// >0 denizde, <0 karada (metre cinsinden kıyıya uzaklık, kabaca)
+function seaDist(x, z) { return z - coastLineZ(x); }
+
+// ---- Şehir ---------------------------------------------------------------
+// Merkez sahilde; kuzeye doğru şehir merkezi -> apartmanlar -> banliyö -> sanayi -> kır.
+// Merkez kıyıya yakın: şehir merkezi -> sahil bandı -> deniz kompozisyonu kurulur.
+export const CITY = { x: 4500, z: 18400, r: 5300, elev: 14 };
+// Arazi renklendirmesi de bölgelemeyi kullanır: kentsel zemin ayrı bir levha değil,
+// arazinin köşe rengidir. Böylece ek geometri, z-fighting ve sert kenar oluşmaz.
+const cityZone = makeZoning({ x: CITY.x, z: CITY.z, r: CITY.r });
+// 0 kır, 1 tam kentsel. Kenarda yumuşak geçiş.
+export function urbanDensity(x, z) {
+  const zn = cityZone(x, z);
+  if (zn === ZONE.NONE) return 0;
+  const d = Math.hypot(x - CITY.x, z - CITY.z);
+  const edge = smoothstep(CITY.r, CITY.r * 0.80, d);
+  if (zn === ZONE.PARK) return 0.10 * edge;
+  const w = zn === ZONE.DOWNTOWN ? 1.0 : zn === ZONE.CORE ? 0.92 : zn === ZONE.URBAN ? 0.80
+    : zn === ZONE.INDUSTRIAL ? 0.85 : zn === ZONE.SUBURB ? 0.55 : 0.28;
+  return w * edge;
+}
 // İkinci yerleşim: sivil havalimanının yanındaki kasaba
 const TOWN2 = { x: 21200, z: -13600, r: 1050 };
 
@@ -89,6 +121,14 @@ const ROADS = [
   { name: 'highway-east', w: 11, pts: [[7600, 6200], [10200, 4200], [12600, 1600], [15200, -2200], [18000, -6200], [20400, -9600], [21200, -12600]] },
   { name: 'civil-town', w: 9, pts: [[21200, -13600], [22600, -12400], [23600, -11200]] },
   { name: 'civil-apron', w: 8, pts: [[23600, -11200], [24300, -10700]] },
+  // Üs -> kasaba -> ŞEHİR ana otoyolu: haritanın belkemiği. Kasabadan güneye iner,
+  // şehrin çevre yoluna bağlanır. Oyuncu havadan bu hattı takip ederek şehri bulur.
+  { name: 'town-city', w: 13, pts: [[2600, 6900], [2950, 8000], [3350, 9200], [3800, 10400], [4200, 11600], [4430, 12800], [4480, 13500]] },
+  // Şehir çevre yolundan sanayi bölgesine ve limana giden bağlantı
+  { name: 'city-port', w: 11, pts: [[1600, 16000], [900, 17200], [500, 18400], [600, 19700]] },
+  // Havaalanı çevre yolu ve ticari bölge erişimi
+  { name: 'base-perimeter', w: 8, over: true, pts: [[-1900, 1050], [-1900, 1650], [1500, 1650], [1900, 1300], [1900, 1050]] },
+  { name: 'base-cargo', w: 8, pts: [[1200, 1050], [1250, 1720], [1900, 1900], [2500, 1980]] },
 ];
 // Kasaba sokakları (yalnızca yol ağı ve ev yerleşimi için; arazi düzleştirmesine dahil değil)
 const TOWN_STREETS = [];
@@ -126,6 +166,13 @@ function airportFlatMask(a, x, z) {
   const dz = Math.max(0, Math.abs(_lp.z) - a.halfZ);
   return smoothstep(0, a.fade, Math.hypot(dx, dz));
 }
+// Şehir düzleştirme maskesi: merkezde 1, kenarlara doğru yumuşak sıfır.
+// Kıyının hemen dibinde sönümlenir ki sahil kotu doğal kalsın.
+function cityFlatMask(x, z) {
+  const d = Math.hypot(x - CITY.x, z - CITY.z);
+  const m = smoothstep(CITY.r + 2600, CITY.r - 900, d);
+  return m * (1 - smoothstep(-500, 260, seaDist(x, z)));
+}
 function townMask(x, z) {
   const t1 = smoothstep(TOWN.r + 1100, TOWN.r - 200, Math.hypot(x - TOWN.x, z - TOWN.z));
   const t2 = smoothstep(TOWN2.r + 950, TOWN2.r - 200, Math.hypot(x - TOWN2.x, z - TOWN2.z));
@@ -155,9 +202,11 @@ export function terrainHeight(x, z) {
   h += simplex.fbm(x * 0.0009 + 7, z * 0.0009 + 3, 3, 2.0, 0.5) * 26;
   h += simplex.fbm(x * 0.0034 + 21, z * 0.0034 - 9, 2, 2.0, 0.5) * 5.5;   // ince yüzey kabartması
   h = softplus(h, 25);
-  // Kenarlara doğru dağlar
+  // Kenarlara doğru dağlar. Deniz tarafında dağ oluşmaz (kıyı gerçekçi kalsın).
+  const sd0 = seaDist(x, z);
+  const landness = 1 - smoothstep(-1400, 200, sd0);
   const edge = Math.max(Math.abs(x), Math.abs(z));
-  const mtn = smoothstep(MTN_IN, MTN_OUT, edge);
+  const mtn = smoothstep(MTN_IN, MTN_OUT, edge) * landness;
   if (mtn > 0) {
     const m1 = simplex.fbm(x * 0.00030 + 11, z * 0.00030 - 5, 5, 2.1, 0.5);
     const rg = 1 - Math.abs(simplex.fbm(x * 0.00050 - 4, z * 0.00050 + 9, 3, 2.0, 0.5));
@@ -168,9 +217,20 @@ export function terrainHeight(x, z) {
     const m = airportFlatMask(a, x, z);
     if (m < 0.999) h = lerp(a.elev, h, m);
   }
+  // Şehir platosu: hafif yükseltili, düze yakın bir alan. Kıyıya doğru kotu düşer.
+  const cm = cityFlatMask(x, z);
+  if (cm > 0.001) h = lerp(h, CITY.elev + 8 * smoothstep(0, 1, cm), cm * 0.88);
   h = lerp(h, 12, townMask(x, z) * 0.85);
   const rm = roadMask(x, z);
   h = lerp(h, Math.min(h, 60), rm);
+  // Deniz: kıyıdan itibaren plaj eğimi, sonra derinleşen taban
+  const sd = sd0;
+  if (sd > -900) {
+    const shore = smoothstep(-820, 180, sd);
+    const floor = -2 - 48 * smoothstep(0, 4200, sd) - 34 * smoothstep(3500, 13000, sd)
+      + 9 * simplex.fbm(x * 0.00035 + 61, z * 0.00035 - 17, 3, 2.0, 0.5) * smoothstep(300, 3000, sd);
+    h = lerp(h, floor, shore);
+  }
   for (const L of LAKES) {
     const wob = 1 + 0.22 * simplex.noise(x * 0.0012 + L.x, z * 0.0012 + L.z);
     const d = (Math.hypot(x - L.x, z - L.z) / L.r) * wob;
@@ -304,9 +364,9 @@ export function buildingBoxes() {
 }
 
 export const QUALITY_PRESETS = {
-  low: { pixelRatio: 1, shadows: false, shadowMap: 0, drawDistance: 16000, trees: 19000, treeDistance: 5200, water: 'simple', terrainSegments: 24, anisotropy: 2, clouds: 46, lod: [4500, 9500] },
-  medium: { pixelRatio: 1.5, shadows: true, shadowMap: 1024, drawDistance: 26000, trees: 42000, treeDistance: 8000, water: 'reflective', terrainSegments: 32, anisotropy: 4, clouds: 80, lod: [7000, 15500] },
-  high: { pixelRatio: 2, shadows: true, shadowMap: 2048, drawDistance: 42000, trees: 72000, treeDistance: 12000, water: 'reflective', terrainSegments: 40, anisotropy: 8, clouds: 125, lod: [9500, 21000] },
+  low: { pixelRatio: 1, shadows: false, shadowMap: 0, drawDistance: 16000, trees: 19000, treeDistance: 5200, traffic: 160, water: 'simple', terrainSegments: 24, anisotropy: 2, clouds: 46, lod: [4500, 9500] },
+  medium: { pixelRatio: 1.5, shadows: true, shadowMap: 1024, drawDistance: 26000, trees: 42000, treeDistance: 8000, traffic: 420, water: 'reflective', terrainSegments: 32, anisotropy: 4, clouds: 80, lod: [7000, 15500] },
+  high: { pixelRatio: 2, shadows: true, shadowMap: 2048, drawDistance: 42000, trees: 72000, treeDistance: 12000, traffic: 800, water: 'reflective', terrainSegments: 40, anisotropy: 8, clouds: 125, lod: [9500, 21000] },
 };
 
 export class World {
@@ -333,7 +393,10 @@ export class World {
     this.buildAirbase();
     this.buildBaseDetails();
     this.buildCivilAirport();
+    this.buildCity();
+    this.buildAirportSurroundings();
     this.buildClouds();
+    this.buildCollisionGrid();   // tüm yapılar eklendikten sonra kurulur
   }
 
   track(obj) { this.disposables.push(obj); return obj; }
@@ -442,6 +505,7 @@ export class World {
       fieldD: new THREE.Color(0.60, 0.55, 0.30), dry: new THREE.Color(0.68, 0.63, 0.36),
       lush: new THREE.Color(0.22, 0.45, 0.17), scrub: new THREE.Color(0.45, 0.45, 0.30),
       scree: new THREE.Color(0.52, 0.49, 0.45),
+      urban: new THREE.Color(0.42, 0.41, 0.39), urbanCore: new THREE.Color(0.29, 0.29, 0.30),
     };
     const tmp = new THREE.Color();
     const terrainGroup = new THREE.Group();
@@ -455,6 +519,7 @@ export class World {
     const isDetailChunk = (cxm, czm) => {
       const r = chunkSize * 0.72;
       for (const a of AIRPORTS) if (Math.hypot(cxm - a.x, czm - a.z) < a.halfX + a.fade * 0.5 + r) return true;
+      if (Math.hypot(cxm - CITY.x, czm - CITY.z) < CITY.r + r) return true;
       if (distToPolyline(cxm, czm, RIVER) < r + 300) return true;
       for (const L of LAKES) if (Math.hypot(cxm - L.x, czm - L.z) < L.r * 1.9 + r) return true;
       return false;
@@ -508,6 +573,12 @@ export class World {
             tmp.lerp(C.snow, smoothstep(1050, 1420, h) * (1 - smoothstep(0.9, 1.4, slope)));
             const tm = townMask(x, z);
             if (tm > 0.4) tmp.lerp(C.town, Math.min(1, (tm - 0.4) * 1.6) * 0.85);
+            // Kentsel zemin: yoğunluğa göre asfalt/beton grisi. Park bölgeleri yeşil kalır.
+            const ud = urbanDensity(x, z);
+            if (ud > 0.01) {
+              const gritty = 0.5 + 0.5 * simplex.noise(x * 0.004 + 71, z * 0.004 - 33);
+              tmp.lerp(ud > 0.6 ? C.urbanCore : C.urban, Math.min(0.96, ud * (0.80 + 0.30 * gritty)));
+            }
             cgrid[i3] = tmp.r; cgrid[i3 + 1] = tmp.g; cgrid[i3 + 2] = tmp.b;
           }
         }
@@ -717,7 +788,13 @@ export class World {
       addWater(this.waterGrid(L.x - R, L.z - R, 2 * R, 2 * R, 48, 48));
     }
     addWater(this.waterStrip(RIVER, 820, 50, 12));
+    // Deniz: kıyı bandı ince ızgarayla (koylar/burunlar çözülsün), açık deniz kaba ızgarayla.
+    // Ufka kadar uzanır; oyuncu su kütlesinin kenarını göremez (harita sınırını da gizler).
+    const SX0 = -MAP_SIZE / 2 - 12000, SW = MAP_SIZE + 24000;
+    addWater(this.waterGrid(SX0, COAST_Z - 3200, SW, 7200, 150, 26));          // kıyı bandı
+    addWater(this.waterGrid(SX0, COAST_Z + 4000, SW, 26000, 40, 18));          // açık deniz
     this.water = this.waterMeshes[0];
+    this.seaMeshes = this.waterMeshes.slice(-2);
   }
 
   buildTrees() {
@@ -882,13 +959,54 @@ export class World {
       mesh.receiveShadow = false;
       this.group.add(mesh);
     }
-    // Nehir köprüsü ayakları
-    const pierMat = this.track(new THREE.MeshStandardMaterial({ color: 0x8d8f92, roughness: 0.8 }));
-    const piers = [];
-    for (const [x, z] of [[1750, 4280], [1850, 4360]]) {
-      const g = new THREE.BoxGeometry(6, 26, 4); g.translate(x, -8, z); piers.push(g);
+    // Nehir köprüsü: kule-askı görünümlü gerçek bir yapı (haritanın simgelerinden biri).
+    // Yol tabliyesi zaten su seviyesinin üstünde kalıyor; buraya ayaklar, korkuluk,
+    // kuleler ve askı halatları eklenir. Uçaktan tanınır, maliyeti düşüktür.
+    const pierMat = this.track(new THREE.MeshStandardMaterial({ color: 0x9a9d9f, roughness: 0.8 }));
+    const cableMat = this.track(new THREE.MeshStandardMaterial({ color: 0x5c6064, roughness: 0.55, metalness: 0.4 }));
+    // 'base-town' yolunun (1700,4200)-(2100,5200) parçası nehir eksenini burada keser
+    const BX = 1737, BZ = 4292;
+    const dirx = 0.371, dirz = 0.928;            // yolun bu noktadaki birim yönü
+    const nx = -dirz, nz = dirx;
+    const piers = [], cables = [];
+    const deckY = WATER_LEVEL + 9.3;
+    for (const t of [-150, -60, 60, 150]) {
+      const px = BX + dirx * t, pz = BZ + dirz * t;
+      const g = new THREE.BoxGeometry(7, 34, 5); g.translate(px, deckY - 17, pz); piers.push(g);
     }
-    this.group.add(new THREE.Mesh(this.track(mergeGeometries(piers, false)), pierMat));
+    // Kuleler ve korkuluk
+    for (const t of [-95, 95]) {
+      for (const sgn of [-1, 1]) {
+        const px = BX + dirx * t + nx * sgn * 5.2, pz = BZ + dirz * t + nz * sgn * 5.2;
+        const g = new THREE.BoxGeometry(3.4, 40, 3.4); g.translate(px, deckY + 20, pz); piers.push(g);
+      }
+      const cx = BX + dirx * t, cz = BZ + dirz * t;
+      const cross = new THREE.BoxGeometry(15, 2.4, 2.4);
+      cross.rotateY(Math.atan2(dirx, dirz));
+      cross.translate(cx, deckY + 36, cz); piers.push(cross);
+    }
+    for (const sgn of [-1, 1]) {
+      // Kutu uzun ekseni Z'dedir; rotateY(φ) ile yol yönüne oturur (φ = atan2(dirx, dirz))
+      const rail = new THREE.BoxGeometry(0.5, 1.5, 320);
+      rail.rotateY(Math.atan2(dirx, dirz));
+      rail.translate(BX + nx * sgn * 5.6, deckY + 0.9, BZ + nz * sgn * 5.6);
+      piers.push(rail);
+      // Askı halatları: kuleden tabliyeye inen ince çubuklar
+      for (let k = -8; k <= 8; k++) {
+        if (Math.abs(k) < 1) continue;
+        const t = k * 11;
+        const drop = 2 + 33 * Math.pow(Math.abs(t) / 95, 2);
+        const g = new THREE.BoxGeometry(0.3, drop, 0.3);
+        g.translate(BX + dirx * t + nx * sgn * 5.2, deckY + drop / 2, BZ + dirz * t + nz * sgn * 5.2);
+        cables.push(g);
+      }
+    }
+    for (const g of [...piers, ...cables]) if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    const bm = new THREE.Mesh(this.track(mergeGeometries(piers.map((g) => (g.index ? g.toNonIndexed() : g)), false)), pierMat);
+    bm.castShadow = this.quality.shadows; this.group.add(bm);
+    const cm2 = new THREE.Mesh(this.track(mergeGeometries(cables.map((g) => (g.index ? g.toNonIndexed() : g)), false)), cableMat);
+    this.group.add(cm2);
+    this.bridgeMeshes = [bm, cm2];
   }
 
   buildTown() {
@@ -1019,6 +1137,68 @@ export class World {
   // ---- Sivil havalimanı --------------------------------------------------
   // Tümü yerel koordinatta kurulur (+X pist ekseni), sonunda grup döndürülüp yerine taşınır.
   // Böylece pist istenen yöne çevrilebilir ve yüzey sorguları tek kod yolunu kullanır.
+  // Havaalanı çevresi: kargo/lojistik alanı, ticari binalar, otopark ve tarım alanları.
+  // Pist, taksi yolları, apron ve yaklaşma koridorları serbest bırakılır.
+  buildAirportSurroundings() {
+    const q = this.quality;
+    const rand = mulberry32(6602);
+    const wallMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeFacadeTexture('industrial', 256)), roughness: 0.8, metalness: 0.1 }));
+    const officeMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeFacadeTexture('office', 256)), roughness: 0.82 }));
+    const asph = this.track(makeAsphaltTexture(256)); asph.anisotropy = q.anisotropy;
+    const lotMat = this.track(new THREE.MeshStandardMaterial({ map: asph, roughness: 0.94, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
+    const whGeos = [], offGeos = [], lotGeos = [];
+    const boxUV = (w, h, d, x, y, z) => {
+      const g = new THREE.BoxGeometry(w, h, d);
+      const uv = g.attributes.uv;
+      const su = [d, d, w, w, w, w], sv = [h, h, d, d, h, h];
+      for (let f = 0; f < 6; f++) for (let i = 0; i < 4; i++) { const k = f * 4 + i; uv.setXY(k, uv.getX(k) * (su[f] / 4.2), uv.getY(k) * (sv[f] / 3.6)); }
+      g.translate(x, y + h / 2, z);
+      return g;
+    };
+    // Kargo/lojistik: üssün doğu kapısı dışında sıralı depolar
+    for (let i = 0; i < 9; i++) {
+      const x = 1750 + (i % 3) * 210, z = 1830 + Math.floor(i / 3) * 150;
+      const y = terrainHeight(x, z);
+      if (y < 1) continue;
+      whGeos.push(boxUV(150 + rand() * 50, 11 + rand() * 4, 74 + rand() * 20, x, y, z));
+      const lg = new THREE.PlaneGeometry(190, 46); lg.rotateX(-Math.PI / 2); lg.translate(x, y + 0.18, z + 68);
+      lotGeos.push(lg);
+      this.buildingBoxes.push({ minX: x - 100, maxX: x + 100, minZ: z - 45, maxZ: z + 45, minY: 0, maxY: y + 16 });
+    }
+    // Ticari: havaalanı oteli ve ofisler (batı kapısı)
+    for (const [x, z, w, h, d] of [[-2150, 1400, 46, 30, 36], [-2320, 1560, 40, 21, 30], [-2000, 1620, 54, 16, 34], [-2380, 1330, 34, 24, 26]]) {
+      const y = terrainHeight(x, z);
+      if (y < 1) continue;
+      offGeos.push(boxUV(w, h, d, x, y, z));
+      this.buildingBoxes.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, minY: 0, maxY: y + h });
+    }
+    const addMesh = (geos, mat) => {
+      if (!geos.length) return null;
+      for (const g of geos) if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+      const m = new THREE.Mesh(this.track(mergeGeometries(geos.map((g) => (g.index ? g.toNonIndexed() : g)), false)), mat);
+      m.castShadow = false; m.receiveShadow = q.shadows; m.matrixAutoUpdate = false;
+      this.group.add(m);
+      return m;
+    };
+    const a = addMesh(whGeos, wallMat), b = addMesh(offGeos, officeMat), c = addMesh(lotGeos, lotMat);
+    this.airportSurround = [a, b, c].filter(Boolean);
+  }
+
+  // Şehir: kendi modülünde üretilir (bölgeleme, yollar, binalar, detaylar, trafik, LOD)
+  buildCity() {
+    this.city = new City({
+      center: CITY,
+      quality: this.quality,
+      heightAt: terrainHeight,
+      coastZ: coastLineZ,
+    });
+    this.group.add(this.city.build());
+    // Şehir binaları çarpışma kutularına eklenir (alçak uçuşta binalara çarpılabilsin)
+    for (const b of this.city.boxes) {
+      this.buildingBoxes.push({ minX: b.x - b.rx, maxX: b.x + b.rx, minZ: b.z - b.rz, maxZ: b.z + b.rz, minY: 0, maxY: b.h });
+    }
+  }
+
   buildCivilAirport() {
     const C = CIVIL, ap = AIRPORT_BY_ID.civil, q = this.quality;
     const g = new THREE.Group();
@@ -1784,13 +1964,41 @@ export class World {
 
   heightAt(x, z) { return terrainHeight(x, z); }
 
+  // Çarpışma sorgusu uzamsal karma ızgara üzerinden yapılır. Doğrusal tarama, şehir
+  // eklendikten sonra 120 Hz'de binlerce kutuyu gezerdi; ızgarada yalnızca sorgunun
+  // örttüğü hücrelerdeki kutulara bakılır.
+  buildCollisionGrid() {
+    const CELL = 260;
+    const grid = new Map();
+    const key = (i, j) => i * 100003 + j;
+    const add = (b) => {
+      const i0 = Math.floor(b.minX / CELL), i1 = Math.floor(b.maxX / CELL);
+      const j0 = Math.floor(b.minZ / CELL), j1 = Math.floor(b.maxZ / CELL);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+        const k = key(i, j);
+        let a = grid.get(k);
+        if (!a) { a = []; grid.set(k, a); }
+        a.push(b);
+      }
+    };
+    for (const b of this.buildingBoxes) add(b);
+    for (const b of this.townBoxes) add(b);
+    this.colGrid = grid; this.colCell = CELL; this.colKey = key;
+    this.colBoxCount = this.buildingBoxes.length + this.townBoxes.length;
+  }
+
   hitsBuilding(x, y, z, r = 3) {
-    for (const b of this.buildingBoxes) {
-      if (x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ && y - r < b.maxY && y + r > b.minY) return true;
-    }
-    if (this.townCenter && Math.hypot(x - this.townCenter.x, z - this.townCenter.z) < TOWN.r + 200 && y < 60) {
-      for (const b of this.townBoxes) {
-        if (x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ && y - r < b.maxY && y + r > b.minY) return true;
+    if (!this.colGrid) this.buildCollisionGrid();
+    const CELL = this.colCell, key = this.colKey;
+    const i0 = Math.floor((x - r) / CELL), i1 = Math.floor((x + r) / CELL);
+    const j0 = Math.floor((z - r) / CELL), j1 = Math.floor((z + r) / CELL);
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const cell = this.colGrid.get(key(i, j));
+        if (!cell) continue;
+        for (const b of cell) {
+          if (x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ && y - r < b.maxY && y + r > b.minY) return true;
+        }
       }
     }
     return false;
@@ -1851,6 +2059,7 @@ export class World {
     const baseDist = Math.hypot(cx, cy, cz);
     if (this.runwayLights) this.runwayLights.visible = band(this.runwayLights.visible, baseDist, 4500, 300);
     if (this.fenceMeshes) { const v = band(this.fenceMeshes[0].visible, baseDist, 2600, 200); for (const m of this.fenceMeshes) m.visible = v; }
+    if (this.city) this.city.update(dt, camera.position);
     if (this.civilLights) {
       const d = Math.hypot(cx - this.civilCenter.x, cy - this.civilCenter.y, cz - this.civilCenter.z);
       this.civilLights.visible = band(this.civilLights.visible, d, 4500, 300);

@@ -11,7 +11,8 @@ index.html              Sayfa iskeleti, CSS, arayüz, import map
 manifest.webmanifest    PWA bildirimi
 sw.js                   Service worker (önbellek, çevrimdışı, güncelleme)
 js/main.js              Uygulama girişi, oyun döngüsü, menüler
-js/world.js             Arazi, gökyüzü, su, ormanlar, iki havaalanı, kasabalar, yollar
+js/world.js             Arazi, gökyüzü, deniz/göller, ormanlar, iki havaalanı, kasabalar, yollar, köprü
+js/city.js              Şehir üreteci: bölgeleme, yol ağı, bina yerleşimi, yeşil alan, detay, trafik, LOD
 js/aircraft.js          Prosedürel F-35A modeli (fasetli alt gövde, silah yuvası kapakları, düz kokpit güvertesi)
 js/a321.js              Prosedürel Airbus A321neo modeli (gövde, kanat, LEAP motorlar, kapılar, A320 kokpiti)
 js/fleet.js             Uçak kayıt defteri: her uçağın aerodinamiği, kontrol kanunu, sistemleri, kamerası, sesi
@@ -106,6 +107,40 @@ Dört yolcu kapısı, iki kanat üstü acil çıkış, iki kargo kapağı çerç
 
 **Performans.** Arazi 18 x 18 = 324 parçaya bölünür ve üç kademede örneklenir: havaalanı/su çevresi 2x, iç bölge normal, dış dağ kuşağı yarı çözünürlük. Her parçanın iki LOD'u ve histerezisi vardır. Ağaç bütçesi haritanın tamamına eşit dağıtılmaz; iki havaalanı arasındaki koridora ağırlıklı ve **koruluk kümeleri** halinde yerleştirilir, böylece aynı bütçeyle seyrek nokta yerine gerçek orman dokusu oluşur. Ağaç parçaları da 4 km'lik hücrelerdir (mesafe kırpması isabetli olsun diye) ve ağaç geometrisi düşük segmentlidir.
 
+## Şehir
+
+Haritanın güney kıyısında, üsten **yaklaşık 18 km (10 deniz mili)** uzaklıkta bir sahil şehri vardır: kalkış → tırmanış → siluetin görünmesi → şehrin üzerinden geçiş → banliyö ve kır. Şehir `js/city.js` içinde üretilir; dünya modülünden yalnızca arazi yüksekliği ve kıyı çizgisi fonksiyonlarını alır.
+
+**Bölgeleme.** Merkezden dışa doğru kademeli: `downtown → core (orta yükseklik) → urban (apartman) → suburb (müstakil ev) → outskirt → kır`. Sanayi bölgesi kuzeybatı diliminde, parklar merkez çevresinde dağılır. Halka sınırları gürültüyle dalgalandırılır; kusursuz daire olmaz. Blok doluluğu kenara doğru azalır, böylece "gökdelen → boş çayır" gibi ani bir geçiş oluşmaz.
+
+**Binalar.** 13 arketip (kademeli kule, podyumlu ofis, ince kule, çatı teknik hacimli ofis, apartman, müstakil ev, dükkân, depo…) **temsilî boyutlarda** üretilir ve UV'leri o boyuta göre döşenir; örneklerde ölçek yalnızca sınırlı oynatılır, böylece cephe dokusu esnemez. Yükseklik çeşitliliği arketip seçiminden gelir: çok sayıda alçak, daha az orta, birkaç yüksek, tek bir imza kule. Her arketip-malzeme çifti bir `InstancedMesh`'tir; renk `instanceColor` ile örnek başına değişir. Dört prosedürel cephe dokusu vardır: cam giydirme, ofis paneli, apartman, sanayi.
+
+**Simgeler.** 284 m'lik daralan cam kule (şehrin en yükseği), stadyum, haberleşme kulesi, liman vinçleri ve nehir üzerindeki asma köprü. Bunlar navigasyon referansıdır; şehir simgeyle doldurulmaz.
+
+**Yollar.** Hiyerarşi: çevre otoyolu (ring) → radyal arterler → cadde ızgarası → sahil bulvarı. Izgara dünya eksenlerinden döndürülmüştür. Denize düşen bölümler atılır, kara parçaları ayrı polilinelere bölünür; yol denizde bitmez. Kesişmelerde katmanlar ayrı derinlik ofsetlerindedir (z-fighting yok). Üsten kasabaya, kasabadan şehre ve şehirden limana ana hatlar geçer.
+
+**Trafik.** Yol poliline'ları üzerinde sabit hızla ilerleyen örneklenmiş araçlar. Fizik yoktur. Yoğunluk otoyol > arter > cadde sırasındadır. Uzakta katman tamamen kapanır ve **o durumda hiç güncellenmez**.
+
+**Kentsel zemin.** Şehrin altındaki gri zemin ayrı bir levha değildir; arazinin köşe rengidir (`urbanDensity`). Böylece ek geometri, sert kenar ve z-fighting oluşmaz, kırlığa geçiş yumuşaktır.
+
+**LOD.** Katmanlar mesafeye göre açılıp kapanır (histerezisli): imza kuleler ve gökdelenler her zaman, orta kat yapılar 9 km, evler/dükkânlar 4,2 km, otoparklar 5,2 km, yeşil alan 5,6 km, trafik 3,2 km, sokak lambaları 2,6 km. Mesafe şehrin **merkezine değil kütlesinin dışına** göre ölçülür; aksi hâlde şehrin içindeyken bile detaylar kapanırdı.
+
+**Çarpışma.** 18 m'den yüksek yapılar için çarpışma kutusu üretilir (gökdelenlere çarpılır). Çarpışma sorgusu **uzamsal karma ızgara** üzerinden yapılır: 200 bin sorgu ~23 ms, yani 120 Hz fizik için ihmal edilebilir. Doğrusal tarama bırakılsaydı şehir eklendikten sonra kare başına binlerce kutu gezilecekti.
+
+**Gölge.** Binalar gölge üretmez. Gölge kamerası uçağın çevresinde ±70 m'lik küçük bir hacimdir; on binlerce örnekli ağı gölge geçişine sokmanın görsel kazancı yok denecek kadar azdır. Uçağın gölge kalitesi korunur.
+
+**Ölçüm (iPhone profili, orta kalite).** Şehir üzerinde 700 m: 201 çizim çağrısı / 745 bin üçgen. Downtown alçak uçuş: 222 / 749 bin. Üs pisti: 188 / 476 bin. Sabit kamerada şehir içinde titreyen piksel oranı %0.
+
+## Deniz ve kıyı
+
+Haritanın güneyinde büyük bir körfez vardır. Kıyı çizgisi düz bir kenar değildir: iki ölçekli gürültüyle koylar ve burunlar oluşur (`coastLineZ`). Kıyıdan itibaren plaj eğimi, sonra kademeli derinleşen bir taban gelir; su, derinliğe göre renklenir ve çok sığ bantta köpük çıkar. Deniz yüzeyi harita sınırının 12 km ötesine kadar uzanır, böylece oyuncu su kütlesinin kenarını göremez — bu aynı zamanda haritanın güney sınırını gizler. Kıyı bandı ince, açık deniz kaba ızgarayla döşenir.
+
+Dağ kuşağı deniz tarafında oluşmaz; kıyı gerçekçi kalır.
+
+## Havaalanı çevresi
+
+Üssün doğu kapısında kargo/lojistik depoları ve otopark, batı kapısında havaalanı oteli ve ofis binaları vardır. Çevre yolu üssü dolanır, kargo yolu depolara bağlanır. Pist, taksi yolları, apron ve yaklaşma koridorları yapı içermez.
+
 ## Rüzgâr
 
 Aerodinamik her zaman **havaya göre bağıl hızla** hesaplanır, yer hızıyla değil. Varsayılan rüzgâr pist 09 için hafif karşı rüzgâr ve ~3 kt çapraz bileşendir (110°/9 kt, 4 kt patlamalı). Yüzeye yakın sürtünme katmanında hız düşer, yön ve şiddet yavaşça gezinir. Sonuçlar:
@@ -151,7 +186,9 @@ Hedefi tutturmak için **uyarlanabilir çözünürlük** vardır: kare süresi 1
 | Orta (varsayılan) | 1.5 | 1024 | 26 km | 42 000 | 80 | tam |
 | Yüksek | 2 | 2048 | 42 km | 72 000 | 125 | tam |
 
-Dünya 72 × 72 km'dir: kenarlarda dağlar, ortada düzlükler ve tarlalar, sekiz göl, bir nehir, yollar, iki kasaba, bir askeri hava üssü ve bir sivil havalimanı (paralel taksi yolları, apron, güneşlikler, hangarlar, korumalı sığınaklar, kule, park halinde F-35'ler, bakım atölyeleri, kışla ve filo binaları, yakıt sahası, mühimmat igloları, dikenli telli çevre çiti, nöbetçi kulübeli kapılar, çevre/servis yolları, otoparklar, askeri araçlar ve bitki örtüsü). Su yüzeyleri derinliğe göre renklenir (sığ turkuaz → derin koyu), kıyılar yumuşak geçişlidir ve gökyüzü/güneş yansıması Fresnel ile hesaplanır.
+Ayrıca kaliteye göre şehir trafiği: düşük 160, orta 420, yüksek 800 araç.
+
+Dünya 72 × 72 km'dir: güneyde deniz ve girintili kıyı, kenarlarda dağlar, ortada düzlükler ve tarlalar, sekiz göl, bir nehir ve asma köprü, yollar, sahil şehri, iki kasaba, bir askeri hava üssü ve bir sivil havalimanı (paralel taksi yolları, apron, güneşlikler, hangarlar, korumalı sığınaklar, kule, park halinde F-35'ler, bakım atölyeleri, kışla ve filo binaları, yakıt sahası, mühimmat igloları, dikenli telli çevre çiti, nöbetçi kulübeli kapılar, çevre/servis yolları, otoparklar, askeri araçlar ve bitki örtüsü). Su yüzeyleri derinliğe göre renklenir (sığ turkuaz → derin koyu), kıyılar yumuşak geçişlidir ve gökyüzü/güneş yansıması Fresnel ile hesaplanır.
 
 ## Havaalanı çizim kararlılığı
 

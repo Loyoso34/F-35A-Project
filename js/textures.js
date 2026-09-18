@@ -662,3 +662,61 @@ export function makeAirbusScreenTexture(kind = 'pfd', size = 256) {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
+
+// ---- Şehir cephe dokuları --------------------------------------------------
+// Dört cephe tipi: cam giydirme, ofis paneli, apartman, sanayi cephesi.
+// Hepsi döşenebilir ve 256 px'tir; binalar örneklendiği (instanced) için doku sayısı
+// az tutulur, çeşitlilik geometri oranı, renk tonu ve tip seçiminden gelir.
+export function makeFacadeTexture(kind = 'office', size = 256) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  const rand = mulberry32(kind.length * 977 + 31);
+  const px = (v) => Math.round(v);
+  if (kind === 'glass') {
+    ctx.fillStyle = '#93aec4'; ctx.fillRect(0, 0, size, size);
+    const cols = 10, rows = 14;
+    for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) {
+      const t = rand();
+      ctx.fillStyle = t < 0.42 ? '#a8c2d6' : t < 0.78 ? '#8aa6bd' : '#c4d8e6';
+      ctx.fillRect(px(k * size / cols + 1), px(r * size / rows + 1), px(size / cols - 2), px(size / rows - 2.5));
+    }
+    ctx.strokeStyle = 'rgba(58,74,90,0.7)'; ctx.lineWidth = 1.5;
+    for (let k = 0; k <= cols; k++) { ctx.beginPath(); ctx.moveTo(px(k * size / cols) + 0.5, 0); ctx.lineTo(px(k * size / cols) + 0.5, size); ctx.stroke(); }
+    for (let r = 0; r <= rows; r++) { ctx.beginPath(); ctx.moveTo(0, px(r * size / rows) + 0.5); ctx.lineTo(size, px(r * size / rows) + 0.5); ctx.stroke(); }
+  } else if (kind === 'office') {
+    ctx.fillStyle = '#cfc9be'; ctx.fillRect(0, 0, size, size);
+    const cols = 8, rows = 12;
+    for (let r = 0; r < rows; r++) {
+      ctx.fillStyle = 'rgba(150,145,136,0.75)';
+      ctx.fillRect(0, px(r * size / rows), size, 3);
+      for (let k = 0; k < cols; k++) {
+        const t = rand();
+        ctx.fillStyle = t < 0.7 ? '#55647a' : t < 0.88 ? '#6a7c92' : '#dae2e8';
+        ctx.fillRect(px(k * size / cols + size / cols * 0.18), px(r * size / rows + size / rows * 0.30), px(size / cols * 0.64), px(size / rows * 0.44));
+      }
+    }
+  } else if (kind === 'apartment') {
+    ctx.fillStyle = '#ddd2be'; ctx.fillRect(0, 0, size, size);
+    const cols = 6, rows = 9;
+    for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) {
+      const bx = px(k * size / cols), by = px(r * size / rows);
+      if (rand() < 0.5) { ctx.fillStyle = 'rgba(190,178,158,0.6)'; ctx.fillRect(bx, by, px(size / cols), px(size / rows)); }
+      ctx.fillStyle = rand() < 0.72 ? '#5d6c7c' : '#ccd5db';
+      ctx.fillRect(bx + px(size / cols * 0.22), by + px(size / rows * 0.24), px(size / cols * 0.34), px(size / rows * 0.42));
+      // Balkon bandı
+      ctx.fillStyle = 'rgba(105,98,88,0.55)';
+      ctx.fillRect(bx + px(size / cols * 0.62), by + px(size / rows * 0.30), px(size / cols * 0.28), px(size / rows * 0.36));
+    }
+  } else {   // industrial
+    ctx.fillStyle = '#b4bbc0'; ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = 'rgba(120,128,134,0.9)'; ctx.lineWidth = 2;
+    for (let k = 0; k < 26; k++) { const x = px(k * size / 26) + 0.5; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, size); ctx.stroke(); }
+    ctx.fillStyle = '#6d757b';
+    ctx.fillRect(0, px(size * 0.08), size, px(size * 0.06));
+    ctx.fillStyle = '#5f6e7c';
+    for (let k = 0; k < 7; k++) ctx.fillRect(px(k * size / 7 + size / 7 * 0.15), px(size * 0.24), px(size / 7 * 0.7), px(size * 0.10));
+  }
+  const t = finishTexture(new THREE.CanvasTexture(c));
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
