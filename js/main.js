@@ -66,6 +66,7 @@ class App {
       onSound: () => this.toggleSound(),
       onPause: () => this.togglePause(),
       onLights: () => this.toggleLights(),
+      onPhysDebug: () => this.togglePhysDebug(),
       onSpoilers: () => this.toggleSpoilers(),
       onMenu: () => this.ui.toggleMenu(),
       onMenuActivity: () => this.ui.menuActivity(),
@@ -497,7 +498,10 @@ class App {
   }
   toggleGear() {
     if (this.state !== 'running') return;
-    this.physics.toggleGear();
+    if (!this.physics.toggleGear()) {
+      this.ui.message('İniş takımı yerde kilitli (ağırlık tekerde)', 1800);
+      return;
+    }
     this.updateToggleButtons();
     this.ui.message(this.physics.gearCmd ? 'İniş takımı açılıyor' : 'İniş takımı kapanıyor', 1500);
   }
@@ -606,6 +610,50 @@ class App {
   }
 
   // ---- Döngü ----
+  // -------------------------------------------------------------------------
+  // Geliştirici fizik paneli (§40). Shift+D ile açılır. Uçuş modelinin ÜRETTİĞİ
+  // değerleri gösterir; ayrı bir hesap yapmaz, bu yüzden panel ile fizik asla
+  // birbirinden ayrışamaz. Kapalıyken hiçbir maliyeti yoktur.
+  // -------------------------------------------------------------------------
+  togglePhysDebug() {
+    this.physDebug = !this.physDebug;
+    const el = document.getElementById('physdbg');
+    if (el) el.hidden = !this.physDebug;
+    if (!this.physDebug && el) el.textContent = '';
+    this.ui.message(this.physDebug ? 'Fizik paneli açık (Shift+D)' : 'Fizik paneli kapalı');
+  }
+
+  drawPhysDebug() {
+    const el = document.getElementById('physdbg');
+    if (!el) return;
+    // Panel 10 Hz tazelenir: her karede DOM yazmak gereksiz.
+    this._dbgT = (this._dbgT || 0) + 1;
+    if (this._dbgT % 6) return;
+    const p = this.physics, d = p.debug || {}, T = p.telemetry || {}, f = d.fcs || {};
+    const DEGR = 180 / Math.PI;
+    const n = (v, k = 2) => (Number.isFinite(v) ? v.toFixed(k) : '—');
+    const kN = (v) => (Number.isFinite(v) ? (v / 1000).toFixed(1) : '—');
+    const L = [];
+    L.push(`<b>HAVA</b>  TAS ${n(T.ktas, 0)} kt   IAS ${n(T.kias, 0)} kt   M ${n(T.mach, 3)}`);
+    L.push(`       alt ${n(T.altFt, 0)} ft   q̄ ${n(d.qbar, 0)} Pa   VS ${n(T.vsFpm, 0)} ft/dk`);
+    L.push(`<b>AKIŞ</b>  α ${n(T.alpha, 2)}°   β ${n(T.beta, 2)}°   nz ${n(T.g, 2)} g`);
+    L.push(`<b>ORAN</b>  p ${n(p.rates.p * DEGR, 1)}  q ${n(p.rates.q * DEGR, 1)}  r ${n(p.rates.r * DEGR, 1)} °/s`);
+    L.push(`<b>TUTUM</b> φ ${n(T.roll, 1)}°  θ ${n(T.pitch, 1)}°  ψ ${n(T.heading, 0)}°`);
+    L.push(`<b>KATSAYI</b> CL ${n(d.CL, 3)}  CD ${n(d.CD, 4)}  CY ${n(d.CY, 4)}`);
+    L.push(`         Cl ${n(d.Cl, 4)}  Cm ${n(d.Cm, 4)}  Cn ${n(d.Cn, 4)}`);
+    L.push(`<b>KUVVET</b> T ${kN(d.Lift)}  S ${kN(d.Drag)}  Y ${kN(d.Side)} kN`);
+    L.push(`<b>MOMENT</b> L ${kN(d.Lm)}  M ${kN(d.Mm)}  N ${kN(d.Nm)} kN·m`);
+    L.push(`  jiro   L ${kN(d.Lgyro)}  M ${kN(d.Mgyro)}  N ${kN(d.Ngyro)} kN·m`);
+    L.push(`<b>İTKİ</b>  ${kN(d.thrust)} kN   kütle ${n(d.mass, 0)} kg   yakıt ${n(p.fuel, 0)} kg`);
+    L.push(`<b>YÜZEY</b> δe ${n(d.de)}  δa ${n(d.da)}  δr ${n(d.dr)}`);
+    L.push(`<b>FCS</b>   qCmd ${n(f.qCmd * DEGR, 1)}  pCmd ${n(f.pCmd * DEGR, 1)}  rCmd ${n(f.rCmd * DEGR, 1)} °/s`);
+    L.push(`       pMax ${n(f.pMax * DEGR, 0)}°/s  nHedef ${n(f.nTarget)}  nMevcut ${n(f.nAvail)}`);
+    L.push(`       αKomut ${n(f.aCmd * DEGR, 1)}°  g-harman ${n(f.wG)}  yetki ${n(f.auth)}`);
+    L.push(`<b>AERO</b>  ayrılma ${n(d.sepFrac)}  kuyrukEtk ${n(d.tailEff)}  CLmax ${n(d.CLmaxCfg)}`);
+    L.push(`       αtrim ${n(d.alphaTrim * DEGR, 1)}°  yerde ${p.onGround ? 'evet' : 'hayır'}  kırpma ${d.rateClamped ? 'EVET' : 'hayır'}`);
+    el.innerHTML = L.join('\n');
+  }
+
   syncAircraft(dt) {
     const p = this.physics, T = p.telemetry;
     this.aircraft.group.position.copy(p.pos);
@@ -616,6 +664,7 @@ class App {
       flaps: p.flapsPos, slats: p.slatsPos, spoilers: p.spoilerPos, gear: p.gearPos,
       throttle: p.engine, engine: p.engine, afterburner: p.abLevel, reverse: p.reversePos, time: p.time,
       groundSpeed: p.onGround ? p.vel.length() : 0, dt,
+      camDist: this.camera.position.distanceTo(p.pos),
     });
   }
 
@@ -678,6 +727,7 @@ class App {
       }
       this.syncAircraft(dt);
       this.cameraRig.update(dt, this.physics);
+      if (this.physDebug) this.drawPhysDebug();
     }
     if (running || this.needsRender) {
       this.world.setWind(this.physics.windAt(this.physics.groundY + 8, this.physics.time), this.physics.wind.kt);

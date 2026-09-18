@@ -239,6 +239,8 @@ export class Controls {
         case 'KeyL': this.cb.onLights && this.cb.onLights(); break;
         case 'KeyV': this.cb.onSpoilers && this.cb.onSpoilers(); break;
         case 'KeyP': case 'Escape': this.cb.onPause && this.cb.onPause(); break;
+        // Shift+D: geliştirici fizik paneli (§40). Normal oyunda kapalı.
+        case 'KeyD': if (e.shiftKey) this.cb.onPhysDebug && this.cb.onPhysDebug(); break;
         default: return;
       }
       e.preventDefault();

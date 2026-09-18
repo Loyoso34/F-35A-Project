@@ -16,7 +16,15 @@ js/city.js              Şehir üreteci: bölgeleme, yol ağı, bina yerleşimi,
 js/aircraft.js          Prosedürel F-35A modeli (fasetli alt gövde, silah yuvası kapakları, düz kokpit güvertesi)
 js/a321.js              Prosedürel Airbus A321neo modeli (gövde, kanat, LEAP motorlar, kapılar, A320 kokpiti)
 js/fleet.js             Uçak kayıt defteri: her uçağın aerodinamiği, kontrol kanunu, sistemleri, kamerası, sesi
-js/physics.js           Uçuş dinamiği (120 Hz sabit adım), uçaktan bağımsız; katsayıları fleet.js'ten alır
+js/physics.js           Uçuş dinamiği düzenleyicisi (120 Hz sabit adım): hava verileri, kuvvet/moment
+                        toplama, yer teması; uçaktan bağımsız, veriyi fleet.js + aerodata.js'ten alır
+js/rigidbody.js         6-DOF rijit cisim: tam Euler denklemleri (I_xz dahil) + kuaterniyon entegrasyonu
+js/atmosphere.js        ISA atmosfer (yoğunluk, ses hızı, basınç oranları)
+js/aero.js              Aerodinamik katsayı modeli — alpha/beta'nın SÜREKLİ fonksiyonları, stall eşiği yok
+js/aerodata.js          Uçak başına aerodinamik/itki veri setleri + yükleme anında bütünlük denetimi
+js/engine.js            Motor modeli: spool dinamiği, irtifa/Mach itki kaybı, art yakıcı
+js/fcs.js               Fly-by-wire kontrol kanunu (genel mimari; gerçek F-35 kanunları gizlidir, modellenmez)
+PUBLIC_DATA_SOURCES.md  Her sayının kaynağı: [V] doğrulanmış kamuya açık / [E] mühendislik yaklaşımı / [T] ayarlanmış
 js/controls.js          Dokunmatik / klavye / eğim girişleri
 js/hud.js               Yeşil HUD
 js/audio.js             Prosedürel ses
@@ -29,6 +37,28 @@ icons/                  Ana ekran ikonları (tools/make_icons.py ile üretilir)
 tools/make_icons.py     İkon üretici (yalnızca Python standart kütüphanesi)
 .nojekyll               GitHub Pages'in dosyaları olduğu gibi sunması için
 ```
+
+## Uçuş modeli mimarisi
+
+Uçak konum/yönelimini KONTROL GİRDİSİNDEN doğrudan almaz. Zincir her zaman şudur:
+
+```
+pilot girdisi -> FCS -> yüzey komutu -> aerodinamik kuvvet/moment -> ivme -> hız -> konum/yönelim
+```
+
+- **6-DOF**: yönelim kuaterniyondur (Euler açıları yalnızca HUD/telemetri için türetilir).
+  Açısal dinamik tam Euler denklemleridir, atalet çarpımı I_xz dahil; atalet (jiroskopik)
+  çiftlenimi modelden çıkarılmaz, FCS tarafından yönetilir.
+- **Sabit 120 Hz fizik adımı**; çizim 60 fps'e kilitlidir. Sonuç kare hızından bağımsızdır.
+- **Stall modu yoktur.** Taşıma eğrisi Polhamus hücum kenarı emme analojisidir ve alpha'nın
+  sürekli bir fonksiyonudur. Kanat düşmesi/otorotasyon, sol ve sağ kanadın AYRI yerel hücum
+  açısı görmesinden (şerit modeli) kendiliğinden doğar; yapay tork yoktur.
+- **Gizli veri kullanılmaz.** Gerçek F-35 kontrol kanunları, aerodinamik tabloları ve atalet
+  tensörü kamuya açık değildir; modellenmemiştir. Her sayının kaynağı ve türetimi
+  `PUBLIC_DATA_SOURCES.md` dosyasında etiketlenmiştir.
+
+**Shift+D** geliştirici fizik panelini açar: hava verileri, alpha/beta, açısal oranlar,
+katsayılar, kuvvetler, momentler (jiroskopik dahil), itki, yüzey komutları ve FCS iç değerleri.
 
 ## GitHub Pages ile yayınlama
 
@@ -208,10 +238,11 @@ Pist, taksi yolları, apron ve işaretler arazinin yalnızca 5–10 cm üstünde
 - Hız vektörü gerçek ivmelenmeden gelir; dikey hız (VS) doğrudan hız vektörünün düşey bileşenidir. Burun aşağıdayken irtifa kaybı kaçınılmazdır; yapay irtifa tutucu yoktur.
 - Kontrol kanunu yük katsayısı (g) komutludur; düşük hızda hücum açısı komutuna geçer. Çubuk merkezdeyken uçak trim durumuna yakın kalır, ancak hız düştükçe burun düşer.
 - Yunuslama sönümü: dış döngü kazancı dinamik basınca göre programlanır (kapalı döngü kısa periyot sönümü F-35'te ζ≈0,9, A321neo'da ζ≈0,95), çubuk girişine ön filtre ve kontrol momentlerine 0,04 s eyleyici gecikmesi uygulanır. Çubuk bırakıldığında uçak yeni uçuş yoluna tek ve düzgün bir geçişle oturur; burun aşağı-yukarı sekmesi yoktur. Fizik 120 Hz sabit adımlı olduğundan davranış kare hızından bağımsızdır.
-- Taşıma/sürükleme: CL eğrisi stall sonrası düşer, indüklenmiş sürükleme (Oswald), ayrılma sürüklemesi, takım/flap sürüklemesi, yer etkisi (h/b oranına göre) ve ISA atmosferi.
+- Taşıma/sürükleme: CL eğrisi tek sürekli ifadedir (eşik yok), indüklenmiş sürükleme (Oswald), girdap/ayrılma sürüklemesi, transonik dalga sürüklemesi, takım/flap sürüklemesi, yer etkisi (h/b oranına göre) ve ISA atmosferi.
 - Motor: yavaş tepkili itki (spool), art yakıcı ayrı kademe, yakıt tüketimi; ses motoru rumble/türbin/egzoz/art yakıcı katmanlarını buna göre karıştırır. Ses tümüyle sentezlenir (döngüye alınmış motor kaydı yoktur): gürleme, kükreme, türbin ıslığı ve egzoz katmanlarının frekans ve seviyeleri N1'i sürekli izler, böylece rölanti, spool, kalkış, seyir, spool-down ve ters itki kendiliğinden ayrışır.
 - Kullanılabilir yük katsayısı, içinde bulunulan konfigürasyonun azami taşımasıyla hesaplanır (flap ve slat katkısı dahil). Yalnızca temiz CLmax kullanılsaydı yolcu uçağı yaklaşmada 1 g'nin altında bir tavana takılır ve flare yapamazdı.
-- Tüm katsayılar (`js/fleet.js`) uçak başına ayrıdır: kütle, atalet, kanat, itki ve spool, taşıma/sürükleme eğrileri, kontrol gücü, kontrol kanunu kazançları, yer davranışı, limitler, sistemler, kameralar, ses profili ve arayüz bayrakları.
+- Aerodinamik/itki katsayıları `js/aerodata.js`'te, kontrol kanunu kazançları ile sistem/kamera/ses/arayüz yapılandırması `js/fleet.js`'tedir; ikisi de uçak başına ayrıdır.
+- İniş takımı kolu yerde **ağırlık-tekerde (squat switch)** kilidiyle korunur: tekerlekler yerdeyken takım içeri alınamaz.
 
 Eski cihazlarda veya Düşük Güç Modu'nda takılma olursa **Düşük** seçin.
 

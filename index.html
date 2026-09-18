@@ -224,6 +224,16 @@
     #msg { position: fixed; left: 50%; top: calc(var(--sat) + 60px); transform: translateX(-50%); color: #ffd35a; font-weight: 700; font-size: 16px; text-shadow: 0 1px 4px #000; pointer-events: none; z-index: 12; }
     #msg:empty { display: none; }
     #fps { position: fixed; right: calc(var(--sar) + 84px); top: calc(var(--sat) + 8px); font-size: 11px; color: rgba(255,255,255,0.5); pointer-events: none; }
+    /* Geliştirici fizik paneli — Shift+D ile açılır/kapanır. Oyunda varsayılan olarak kapalıdır. */
+    #physdbg {
+      position: fixed; left: calc(var(--sal) + 8px); top: calc(var(--sat) + 8px);
+      font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #b9f7c8; background: rgba(6,12,10,0.74); border: 1px solid rgba(80,220,140,0.28);
+      border-radius: 6px; padding: 7px 10px; pointer-events: none; z-index: 30;
+      white-space: pre; max-height: 88vh; overflow: hidden; letter-spacing: 0.2px;
+    }
+    #physdbg[hidden] { display: none; }
+    #physdbg b { color: #ffd479; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -231,6 +241,7 @@
   <canvas id="hud"></canvas>
   <div id="msg"></div>
   <div id="fps"></div>
+  <div id="physdbg" hidden></div>
 
   <div id="touch" hidden>
     <div class="zone" id="view-zone"></div>

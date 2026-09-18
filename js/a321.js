@@ -629,7 +629,7 @@ export class A321neo {
     const glowTex = this.track(makeGlowTexture(64));
     const mk = (color, x, y, z, size = 1.1) => {
       const grp = new THREE.Group();
-      const bulb = new THREE.Mesh(this.track(new THREE.SphereGeometry(0.09, 6, 5)), this.track(new THREE.MeshBasicMaterial({ color })));
+      const bulb = new THREE.Mesh(this.track(new THREE.SphereGeometry(0.05, 6, 5)), this.track(new THREE.MeshBasicMaterial({ color })));
       const sprite = new THREE.Sprite(this.track(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
       sprite.scale.setScalar(size);
       grp.add(bulb, sprite);
@@ -641,13 +641,13 @@ export class A321neo {
     };
     const tipY = wingY(WING.tipX) + 2.3, tipZ = st(wingLE(WING.tipX) + 0.4);
     this.lights = {
-      navLeft: mk(0xff2a2a, -(WING.tipX + 0.35), tipY, tipZ, 0.8),
-      navRight: mk(0x22ff44, WING.tipX + 0.35, tipY, tipZ, 0.8),
-      tail: mk(0xffffff, 0, 2.55, st(44.2), 0.7),
-      strobeLeft: mk(0xffffff, -(WING.tipX + 0.35), tipY, tipZ + 0.35, 1.5),
-      strobeRight: mk(0xffffff, WING.tipX + 0.35, tipY, tipZ + 0.35, 1.5),
-      beaconTop: mk(0xff3020, 0, 2.18, st(19.0), 1.1),
-      beaconBottom: mk(0xff3020, 0, -2.68, st(21.5), 1.1),
+      navLeft: mk(0xff2a2a, -(WING.tipX + 0.35), tipY, tipZ, 0.30),
+      navRight: mk(0x22ff44, WING.tipX + 0.35, tipY, tipZ, 0.30),
+      tail: mk(0xffffff, 0, 2.55, st(44.2), 0.26),
+      strobeLeft: mk(0xffffff, -(WING.tipX + 0.35), tipY, tipZ + 0.35, 0.52),
+      strobeRight: mk(0xffffff, WING.tipX + 0.35, tipY, tipZ + 0.35, 0.52),
+      beaconTop: mk(0xff3020, 0, 2.18, st(19.0), 0.40),
+      beaconBottom: mk(0xff3020, 0, -2.68, st(21.5), 0.40),
     };
     // İniş farları (kanat kökü) ve taksi farı (burun takımı)
     this.landingSpot = new THREE.SpotLight(0xfff4e2, 0, 520, 26 * DEG, 0.5, 0.65);
@@ -704,7 +704,7 @@ export class A321neo {
     this.group.traverse((o) => { if (o.isMesh && o.material && o.material.isMeshStandardMaterial) { o.material.envMap = envMap; o.material.needsUpdate = true; } });
   }
 
-  update({ elevator = 0, aileron = 0, rudder = 0, flaps = 0, slats = 0, spoilers = 0, gear = 1, throttle = 0, engine = 0, reverse = 0, time = 0, groundSpeed = 0, dt = 0 }) {
+  update({ elevator = 0, aileron = 0, rudder = 0, flaps = 0, slats = 0, spoilers = 0, gear = 1, throttle = 0, engine = 0, reverse = 0, time = 0, groundSpeed = 0, dt = 0, camDist = 25 }) {
     const p = this.parts;
     // Yüzeyler mekanik hızla hareket eder (anında sıçrama yok)
     const k = (rate) => 1 - Math.exp(-Math.max(dt, 0.0001) * rate);
@@ -772,8 +772,12 @@ export class A321neo {
     L.strobeLeft.visible = strobeOn; L.strobeRight.visible = strobeOn;
     L.beaconTop.visible = beaconOn; L.beaconBottom.visible = beaconOn;
     const pulse = 0.92 + 0.08 * Math.sin(time * 5);
-    L.navLeft.userData.sprite.scale.setScalar(L.navLeft.userData.size * pulse);
-    L.navRight.userData.sprite.scale.setScalar(L.navRight.userData.size * pulse);
+    // Parıltılar gerçek boyutta; mesafeyle ölçeklenerek uzakta görünür kalır (bkz. aircraft.js)
+    const far = Math.min(4.5, 1 + Math.sqrt(Math.max(0, camDist)) * 0.22);
+    for (const k of ['navLeft', 'navRight', 'tail', 'strobeLeft', 'strobeRight', 'beaconTop', 'beaconBottom']) {
+      const g = L[k];
+      g.userData.sprite.scale.setScalar(g.userData.size * far * (k.startsWith('nav') ? pulse : 1));
+    }
     const ll = this.landingLightsOn;
     this.landingSpot.intensity = ll ? 55 : 0;
     this.landingSpot.visible = ll;

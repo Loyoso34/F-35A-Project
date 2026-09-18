@@ -19,10 +19,20 @@ function st(s) { return s - F35.cgStation; }
 // Gövde kesit profilleri. Her profil: üst merkez -> chine -> alt köşe -> alt merkez (sağ yarı).
 // yt: üst y, (xc,yc): chine, (xs,ys): yanak kontrol noktası (hava alığı şişkinliği),
 // (xb,yb): alt köşe, ybot: alt merkez, nt: üst süperelips üssü, nb: alt süperelips üssü.
+// Radom: TEĞET OJİV. Yarıçap r(s) = √(ρ² − (L−s)²) − ρ + R,  ρ = (R²+L²)/2R,
+// L = 2.90 m radom boyu, R = 0.70 m taban yarıçapı. Ojiv uçta HIZLA genişler
+// (r(0.15) zaten tabanın %11'i), bu yüzden burun küt ve yuvarlak görünür.
+// Önceki tablo yalnızca 0 / 0.70 / 1.80 istasyonlarını tanımlıyordu ve aradaki
+// smoothstep enterpolasyonunun uçta türevi sıfır olduğu için burun uzun, ince
+// bir İĞNEye dönüşüyordu. Ara istasyonlar ojivden hesaplanarak eklendi.
 const FORE_PROFILES = [
-  [0.00, { yt: 0.02, xc: 0.012, yc: 0.0, xs: 0.012, ys: -0.01, xb: 0.008, yb: -0.015, ybot: -0.02, nt: 2.2, nb: 2.2, dk: 0.004 }],
-  [0.70, { yt: 0.27, xc: 0.30, yc: 0.01, xs: 0.27, ys: -0.10, xb: 0.15, yb: -0.20, ybot: -0.26, nt: 2.2, nb: 2.2, dk: 0.004 }],
-  [1.80, { yt: 0.49, xc: 0.58, yc: 0.04, xs: 0.50, ys: -0.19, xb: 0.28, yb: -0.37, ybot: -0.46, nt: 2.3, nb: 2.3, dk: 0.004 }],
+  [0.00, { yt: 0.013, xc: 0.017, yc: 0.001, xs: 0.015, ys: -0.006, xb: 0.009, yb: -0.011, ybot: -0.014, nt: 2.15, nb: 2.15, dk: 0.004 }],
+  [0.15, { yt: 0.065, xc: 0.084, yc: 0.006, xs: 0.072, ys: -0.028, xb: 0.043, yb: -0.054, ybot: -0.066, nt: 2.15, nb: 2.15, dk: 0.004 }],
+  [0.35, { yt: 0.145, xc: 0.188, yc: 0.014, xs: 0.161, ys: -0.062, xb: 0.095, yb: -0.121, ybot: -0.147, nt: 2.18, nb: 2.18, dk: 0.004 }],
+  [0.70, { yt: 0.268, xc: 0.347, yc: 0.026, xs: 0.298, ys: -0.114, xb: 0.176, yb: -0.224, ybot: -0.272, nt: 2.2, nb: 2.2, dk: 0.004 }],
+  [1.20, { yt: 0.408, xc: 0.529, yc: 0.040, xs: 0.455, ys: -0.174, xb: 0.268, yb: -0.341, ybot: -0.415, nt: 2.25, nb: 2.25, dk: 0.004 }],
+  [1.80, { yt: 0.526, xc: 0.682, yc: 0.052, xs: 0.587, ys: -0.224, xb: 0.345, yb: -0.440, ybot: -0.535, nt: 2.3, nb: 2.3, dk: 0.004 }],
+  [2.40, { yt: 0.593, xc: 0.768, yc: 0.058, xs: 0.661, ys: -0.253, xb: 0.389, yb: -0.496, ybot: -0.603, nt: 2.35, nb: 2.35, dk: 0.03 }],
   [2.90, { yt: 0.61, xc: 0.79, yc: 0.06, xs: 0.68, ys: -0.26, xb: 0.40, yb: -0.51, ybot: -0.62, nt: 2.4, nb: 2.4, dk: 0.10 }],
   [3.30, { yt: 0.635, xc: 0.85, yc: 0.055, xs: 0.73, ys: -0.27, xb: 0.44, yb: -0.57, ybot: -0.67, nt: 2.45, nb: 2.5, dk: 0.35 }],
   [3.60, { yt: 0.65, xc: 0.90, yc: 0.05, xs: 0.78, ys: -0.29, xb: 0.47, yb: -0.62, ybot: -0.72, nt: 2.5, nb: 2.6, dk: 0.49 }],
@@ -255,7 +265,7 @@ export class F35A {
   }
 
   buildFuselage() {
-    const foreS = [0.0, 0.35, 0.7, 1.2, 1.8, 2.4, 2.9, 3.1, 3.3, 3.6, 3.85, 4.1, 4.3, 4.5];
+    const foreS = [0.0, 0.10, 0.22, 0.35, 0.52, 0.7, 0.95, 1.2, 1.5, 1.8, 2.1, 2.4, 2.65, 2.9, 3.1, 3.3, 3.6, 3.85, 4.1, 4.3, 4.5];
     const mainS = [5.0, 5.4, 5.8, 6.2, 6.6, 7.1, 7.6, 8.2, 8.8, 9.4, 10.0, 10.6, 11.2, 11.8, 12.4, 12.9, 13.4, 13.8, 14.2, 14.6];
     const fore = foreS.map((s) => this.sectionPoints(s));
     const main = mainS.map((s) => this.sectionPoints(s));
@@ -566,10 +576,13 @@ export class F35A {
     // Testere dişli yapraklar (15 adet)
     const petals = [];
     const n = 15;
-    const zA = z0 + 1.2, zB = z0 + 1.72;
+    // Testere dişleri KISA olmalı: gerçek nozulda tırtıklı kenar, yaprak boyunun
+    // küçük bir kesridir. Diş boyu nozul yarıçapı kadar uzun olursa uçak arkadan
+    // "sivri diş demeti" gibi görünür. 0.18 m diş + neredeyse tam yarıçap uç.
+    const zA = z0 + 1.2, zB = z0 + 1.38;
     for (let i = 0; i < n; i++) {
       const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2, am = (a0 + a1) / 2;
-      const rA = 0.52, rB = 0.44;
+      const rA = 0.52, rB = 0.505;
       const p = [
         { x: Math.cos(a0) * rA, y: y0 + Math.sin(a0) * rA, z: zA },
         { x: Math.cos(a1) * rA, y: y0 + Math.sin(a1) * rA, z: zA },
@@ -816,7 +829,7 @@ export class F35A {
     const glowTex = this.track(makeGlowTexture(64));
     const mkLight = (color, x, y, z, size = 0.8) => {
       const g = new THREE.Group();
-      const bulb = new THREE.Mesh(this.track(new THREE.SphereGeometry(0.05, 6, 5)), this.track(new THREE.MeshBasicMaterial({ color })));
+      const bulb = new THREE.Mesh(this.track(new THREE.SphereGeometry(0.028, 6, 5)), this.track(new THREE.MeshBasicMaterial({ color })));
       const spr = new THREE.Sprite(this.track(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
       spr.scale.set(size, size, 1);
       g.add(bulb, spr);
@@ -828,14 +841,14 @@ export class F35A {
     const tipS = (P.leTip + P.teTip) / 2;
     // Seyir ışıkları: sol kırmızı, sağ yeşil, kuyruk beyaz (sürekli)
     this.lights = {
-      navLeft: mkLight(0xff2a2a, -P.tipX + 0.05, P.y, st(tipS), 0.55),
-      navRight: mkLight(0x2aff5a, P.tipX - 0.05, P.y, st(tipS), 0.55),
-      tail: mkLight(0xffffff, 0, 0.42, st(14.62), 0.45),
+      navLeft: mkLight(0xff2a2a, -P.tipX + 0.05, P.y, st(tipS), 0.16),
+      navRight: mkLight(0x2aff5a, P.tipX - 0.05, P.y, st(tipS), 0.16),
+      tail: mkLight(0xffffff, 0, 0.42, st(14.62), 0.14),
       // Çarpışma önleyici flaşörler: kanat uçları (beyaz, çift flaş), gövde üst/alt (kırmızı beacon)
-      strobeLeft: mkLight(0xffffff, -P.tipX + 0.05, P.y + 0.03, st(tipS) + 0.15, 1.0),
-      strobeRight: mkLight(0xffffff, P.tipX - 0.05, P.y + 0.03, st(tipS) + 0.15, 1.0),
-      beaconTop: mkLight(0xff3020, 0, bodyTop(9.6) + 0.06, st(9.6), 0.9),
-      beaconBottom: mkLight(0xff3020, 0, bodyBottom(9.6) - 0.06, st(9.6), 0.9),
+      strobeLeft: mkLight(0xffffff, -P.tipX + 0.05, P.y + 0.03, st(tipS) + 0.15, 0.30),
+      strobeRight: mkLight(0xffffff, P.tipX - 0.05, P.y + 0.03, st(tipS) + 0.15, 0.30),
+      beaconTop: mkLight(0xff3020, 0, bodyTop(9.6) + 0.06, st(9.6), 0.24),
+      beaconBottom: mkLight(0xff3020, 0, bodyBottom(9.6) - 0.06, st(9.6), 0.24),
     };
     this.parts.strobe = this.lights.strobeLeft; // geriye dönük uyumluluk
     // İniş/taksi ışığı: burun takımı üzerinde, öne-aşağı bakan spot
@@ -925,7 +938,7 @@ export class F35A {
   }
 
   // Kontrol yüzeyleri ve efektler. surfaces: {elevator, aileron, rudder} -1..1 (elevator +: burun yukarı)
-  update({ elevator = 0, aileron = 0, rudder = 0, flaps = 0, gear = 1, throttle = 0, afterburner = 0, time = 0, groundSpeed = 0, dt = 0 }) {
+  update({ elevator = 0, aileron = 0, rudder = 0, flaps = 0, gear = 1, throttle = 0, afterburner = 0, time = 0, groundSpeed = 0, dt = 0, camDist = 25 }) {
     const p = this.parts;
     const stab = -elevator * 22 * DEG;
     p.stabs.left.rotation.x = stab - aileron * 5 * DEG;
@@ -983,10 +996,15 @@ export class F35A {
     const L = this.lights;
     L.strobeLeft.visible = strobeOn; L.strobeRight.visible = strobeOn;
     L.beaconTop.visible = beaconOn; L.beaconBottom.visible = beaconOn;
-    // Parıltı boyutu mesafeye göre değil sabit (mobil dostu); hafif titreme
+    // Parıltı boyutu: yakında GERÇEK boyutunda (10.7 m açıklıklı uçakta kanat ucu
+    // lambası birkaç santimdir), uzakta ise ekranda kaybolmaması için mesafeyle
+    // ölçeklenir. Tek bir sqrt ifadesi; kare başına maliyeti ihmal edilebilir.
     const pulse = 0.9 + 0.1 * Math.sin(time * 6);
-    L.navLeft.userData.sprite.scale.setScalar(L.navLeft.userData.size * pulse);
-    L.navRight.userData.sprite.scale.setScalar(L.navRight.userData.size * pulse);
+    const far = Math.min(4.5, 1 + Math.sqrt(Math.max(0, camDist)) * 0.22);
+    for (const k of ['navLeft', 'navRight', 'tail', 'strobeLeft', 'strobeRight', 'beaconTop', 'beaconBottom']) {
+      const g = L[k];
+      g.userData.sprite.scale.setScalar(g.userData.size * far * (k.startsWith('nav') ? pulse : 1));
+    }
     // İniş ışığı: takım açık ve anahtar açıkken
     const ll = this.landingLightsOn && gear > 0.9;
     this.landingSpot.intensity = ll ? 40 : 0;

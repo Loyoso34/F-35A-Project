@@ -3,32 +3,11 @@
 import * as THREE from 'three';
 import { F35A, F35 } from './aircraft.js';
 import { A321neo, A321 } from './a321.js';
+import { F35A_AERO, A321_AERO } from './aerodata.js';
 
 const DEG = Math.PI / 180;
 
 // ---------------------------------------------------------------------------
-// F-35A Lightning II — mevcut davranış birebir korunur.
-const F35_AERO = {
-  massEmpty: 13300, fuel: 8300,
-  S: 42.7, span: 10.7, chord: 4.0,
-  Ixx: 5.0e4, Iyy: 2.8e5, Izz: 3.2e5,
-  thrustMil: 125000, thrustAB: 191000, idleFrac: 0.045,
-  // Düşük baypaslı askeri turbofan: ram basıncı Mach ile itkiyi artırır
-  thrustRhoExp: 0.72, thrustRam: 0.18, thrustFloor: 0, sfcMil: 2.4, sfcAB: 8.5,
-  spool: { up: 3.5, idleLag: 0.65, down: 2.0 },
-  CLa: 4.0, CL0: 0.04, CLmax: 1.72,
-  alphaLin: 16 * DEG, alphaMax: 24 * DEG, alphaDrop: 34 * DEG, alphaLimit: 25 * DEG,
-  CD0: 0.016, e: 0.78, eFlaps: 0.70, CDgear: 0.024, CDflaps: 0.018,
-  CLflaps: 0.5,
-  gMax: 9, gMin: -3,
-  rollRateMax: 250 * DEG, pitchRateMax: 50 * DEG, yawRateMax: 18 * DEG,
-  // Moment katsayıları
-  Cm0: 0.015, Cma: -0.35, Cmq: -9.0, CmFlaps: -0.05, CmStall: -2.2,
-  Clb: -0.06, Clp: -0.36, Clr: 0.10,
-  Cnb: 0.10, Cnr: -0.34, Cnp: -0.03,
-  CmCtl: 0.50, ClCtl: 0.062, CnCtl: 0.040,
-};
-
 const F35_CFG = {
   id: 'f35a',
   name: 'F-35A Lightning II',
@@ -40,11 +19,22 @@ const F35_CFG = {
     wheelBottomY: F35.wheelBottomY, noseGearZ: F35.noseGearZ, mainGearZ: F35.mainGearZ, mainGearX: F35.mainGearX,
     bellyR: 0.95, bellyArm: 4.0, rollArmX: 5.3, rollArmY: 0.3,
   },
-  aero: F35_AERO,
+  aero: F35A_AERO,
   law: {
     Kq0: 3.5, KqA: 4.5, Kp0: 5, KpA: 7, Kr0: 2.5, KrA: 3.5,
-    zeta: 0.9, prefilter: 0.12, rollFilter: 0.06, actuator: 0.04, stickPow: 1.5,
+    zeta: 0.9, prefilter: 0.12, rollFilter: 0.06, actuator: 0.035, stickPow: 1.5,
     qAuth: 9000, qRoll: 6000, qBlend: [2500, 7000],
+    rollAuth: 0.85,           // aerodinamik yatış yetkisinin FCS'ye açılan payı
+    Vmin: 35,                 // m/s — normalize oran paydası için güvenli taban
+    surfRate: 4.0,            // birim/s — eyleyici azami hızı (tam sapma ~0,25 s)
+    // Yüksek AoA'da yatış oranı tavanı: atalet çiftlenimi kaynaklı departure'ı önleyen
+    // ANA koruma. 20°'de düşmeye başlar, 45°'de %85 kısılır. Gerçek savaş uçağı FCS'leri
+    // de tam olarak bunu yapar.
+    rollA0: 18 * DEG, rollA1: 45 * DEG, rollAlphaCut: 0.85,
+    betaGain: 3.0,            // kayma -> koordinasyon sapma oranı kazancı
+    betaRate: 0.55,           // kayma DEĞİŞİM hızı geri beslemesi (Dutch roll sönümü)
+    betaAuth: 0.60,           // rad/s — koordinasyon komutunun tavanı
+    yawBudgetT: 0.65,          // s — dümenin sapma oranı kurma süresi (yatış tavanı için)
   },
   ground: { steerMax: 55 * DEG, steerV: 45, tireGrip: 0.45, rotQ: [2200, 5200], rotRate: 18 * DEG, pushRate: 10 * DEG, maxPitch: 13 * DEG, rollMu: [0.02, 0.09], brakeMu: [0.5, 0.25] },
   limits: { alphaWarn: 19 * DEG, hardLandVs: -6.5, landRoll: 12 * DEG, groundRoll: 15 * DEG, landPitch: [-4 * DEG, 15 * DEG], offRunwayV: [55, 60] },
@@ -66,32 +56,6 @@ const F35_CFG = {
 
 // ---------------------------------------------------------------------------
 // Airbus A321neo — ağır dar gövdeli yolcu uçağı. Değerler gerçek uçağa yakın seçildi.
-const A321_AERO = {
-  massEmpty: 62000, fuel: 18000,            // ~80 t kalkış ağırlığı
-  S: 128, span: 35.8, chord: 4.29,
-  Ixx: 2.3e6, Iyy: 8.5e6, Izz: 8.0e6,   // ~80 t kalkış ağırlığında atalet momentleri
-  thrustMil: 286000, thrustAB: 286000, idleFrac: 0.05,   // 2 x CFM LEAP-1A33 (143 kN, statik)
-  // Yüksek baypaslı turbofan: net itki hızla düşer (M0.23'te ~%78, M0.5'te ~%53), yüksek Mach'ta tabana oturur
-  thrustRhoExp: 0.75, thrustRam: -0.95, thrustFloor: 0.34, sfcMil: 2.1, sfcAB: 0,
-  // Rölantiden tam güce ~8 s: LEAP gibi büyük baypaslı motorun karakteristik gecikmesi
-  spool: { up: 7.0, idleLag: 0.75, down: 4.0 },
-  // CL0 kanadın ~5° oturma açısını temsil eder: gövde burnu seyirde yataya yakın durur, yaklaşmada ~4° yukarıdadır
-  CLa: 5.4, CL0: 0.45, CLmax: 1.55,
-  // alphaLin/Max/Drop sıfır taşıma açısından ölçülür (a0 = -CL0/CLa = -4,8°), alphaLimit/alphaWarn gövde açısıdır
-  alphaLin: 14 * DEG, alphaMax: 16.8 * DEG, alphaDrop: 28 * DEG, alphaLimit: 10.5 * DEG,
-  CD0: 0.021, e: 0.80, eFlaps: 0.72, CDgear: 0.022, CDflaps: 0.085,
-  CLflaps: 0.85, CLslats: 0.25, alphaSlat: 4.5 * DEG,
-  CDspoiler: 0.075, CLspoiler: 0.42, CmSpoiler: -0.06,
-  gMax: 2.5, gMin: 0.0,
-  rollRateMax: 15 * DEG, pitchRateMax: 8 * DEG, yawRateMax: 5 * DEG,
-  Cm0: 0.028, Cma: -1.15, Cmq: -24.0, CmFlaps: -0.13, CmStall: -1.4,
-  Clb: -0.09, Clp: -0.58, Clr: 0.13,
-  Cnb: 0.16, Cnr: -0.28, Cnp: -0.05,
-  // Kontrol gücü (δ=1'de moment katsayısı). Yaklaşma hızında ~7,7°/s² yunuslama ivmesi verir:
-  // ağır bir jet için gerçekçi. Daha düşük değerde flare sırasında asansör doyuma giriyordu.
-  CmCtl: 0.55, ClCtl: 0.045, CnCtl: 0.045,
-};
-
 const A321_CFG = {
   id: 'a321',
   name: 'Airbus A321neo',
@@ -108,6 +72,10 @@ const A321_CFG = {
     Kq0: 0.95, KqA: 0.95, Kp0: 1.15, KpA: 1.15, Kr0: 0.7, KrA: 0.7,
     zeta: 0.95, prefilter: 0.26, rollFilter: 0.22, actuator: 0.10, stickPow: 1.9,
     qAuth: 6000, qRoll: 5000, qBlend: [1800, 5200],
+    rollAuth: 0.70,
+    Vmin: 45, surfRate: 2.2,
+    rollA0: 10 * DEG, rollA1: 16 * DEG, rollAlphaCut: 0.70,
+    betaGain: 2.0, betaRate: 0.40, betaAuth: 0.25, yawBudgetT: 1.4,
   },
   ground: { steerMax: 45 * DEG, steerV: 40, tireGrip: 0.25, rotQ: [1200, 3100], rotRate: 6 * DEG, pushRate: 3.5 * DEG, maxPitch: 11 * DEG, rollMu: [0.015, 0.075], brakeMu: [0.42, 0.22] },
   limits: { alphaWarn: 9.5 * DEG, hardLandVs: -3.6, landRoll: 8 * DEG, groundRoll: 10 * DEG, landPitch: [-2 * DEG, 11 * DEG], offRunwayV: [40, 45] },
