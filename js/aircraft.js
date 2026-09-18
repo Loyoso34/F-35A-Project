@@ -521,7 +521,10 @@ export class F35A {
     // Dikey kuyruklar (dışa 22° eğik) + dümenler
     this.parts.rudders = {};
     const cant = 22 * DEG;
-    const V = { rootLE: 10.5, rootTE: 14.2, tipLE: 13.0, tipTE: 14.5, height: 2.2, rootX: 0.66, rootY: 0.42, hinge: 0.68 };
+    // height: dikey kuyruk kök-uç mesafesi. Toplam yükseklik (teker altından kuyruk
+    // ucuna) kamuya açık 4.38 m değerine oturması için seçildi:
+    //   rootY + height·cos(22°) − wheelBottomY = 0.42 + 1.95·0.927 + 2.25 = 4.48 m
+    const V = { rootLE: 10.5, rootTE: 14.2, tipLE: 13.0, tipTE: 14.5, height: 1.95, rootX: 0.66, rootY: 0.42, hinge: 0.68 };
     for (const side of [-1, 1]) {
       const up = new THREE.Vector3(side * Math.sin(cant), Math.cos(cant), 0);
       const nrm = new THREE.Vector3(Math.cos(cant) * side, -Math.sin(cant), 0);
@@ -566,9 +569,13 @@ export class F35A {
     const y0 = 0.08;
     const z0 = st(14.0);
     // Nozul gövdesi: bumların arasından çıkar
-    const body = new THREE.CylinderGeometry(0.52, 0.56, 1.25, 30, 1, true);
+    // Egzoz bölümü uzunluğu, uçağın KAMUYA AÇIK toplam boyunu tutturacak şekilde
+    // seçilir: burun ucu st(0) = -8.0, testere dişi ucu +7.70 => 15.70 m (yayımlanan
+    // F-35A boyu 15.7 m / 51.4 ft). Önceki 1.25 m'lik bölüm uçağı 15.38 m yapıyordu.
+    const NOZ_LEN = 1.57;
+    const body = new THREE.CylinderGeometry(0.52, 0.56, NOZ_LEN, 30, 1, true);
     body.rotateX(Math.PI / 2);
-    body.translate(0, y0, z0 + 0.625);
+    body.translate(0, y0, z0 + NOZ_LEN / 2);
     const nozzle = new THREE.Mesh(this.track(body), this.m.metal);
     nozzle.castShadow = true;
     this.group.add(nozzle);
@@ -579,7 +586,7 @@ export class F35A {
     // Testere dişleri KISA olmalı: gerçek nozulda tırtıklı kenar, yaprak boyunun
     // küçük bir kesridir. Diş boyu nozul yarıçapı kadar uzun olursa uçak arkadan
     // "sivri diş demeti" gibi görünür. 0.18 m diş + neredeyse tam yarıçap uç.
-    const zA = z0 + 1.2, zB = z0 + 1.38;
+    const zA = z0 + 1.52, zB = z0 + 1.70;
     for (let i = 0; i < n; i++) {
       const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2, am = (a0 + a1) / 2;
       const rA = 0.52, rB = 0.505;
@@ -599,9 +606,9 @@ export class F35A {
     const petalMat = this.track(this.m.metal.clone()); petalMat.side = THREE.DoubleSide;
     this.group.add(new THREE.Mesh(petalGeo, petalMat));
     // İç koni ve türbin
-    const inner = new THREE.CylinderGeometry(0.40, 0.50, 1.2, 24, 1, true);
+    const inner = new THREE.CylinderGeometry(0.40, 0.50, NOZ_LEN - 0.05, 24, 1, true);
     inner.rotateX(Math.PI / 2);
-    inner.translate(0, y0, z0 + 0.62);
+    inner.translate(0, y0, z0 + NOZ_LEN / 2 - 0.005);
     const innerMat = this.track(new THREE.MeshStandardMaterial({ color: 0x202226, roughness: 0.8, metalness: 0.6, side: THREE.BackSide }));
     this.group.add(new THREE.Mesh(this.track(inner), innerMat));
     const turbine = new THREE.CircleGeometry(0.5, 24);

@@ -31,6 +31,13 @@ methods and says so.
 | Max takeoff weight | 31 800 kg (70 000 lb) | **[V]** | USAF F-35A fact sheet. |
 | Simulated clean takeoff mass | 21 600 kg | **[E]** | Empty + full internal fuel. This is the mass the model uses at spawn. |
 
+**Measured model geometry** (airframe bounding box, excluding light billboards and
+the additive exhaust plume): length **15.75 m**, span **10.70 m**, height **4.48 m**
+with the gear extended — against the published 15.7 / 10.7 / 4.38 m. The exhaust
+section length and the vertical-tail height are set *from* those published figures
+rather than chosen by eye. The model is the **F-35A (CTOL)** only: there is no lift
+fan, no STOVL roll post, no enlarged wing, no wing fold and no arrestor hook.
+
 ## 2. Centre of gravity and inertia
 
 The real F-35A CG range and inertia tensor are **not public**. The values below are
