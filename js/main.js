@@ -449,9 +449,13 @@ class App {
       let shown = false;
       try { shown = localStorage.getItem('f35a.hintShown') === '1'; } catch (e) { /* yok */ }
       if (!shown) {
-        this.ui.show('standaloneHint');
-        try { localStorage.setItem('f35a.hintShown', '1'); } catch (e) { /* yok */ }
-        setTimeout(() => this.ui.hide('standaloneHint'), 9000);
+        // Kontroller ekranı kapanana kadar bekle: aksi halde kısa yatay ekranlarda
+        // bildirim kontrol metninin tam üstüne oturuyor ve ikisi de okunmuyor.
+        this.ui.afterGuide(() => {
+          this.ui.show('standaloneHint');
+          try { localStorage.setItem('f35a.hintShown', '1'); } catch (e) { /* yok */ }
+          setTimeout(() => this.ui.hide('standaloneHint'), 9000);
+        });
       }
     }
     this.state = 'running';

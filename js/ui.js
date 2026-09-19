@@ -18,12 +18,24 @@ export class UI {
       select: $('select'), selGrid: $('sel-grid'), selHint: $('sel-hint'), btnAircraft: $('btn-aircraft'), selApRow: $('sel-ap-row'),
     };
     this.el.guideClose.addEventListener('click', () => this.hide('guide'));
+    // Güvenlik ağı: Esc de kapatır (masaüstü). Mobilde ✕ düğmesi 44x44 px,
+    // dolu zeminli ve panelin içinde konumlanır.
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !this.el.guide.hidden) { this.hide('guide'); e.stopPropagation(); }
+    }, true);
     this.el.standaloneHintClose.addEventListener('click', () => this.hide('standaloneHint'));
     this.el.btnReload.addEventListener('click', () => location.reload());
     this.msgTimer = 0;
   }
   show(key) { this.el[key].hidden = false; }
-  hide(key) { this.el[key].hidden = true; }
+  hide(key) {
+    this.el[key].hidden = true;
+    // Kontroller ekranı kapanınca bekleyen bildirim varsa şimdi gösterilir.
+    // İkisi aynı anda açıldığında kısa yatay ekranlarda üst üste biniyorlardı.
+    if (key === 'guide' && this._afterGuide) { const f = this._afterGuide; this._afterGuide = null; f(); }
+  }
+  /** Kontroller ekranı kapanınca bir kez çalışacak iş kaydeder. */
+  afterGuide(fn) { if (this.el.guide.hidden) fn(); else this._afterGuide = fn; }
   setLoading(text, frac) {
     this.el.loadingText.textContent = text;
     this.el.loadingBar.style.width = Math.round(frac * 100) + '%';
