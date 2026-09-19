@@ -204,19 +204,66 @@ export function makeRoughnessTexture(size = 512) {
   return finishTexture(new THREE.CanvasTexture(c), { srgb: false });
 }
 
+/**
+ * Kanat/gövde amblemi. kind:
+ *   'starbar'   ABD yıldız-çubuk (USAF/US Navy ortak amblemi)
+ *   'navy'      aynı amblem + altında düşük görünürlüklü "NAVY" yazısı
+ *   'ironcross' modern Alman demir haçı (Balkenkreuz)
+ * Hepsi DÜŞÜK GÖRÜNÜRLÜKLÜDÜR: gri tonlar, keskin renk yok — gerçek modern
+ * savaş uçağı işaretleri gibi. Saydam zeminli, dekal olarak kullanılır.
+ */
+export function makeMilInsigniaTexture(kind = 'starbar', size = 256) {
+  if (kind === 'ironcross') return makeIronCrossTexture(size);
+  // 'navy' ve 'starbar' AYNI amblemi kullanır — gerçekte de US Navy ve USAF aynı
+  // yıldız-çubuk işaretini taşır. Donanma şemasında yalnızca ton daha soluktur.
+  // (Amblemin üstüne yazı EKLENMEZ: dekal düzlemleri dönüşe göre simetrik amblem
+  //  için kurulmuştur, yazı kanadın bir yüzünde ters görünür.)
+  return makeInsigniaTexture(size, kind === 'navy' ? 0.72 : 1);
+}
+
+// Balkenkreuz: dört kollu, içi boş, gri konturlu modern Alman işareti.
+function makeIronCrossTexture(size = 256) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  const cx = size / 2, cy = size / 2;
+  const arm = size * 0.40;      // kol yarı uzunluğu
+  const th = size * 0.145;      // kol yarı kalınlığı
+  // Haç gövdesi (iki dikdörtgenin birleşimi)
+  const draw = (fill, stroke, lw, inset) => {
+    const a = arm - inset, t = th - inset;
+    ctx.beginPath();
+    ctx.rect(cx - a, cy - t, 2 * a, 2 * t);
+    ctx.rect(cx - t, cy - a, 2 * t, 2 * a);
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
+  };
+  // DÜŞÜK GÖRÜNÜRLÜK: tonlar birbirine ve gövde grisine yakın tutulur.
+  // Parlak beyaz kontur gerçekçi olmaz ve "ölçülü işaret" isteğine aykırıdır.
+  draw('rgba(118,124,130,0.88)', null, 0, 0);            // dış kontur
+  draw('rgba(162,168,166,0.85)', null, 0, size * 0.030); // ince açık gri bant
+  draw('rgba(118,124,130,0.88)', null, 0, size * 0.062); // merkez
+  const t2 = new THREE.CanvasTexture(c);
+  t2.colorSpace = THREE.SRGBColorSpace;
+  t2.needsUpdate = true;
+  return t2;
+}
+
 // Kanat üstü işaret dokusu: yıldız-çubuk amblemi (silik, düşük görünürlüklü).
-export function makeInsigniaTexture(size = 256) {
+export function makeInsigniaTexture(size = 256, contrast = 1) {
   const c = makeCanvas(size, size);
   const ctx = c.getContext('2d');
   ctx.clearRect(0, 0, size, size);
   const cx = size / 2, cy = size / 2, R = size * 0.28;
-  ctx.fillStyle = 'rgba(160,165,172,0.9)';
+  // contrast < 1: daha soluk işaret (donanma tipi düşük görünürlük)
+  const aLight = 0.9 * contrast, aStar = 0.95 * contrast;
+  ctx.fillStyle = `rgba(160,165,172,${aLight})`;
   ctx.lineWidth = size * 0.02;
-  ctx.strokeStyle = 'rgba(160,165,172,0.9)';
+  ctx.strokeStyle = `rgba(160,165,172,${aLight})`;
   // Çubuklar
   ctx.strokeRect(cx - R * 1.9, cy - R * 0.5, R * 3.8, R);
   // Daire
-  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fillStyle = 'rgba(80,84,90,1)'; ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fillStyle = `rgba(80,84,90,${contrast})`; ctx.fill(); ctx.stroke();
   // Yıldız
   ctx.beginPath();
   for (let i = 0; i < 5; i++) {
@@ -225,7 +272,7 @@ export function makeInsigniaTexture(size = 256) {
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
   ctx.closePath();
-  ctx.fillStyle = 'rgba(160,165,172,0.95)';
+  ctx.fillStyle = `rgba(160,165,172,${aStar})`;
   ctx.fill();
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -552,11 +599,32 @@ export function makeOliveTexture(size = 128) {
 
 // ---- Yolcu uçağı gövde kaplaması: beyaz üst, kabin pencereleri, kuşak çizgisi, gri karın ----
 // u: burundan kuyruğa (0..1), v: üst merkezden alt merkeze (0..1)
+/**
+ * Yolcu uçağı gövde kaplaması. opt = livery paleti (bkz. js/liveries.js):
+ *   base   gövde ana rengi
+ *   belt   kuşak (cheatline) rengi
+ *   belt2  kuşağın altındaki ince ikinci şerit
+ *   belly  karın grisi
+ *   window kabin penceresi rengi
+ * Palet verilmezse eski varsayılanlar kullanılır, yani mevcut görünüm değişmez.
+ * Doku boyutu ve maliyeti paletten bağımsızdır: yalnızca renkler değişir.
+ */
+function hexToRgb(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!m) return { r: 176, g: 182, b: 188 };
+  const v = parseInt(m[1], 16);
+  return { r: (v >> 16) & 255, g: (v >> 8) & 255, b: v & 255 };
+}
+
 export function makeAirlinerSkinTexture(w = 2048, h = 256, opt = {}) {
   const c = makeCanvas(w, h);
   const ctx = c.getContext('2d');
   const belt = opt.belt || '#1b3a6b';
-  ctx.fillStyle = '#f2f4f6'; ctx.fillRect(0, 0, w, h);
+  const base = opt.base || '#f2f4f6';
+  const belt2 = opt.belt2 || 'rgba(90,150,210,0.85)';
+  const bellyCol = opt.belly || '#b0b6bc';
+  const winCol = opt.window || '#20262e';
+  ctx.fillStyle = base; ctx.fillRect(0, 0, w, h);
   // Hafif panel dokusu
   const n = periodicNoise(256, 3, 913, 6, 0.5);
   const img = ctx.getImageData(0, 0, w, h);
@@ -573,19 +641,22 @@ export function makeAirlinerSkinTexture(w = 2048, h = 256, opt = {}) {
   // Karın: açık gri
   const gy = Math.round(h * 0.70);
   const g = ctx.createLinearGradient(0, gy, 0, h);
-  g.addColorStop(0, 'rgba(176,182,188,0)'); g.addColorStop(0.25, 'rgba(176,182,188,0.9)'); g.addColorStop(1, 'rgba(158,164,170,1)');
+  const bc = hexToRgb(bellyCol);
+  g.addColorStop(0, `rgba(${bc.r},${bc.g},${bc.b},0)`);
+  g.addColorStop(0.25, `rgba(${bc.r},${bc.g},${bc.b},0.9)`);
+  g.addColorStop(1, `rgba(${Math.round(bc.r * 0.9)},${Math.round(bc.g * 0.9)},${Math.round(bc.b * 0.9)},1)`);
   ctx.fillStyle = g; ctx.fillRect(0, gy, w, h - gy);
   // Kuşak çizgisi (pencerelerin altında): uzaktan da okunacak kadar geniş (~1 m)
   ctx.fillStyle = belt; ctx.fillRect(0, Math.round(h * 0.492), w, Math.round(h * 0.058));
   ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(0, Math.round(h * 0.550), w, Math.round(h * 0.012));
-  ctx.fillStyle = 'rgba(90,150,210,0.85)'; ctx.fillRect(0, Math.round(h * 0.562), w, Math.round(h * 0.016));
+  ctx.fillStyle = belt2; ctx.fillRect(0, Math.round(h * 0.562), w, Math.round(h * 0.016));
   // Kabin pencereleri: 0,5 m aralık; gövde 44,5 m -> ~74 pencere kabin bölümünde
   const y0 = Math.round(h * 0.395), wh = Math.round(h * 0.045);
   const first = 0.135, last = 0.80, count = 70;
   for (let k = 0; k < count; k++) {
     const u = first + (last - first) * (k / (count - 1));
     const x = Math.round(u * w), ww = Math.max(3, Math.round(w * 0.0028));
-    ctx.fillStyle = '#20262e';
+    ctx.fillStyle = winCol;
     ctx.beginPath(); ctx.roundRect(x, y0, ww, wh, Math.min(3, ww / 2)); ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.fillRect(x, y0, ww, 1);

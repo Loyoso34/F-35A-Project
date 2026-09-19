@@ -2,7 +2,8 @@
 // Eksenler: burun -Z, üst +Y, sağ kanat +X. Uzunluk 15.7 m, açıklık 10.7 m, yükseklik 4.4 m.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { makeStealthPanelTexture, makeRoughnessTexture, makeInsigniaTexture, makeTextTexture, makeCockpitDisplayTexture, makeFlameNoiseTexture, makeGlowTexture } from './textures.js';
+import { makeStealthPanelTexture, makeRoughnessTexture, makeMilInsigniaTexture, makeTextTexture, makeCockpitDisplayTexture, makeFlameNoiseTexture, makeGlowTexture } from './textures.js';
+import { getLivery } from './liveries.js';
 
 const DEG = Math.PI / 180;
 export const F35 = {
@@ -235,13 +236,18 @@ export function getSharedMaterials() {
 }
 
 export class F35A {
-  constructor({ quality = 'medium', forStatic = false } = {}) {
+  constructor({ quality = 'medium', forStatic = false, livery = null } = {}) {
     this.group = new THREE.Group();
     this.group.name = 'F-35A';
     this.parts = {};
     this.disposables = [];
     this.forStatic = forStatic;
-    this.m = getSharedMaterials();
+    // Livery YALNIZCA görseldir: malzeme renkleri ve dekallar. Geometri, kütle,
+    // bağlantı noktaları ve uçuş modeliyle ilgili hiçbir şey değişmez.
+    this.livery = getLivery('f35a', livery);
+    // Apronda park eden uçaklar (forStatic) paylaşılan malzemeleri olduğu gibi
+    // kullanır: onların görünümü değişmez ve gereksiz kopya üretilmez.
+    this.m = forStatic ? getSharedMaterials() : this.liveryMaterials(getSharedMaterials(), this.livery);
     this.paintGeos = [];
     this.buildFuselage();
     this.buildIntakes();
@@ -257,6 +263,32 @@ export class F35A {
   }
 
   track(o) { this.disposables.push(o); return o; }
+
+  /**
+   * Livery renklerini uygular. Paylaşılan malzeme nesnesi (apronda park eden
+   * uçaklar da onu kullanır) ASLA değiştirilmez; yalnızca boyalı malzemelerin
+   * KOPYASI alınır ve bu uçak örneğine özel hale getirilir. Panel/pürüzlülük
+   * dokuları paylaşılmaya devam eder, bu yüzden livery başına ek doku belleği
+   * ya da ek doku üretimi maliyeti YOKTUR.
+   */
+  liveryMaterials(shared, liv) {
+    if (!liv) return shared;
+    const m = Object.assign({}, shared);
+    const paint = this.track(shared.paint.clone());
+    paint.color.setHex(liv.paint);
+    if (liv.roughness !== undefined) paint.roughness = liv.roughness;
+    if (liv.metalness !== undefined) paint.metalness = liv.metalness;
+    m.paint = paint;
+    const dark = this.track(shared.paintDark.clone());
+    dark.color.setHex(liv.paintDark);
+    m.paintDark = dark;
+    if (liv.metalTint !== undefined) {
+      const mt = this.track(shared.metal.clone());
+      mt.color.setHex(liv.metalTint);
+      m.metal = mt;
+    }
+    return m;
+  }
 
   // Belirli s istasyonu için tam kesit noktaları (sağ yarı) ve z
   sectionPoints(s, profile = null) {
@@ -880,31 +912,35 @@ export class F35A {
 
   buildMarkings() {
     const P = this.wingPlanform();
-    const insig = this.track(makeInsigniaTexture(256));
+    const L = this.livery || {};
+    const insig = this.track(makeMilInsigniaTexture(L.insignia || 'starbar', 256));
     const mat = this.track(new THREE.MeshStandardMaterial({ map: insig, transparent: true, roughness: 0.7, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -1 }));
     const size = 1.5;
+    // Yıldız-çubuk amblemi geniştir (1,9:1), demir haçı ise KAREdir. Dekal düzlemi
+    // amblemin kendi en-boy oranına göre kurulur, aksi halde haç yayvan görünür.
+    const insigW = L.insigniaSquare ? size : size * 1.9;
     for (const [side, up] of [[-1, 1], [1, -1]]) {
       const x = side * 3.4;
       const f = (3.4 - P.rootX) / (P.tipX - P.rootX);
       const le = P.leRoot + (P.leTip - P.leRoot) * f, te = P.teRoot + (P.teTip - P.teRoot) * f;
       const sMid = le + (te - le) * 0.42;
       const thick = (P.thickRoot + (P.thickTip - P.thickRoot) * f) * (te - le) * 0.5;
-      const mesh = new THREE.Mesh(this.track(new THREE.PlaneGeometry(size * 1.9, size)), mat);
+      const mesh = new THREE.Mesh(this.track(new THREE.PlaneGeometry(insigW, size)), mat);
       mesh.position.set(x, P.y + up * (thick + 0.02), st(sMid));
       mesh.rotation.x = up > 0 ? -Math.PI / 2 : Math.PI / 2;
       mesh.rotation.z = up > 0 ? 0 : Math.PI;
       this.group.add(mesh);
     }
     for (const side of [-1, 1]) {
-      const mesh = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.9, 0.5)), mat);
+      const mesh = new THREE.Mesh(this.track(new THREE.PlaneGeometry(L.insigniaSquare ? 0.5 : 0.9, 0.5)), mat);
       mesh.position.set(side * (sideSurfaceX(10.6, 0.3) + 0.02), 0.3, st(10.6));
       mesh.rotation.y = side * Math.PI / 2;
       mesh.rotation.x = side * -0.45;
       this.group.add(mesh);
     }
     const cant = 22 * DEG;
-    const txtMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeTextTexture('LF', { w: 256, h: 128, font: 'bold 96px Arial', color: '#9aa0a8' })), transparent: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -1 }));
-    const serialMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeTextTexture('AF 15-5108', { w: 512, h: 128, font: 'bold 70px Arial', color: '#9aa0a8' })), transparent: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -1 }));
+    const txtMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeTextTexture(L.tailCode || 'LF', { w: 256, h: 128, font: 'bold 96px Arial', color: L.markColor || '#9aa0a8' })), transparent: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -1 }));
+    const serialMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeTextTexture(L.serial || 'AF 15-5108', { w: 512, h: 128, font: 'bold 70px Arial', color: L.markColor || '#9aa0a8' })), transparent: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -1 }));
     for (const side of [-1, 1]) {
       const up = new THREE.Vector3(side * Math.sin(cant), Math.cos(cant), 0);
       const nrm = new THREE.Vector3(Math.cos(cant) * side, -Math.sin(cant), 0);

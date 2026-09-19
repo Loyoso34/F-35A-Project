@@ -158,6 +158,17 @@
     .ap-chip b { font-size: 12.5px; font-weight: 700; color: #e8f0f8; }
     .ap-chip span { font-size: 10px; color: rgba(185,200,216,0.62); }
     .ap-chip.on { border-color: rgba(120,190,255,0.85); background: rgba(38,74,112,0.6); }
+    /* Livery seçimi: uçak başına bir satır çip. Kalkış çipleriyle aynı görsel dil. */
+    .sel-lv-host { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+    .sel-lv { display: flex; align-items: center; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .sel-lv-lbl { font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: rgba(185,200,216,0.55); white-space: nowrap; }
+    .sel-lv-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    .lv-chip { min-height: 40px; padding: 5px 12px; border-radius: 9px; cursor: pointer; text-align: left;
+      display: flex; flex-direction: column; justify-content: center; gap: 1px;
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14); }
+    .lv-chip b { font-size: 12px; font-weight: 700; color: #e8f0f8; }
+    .lv-chip span { font-size: 9.5px; color: rgba(185,200,216,0.58); }
+    .lv-chip.on { border-color: rgba(120,190,255,0.85); background: rgba(38,74,112,0.6); }
     /* Alçak ekranlarda (telefon yatay) kartlar kısalır: kalkış seçici ve ipucu taşmasın */
     @media (max-height: 460px) {
       .sel-wrap { gap: 6px; }
@@ -171,6 +182,9 @@
       .ac-specs { margin-top: 3px; gap: 4px; }
       .ac-specs span { font-size: 9px; padding: 1px 6px; }
       .ap-chip { min-height: 40px; padding: 4px 11px; }
+      .lv-chip { min-height: 36px; padding: 3px 9px; }
+      .lv-chip b { font-size: 11px; }
+      .lv-chip span { display: none; }
       .ap-chip b { font-size: 11.5px; }
       .sel-hint { font-size: 10px; }
     }
@@ -285,6 +299,7 @@
       <h1 class="sel-title">Select Aircraft<small>Tap the aircraft you want to fly</small></h1>
       <div class="sel-grid" id="sel-grid"></div>
       <div class="sel-ap" id="sel-ap"><span class="sel-ap-lbl">Departure</span><div class="sel-ap-row" id="sel-ap-row"></div></div>
+      <div class="sel-lv-host" id="sel-livery"></div>
       <p class="sel-hint" id="sel-hint">You can change aircraft later from Pause → Change Aircraft.</p>
     </div>
   </div>

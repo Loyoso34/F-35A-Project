@@ -8,6 +8,7 @@ import { Controls } from './controls.js';
 import { HUD } from './hud.js';
 import { AudioEngine } from './audio.js';
 import { CameraRig, CAMERA_NAMES } from './cameras.js';
+import { liveriesFor, defaultLiveryId } from './liveries.js';
 import { UI, isStandalone, isIOS, loadSettings, saveSettings } from './ui.js';
 
 class App {
@@ -272,6 +273,72 @@ class App {
       if (this.thumbData && this.thumbData[id]) cv.getContext('2d').putImageData(this.thumbData[id], 0, 0);
     }
     this.buildSpawnRow();
+    this.buildLiveryRows();
+  }
+
+  // -------------------------------------------------------------------------
+  // Livery seçimi. Tamamen görsel: yalnızca seçilen boya şeması kaydedilir ve
+  // uçak kurulurken build() çağrısına geçirilir. Fizik, sistemler, kameralar ve
+  // arayüz davranışı bu yoldan etkilenmez.
+  // -------------------------------------------------------------------------
+  /** Bir uçak için seçili livery kimliği (kayıtlı değer geçersizse varsayılan). */
+  liveryId(aircraftId) {
+    const list = liveriesFor(aircraftId);
+    if (!list.length) return null;
+    const saved = (this.settings.livery || {})[aircraftId];
+    return list.some((l) => l.id === saved) ? saved : defaultLiveryId(aircraftId);
+  }
+
+  /** Uçak başına bir satır livery çipi üretir (seçim ekranında). */
+  buildLiveryRows() {
+    const host = this.ui.el.selLivery;
+    if (!host || host.childElementCount) return;
+    for (const acId of FLEET_ORDER) {
+      const list = liveriesFor(acId);
+      if (list.length < 2) continue;                 // tek şema varsa satır gösterme
+      const row = document.createElement('div');
+      row.className = 'sel-lv';
+      const lbl = document.createElement('span');
+      lbl.className = 'sel-lv-lbl';
+      lbl.textContent = FLEET[acId].name;
+      const chips = document.createElement('div');
+      chips.className = 'sel-lv-row';
+      chips.id = 'lv-row-' + acId;
+      for (const lv of list) {
+        const b = document.createElement('button');
+        b.className = 'lv-chip'; b.type = 'button'; b.id = 'lv-' + acId + '-' + lv.id;
+        b.innerHTML = '<b></b><span></span>';
+        b.querySelector('b').textContent = lv.name;
+        b.querySelector('span').textContent = lv.sub || '';
+        b.addEventListener('click', () => this.setLivery(acId, lv.id));
+        chips.appendChild(b);
+      }
+      row.append(lbl, chips);
+      host.appendChild(row);
+      this.setLivery(acId, this.liveryId(acId), true);
+    }
+  }
+
+  /**
+   * Livery seçer, kaydeder ve gerekirse görüntüyü tazeler.
+   * Uçuş halindeyken seçilen uçağın liverysi değişirse MODEL yeniden kurulur;
+   * fizik durumu (konum, hız, yönelim, sistemler) olduğu gibi korunur.
+   */
+  setLivery(aircraftId, liveryId, quiet) {
+    const list = liveriesFor(aircraftId);
+    if (!list.length) return;
+    if (!list.some((l) => l.id === liveryId)) liveryId = defaultLiveryId(aircraftId);
+    this.settings.livery = Object.assign({}, this.settings.livery, { [aircraftId]: liveryId });
+    if (!quiet) saveSettings(this.settings);
+    for (const lv of list) {
+      const b = document.getElementById('lv-' + aircraftId + '-' + lv.id);
+      if (b) b.classList.toggle('on', lv.id === liveryId);
+    }
+    if (quiet) return;
+    // Seçim ekranındaki önizlemeyi tazele
+    this.refreshThumb(aircraftId);
+    // Halihazırda uçulan uçak buysa modeli yeni boyayla yeniden kur
+    if (this.aircraft && this.aircraftId === aircraftId) this.reskinAircraft();
   }
 
   // Kalkış havalimanı seçici: uçak kartlarının altında tek satır
@@ -301,7 +368,7 @@ class App {
   }
 
   // Kart önizlemeleri: gerçek modeller bir kez render hedefine çizilir (dış görsel bağımlılığı yok)
-  async buildThumbnails() {
+  async buildThumbnails(only = null) {
     const W = 512, H = 288;
     const rt = new THREE.WebGLRenderTarget(W, H);
     const scene = new THREE.Scene();
@@ -313,12 +380,12 @@ class App {
     const buf = new Uint8Array(W * H * 4);
     const prevAlpha = this.renderer.getClearAlpha();
     this.renderer.setClearAlpha(0);
-    this.thumbData = {};
-    for (const id of FLEET_ORDER) {
+    if (!only) this.thumbData = {};
+    for (const id of (only ? [only] : FLEET_ORDER)) {
       const cfg = FLEET[id];
       let ac = null;
       try {
-        ac = cfg.build({ quality: this.settings.quality });
+        ac = cfg.build({ quality: this.settings.quality, livery: this.liveryId(id) });
         if (this.envMap && ac.setEnvironment) ac.setEnvironment(this.envMap);
         ac.update({ gear: 1, flaps: 0, slats: 0, spoilers: 0, throttle: 0.2, engine: 0.2, time: 0.35, dt: 0.016 });
         scene.add(ac.group);
@@ -351,6 +418,39 @@ class App {
     this.renderer.setRenderTarget(null);
     rt.dispose();
     key.dispose(); fill.dispose();
+  }
+
+  /** Tek uçağın kart önizlemesini yeni liveryle yeniden çizer. */
+  refreshThumb(aircraftId) {
+    if (!this.renderer || !this.ui.el.selGrid || !this.ui.el.selGrid.childElementCount) return;
+    this.buildThumbnails(aircraftId).catch((e) => console.warn('preview could not be generated', e));
+  }
+
+  /**
+   * Uçuş halindeyken boyayı değiştirir: model yeniden kurulur ama FİZİK NESNESİNE
+   * DOKUNULMAZ. Konum, hız, yönelim, motor durumu, takım/flap/spoyler konumları ve
+   * kamera kipi olduğu gibi kalır; yalnızca görsel model değişir.
+   */
+  reskinAircraft() {
+    const cfg = getAircraftConfig(this.aircraftId);
+    if (!cfg || !this.aircraft) return;
+    const old = this.aircraft;
+    let ac;
+    try {
+      ac = cfg.build({ quality: this.settings.quality, livery: this.liveryId(this.aircraftId) });
+    } catch (e) { console.warn('livery could not be applied', e); return; }
+    this.scene.remove(old.group);
+    old.dispose();
+    this.aircraft = ac;
+    this.scene.add(ac.group);
+    if (this.envMap && ac.setEnvironment) ac.setEnvironment(this.envMap);
+    // Kamera YAPILANDIRMASI değişmez (setAircraft yörüngeyi sıfırlardı); yalnızca
+    // hangi modele bakılacağı güncellenir ve geçerli kip yeniden uygulanır.
+    this.cameraRig.aircraft = ac;
+    this.cameraRig.applyMode();
+    if (ac.setLandingLights) ac.setLandingLights(this.lightsOn);
+    if (this.physics) this.syncAircraft(0);
+    this.needsRender = true;
   }
 
   showSelect() {
@@ -401,7 +501,7 @@ class App {
       this.aircraft = null;
     }
     this.aircraftId = id;
-    this.aircraft = cfg.build({ quality: this.settings.quality });
+    this.aircraft = cfg.build({ quality: this.settings.quality, livery: this.liveryId(this.aircraftId) });
     this.scene.add(this.aircraft.group);
     if (this.envMap && this.aircraft.setEnvironment) this.aircraft.setEnvironment(this.envMap);
     this.physics = new FlightModel(this.world, cfg);

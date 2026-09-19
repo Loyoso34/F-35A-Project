@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { loft, ensureOutward, airfoilPoints } from './aircraft.js';
 import { makeAirlinerSkinTexture, makeAirbusScreenTexture, makeGlowTexture, makeRoughnessTexture } from './textures.js';
+import { getLivery } from './liveries.js';
 
 const DEG = Math.PI / 180;
 export const A321 = {
@@ -146,12 +147,15 @@ function wingTE(x) { const f = (Math.abs(x) - WING.rootX) / (WING.tipX - WING.ro
 function wingThick(x) { const f = (Math.abs(x) - WING.rootX) / (WING.tipX - WING.rootX); return WING.tRoot + (WING.tTip - WING.tRoot) * f; }
 
 export class A321neo {
-  constructor({ quality = 'medium' } = {}) {
+  constructor({ quality = 'medium', livery = null } = {}) {
     this.group = new THREE.Group();
     this.group.name = 'A321neo';
     this.parts = {};
     this.disposables = [];
     this.quality = quality;
+    // Livery YALNIZCA görseldir: kaplama paleti, boya ve kuyruk rengi.
+    // Geometri, ölçüler, bağlantı noktaları ve uçuş modeli etkilenmez.
+    this.livery = getLivery('a321', livery);
     this.paintGeos = [];
     this.m = this.materials();
     this.buildFuselage();
@@ -167,15 +171,17 @@ export class A321neo {
   track(o) { this.disposables.push(o); return o; }
 
   materials() {
-    const skin = this.track(makeAirlinerSkinTexture(2048, 256));
+    const L = this.livery || {};
+    // Kaplama dokusu zaten uçak örneğine özeldir; palet vermek ek maliyet getirmez.
+    const skin = this.track(makeAirlinerSkinTexture(2048, 256, L.skin || {}));
     const rough = this.track(makeRoughnessTexture(256));
     return {
       skin: this.track(new THREE.MeshStandardMaterial({ map: skin, roughnessMap: rough, roughness: 0.42, metalness: 0.06, envMapIntensity: 0.9 })),
-      paint: this.track(new THREE.MeshStandardMaterial({ color: 0xf2f4f6, roughness: 0.42, metalness: 0.06, envMapIntensity: 0.9 })),
-      belly: this.track(new THREE.MeshStandardMaterial({ color: 0xb2b8be, roughness: 0.55, metalness: 0.1 })),
+      paint: this.track(new THREE.MeshStandardMaterial({ color: L.paint !== undefined ? L.paint : 0xf2f4f6, roughness: 0.42, metalness: 0.06, envMapIntensity: 0.9 })),
+      belly: this.track(new THREE.MeshStandardMaterial({ color: L.belly !== undefined ? L.belly : 0xb2b8be, roughness: 0.55, metalness: 0.1 })),
       // Radom: kompozit, mat ve gövdeden bir tık koyu — ayrı bir top değil, gövdenin devamı
-      radome: this.track(new THREE.MeshStandardMaterial({ color: 0xdcdfe2, roughness: 0.66, metalness: 0.04, envMapIntensity: 0.5 })),
-      accent: this.track(new THREE.MeshStandardMaterial({ color: 0x1b3a6b, roughness: 0.4, metalness: 0.1 })),
+      radome: this.track(new THREE.MeshStandardMaterial({ color: L.radome !== undefined ? L.radome : 0xdcdfe2, roughness: 0.66, metalness: 0.04, envMapIntensity: 0.5 })),
+      accent: this.track(new THREE.MeshStandardMaterial({ color: L.accent !== undefined ? L.accent : 0x1b3a6b, roughness: 0.4, metalness: 0.1 })),
       metal: this.track(new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.35, metalness: 0.85, envMapIntensity: 1.0 })),
       dark: this.track(new THREE.MeshStandardMaterial({ color: 0x1a1d21, roughness: 0.8, metalness: 0.2 })),
       duct: this.track(new THREE.MeshStandardMaterial({ color: 0x23262a, roughness: 0.7, metalness: 0.3, side: THREE.DoubleSide })),
@@ -549,7 +555,8 @@ export class A321neo {
     // Kapılar, acil çıkışlar, kargo kapakları (ince çerçeveli çıkartmalar)
     // Kapı gövdesi gövdeden bir tık farklı tonda, çerçevesi belirgin koyu: uzaktan da okunur
     // Çift yüzlü: bu ince çıkartmalarda sarım yönüne bağımlılık kalmasın (aynalanan tarafta kaybolmasın)
-    const doorMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe9ecef, roughness: 0.45, metalness: 0.06, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }));
+    // Kapılar gövdeyle aynı boyanır; koyu şemalarda beyaz kapılar yapıştırma gibi durur
+    const doorMat = this.track(new THREE.MeshStandardMaterial({ color: (this.livery && this.livery.door !== undefined) ? this.livery.door : 0xe9ecef, roughness: 0.45, metalness: 0.06, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }));
     const seamMat = this.track(new THREE.MeshStandardMaterial({ color: 0x424a52, roughness: 0.75, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }));
     const panelGeos = [], seamGeos = [];
     const addPanel = (side, s0, s1, v0, v1, into) => surfPanel(side, s0, s1, v0, v1, 1.002, into);

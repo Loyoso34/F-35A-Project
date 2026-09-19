@@ -16,6 +16,7 @@ js/city.js              Şehir üreteci: bölgeleme, yol ağı, bina yerleşimi,
 js/aircraft.js          Prosedürel F-35A modeli (fasetli alt gövde, silah yuvası kapakları, düz kokpit güvertesi)
 js/a321.js              Prosedürel Airbus A321neo modeli (gövde, kanat, LEAP motorlar, kapılar, A320 kokpiti)
 js/fleet.js             Uçak kayıt defteri: her uçağın aerodinamiği, kontrol kanunu, sistemleri, kamerası, sesi
+js/liveries.js          Boya şemaları (livery) — YALNIZCA görsel veri; fizik ve sistemlerle bağı yoktur
 js/physics.js           Uçuş dinamiği düzenleyicisi (120 Hz sabit adım): hava verileri, kuvvet/moment
                         toplama, yer teması; uçaktan bağımsız, veriyi fleet.js + aerodata.js'ten alır
 js/rigidbody.js         6-DOF rijit cisim: tam Euler denklemleri (I_xz dahil) + kuaterniyon entegrasyonu
@@ -53,6 +54,30 @@ Free Camera -> Cockpit -> Chase -> Flyby -> Left Wing -> Right Wing -> Landing G
 - Tüm bakış girdileri bir HEDEFE yazılır, kamera hedefe üstel olarak yaklaşır. Parmak
   kalkınca hedef sabitlenir ve hareket temiz biçimde durur: atalet ya da sıçrama yoktur.
 - Hız ve irtifa şeridi **her** kamerada çizilir, yalnızca kokpitte değil.
+
+## Boya şemaları (livery)
+
+Seçim ekranında her uçak için bir satır livery çipi vardır; seçim `localStorage`'a
+yazılır ve sonraki açılışta geri yüklenir.
+
+| F-35A | Airbus A321neo |
+|---|---|
+| USAF Standard | Atlantic Blue |
+| Navy Style | Aurora Teal |
+| Luftwaffe Style | Ember Red |
+| | Slate Charcoal |
+
+- Tanımlar `js/liveries.js` içinde tek bir veri tablosudur. Yeni bir livery eklemek
+  için diziye bir girdi yazmak yeterlidir; arayüz listeyi kendisi üretir.
+- Livery **yalnızca görseldir**: malzeme renkleri, gövde kaplama paleti ve
+  işaret/yazı dekalları. Geometri, kütle, atalet, aerodinamik katsayılar, sistemler,
+  kamera ve ses hiçbir biçimde etkilenmez — aynı girdiyle 60 s manevra sonunda iki
+  farklı livery **birebir aynı** uçuş durumunu verir (test/livphys.mjs).
+- Ek maliyet yoktur: savaş uçağında panel dokusu paylaşılır (renk çarpanıyla
+  tonlanır), yolcu uçağında kaplama dokusu zaten uçak başına üretiliyordu. Üçgen
+  sayısı ve çizim çağrısı değişmez.
+- Uçuş sırasında livery değiştirilirse yalnızca görsel model yeniden kurulur;
+  fizik nesnesine dokunulmaz (konum, hız, yönelim, motor, takım/flap/spoyler korunur).
 
 ## Uçuş modeli mimarisi
 
