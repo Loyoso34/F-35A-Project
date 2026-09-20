@@ -141,13 +141,27 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 
 **Model.** Gerçek ölçüler: uzunluk 44,51 m, kanat açıklığı 35,8 m (sharklet dahil), yükseklik 11,8 m. Yuvarlatılmış gövde kesiti 20 istasyonluk bir tablodan loft edilir (düz alt yüzey yok).
 
-**Burun ve radom.** Kesit tablosu merkez kaçıklığı (kambur) taşır: A320 ailesinde olduğu gibi radom ekseni gövde ekseninin ~0,56 m altındadır ve burun ucundan ön cama doğru yükselen bir sırt oluşur. Radom **ayrı bir küre değildir**; aynı kesit tablosunun ilk parçasının loft'udur, yalnızca malzemesi farklıdır. Radom ile kaplama aynı halkayı paylaştığı için geçişte ne dikiş ne çap sıçraması olur. Kokpit camları A320 ailesinin altı pencereli düzenindedir (iki ön cam, açılabilir DV penceresi, arka yan pencere) ve gövde eğrisini izleyen, koyu çerçeveli paneller olarak kurulur.
+**Burun ve radom.** Kesit tablosu merkez kaçıklığı (kambur) taşır: A320 ailesinde olduğu gibi radom ekseni gövde ekseninin ~1,13 m altındadır ve burun ucundan ön cama doğru yükselen bir sırt oluşur. Radom **ayrı bir küre değildir**; aynı kesit tablosunun ilk parçasının loft'udur, yalnızca malzemesi farklıdır. Radom ile kaplama aynı halkayı paylaştığı için geçişte ne dikiş ne çap sıçraması olur. Radom ucu ~6 cm'lik yuvarlak bir kapakla kapanır, böylece yakından bakıldığında uçta düz bir kesik görünmez.
+
+**Kokpit camları.** A320 ailesinin altı pencereli düzeni: iki ön cam, açılabilir DV penceresi ve arka çeyrek pencere. Camlar yüzeye yapıştırılmış dekal değildir, **gerçek derinliği olan** bir yapıdır:
+
+- gövdeden 22 mm taşan sürekli bir çerçeve kuşağı (üst şerit, alt şerit ve camlar arası direkler tek bir döşeme oluşturur; hiçbir yerde bindirme yoktur),
+- yalnızca 5 mm taşan cam yüzeyi,
+- ikisini bağlayan 17 mm'lik bir yanak (reveal) — kenardaki gölge çizgisi buradan gelir.
+
+Kaldırma işlemi **yüzey normali boyunca ve metre cinsinden** yapılır (`surfaceNormal`). Daha önce koordinatlar bir katsayıyla çarpılıyordu; bu modelin orijini etrafında ölçekleme demektir ve burunda paneller kaplamanın içinde kalıp alacalı z-fighting lekeleri veriyordu. Bant üst kenarı gövde taç çizgisinin önde 0,06 m, arkada 0,28 m altındadır; pencere yüksekliği önde 0,70 m'den arkada 0,30 m'ye iner. Bandın kenarları tek bir sürekli fonksiyondan (`bandAt`) üretilir, bu yüzden dış camlar ile kokpit astarındaki açıklıklar asla birbirinden kayamaz.
 
 Dört yolcu kapısı, iki kanat üstü acil çıkış, iki kargo kapağı çerçeveleriyle birlikte modellenir; ayrıca VHF blade antenler, SATCOM, pitot ve AoA probları, APU egzozu ve dikey stabilizatör kökünde dorsal fileto vardır. Takım kapakları yalnızca takım hareket ederken açılır (gerçek davranış), takım tam açık ya da kapalıyken kapanır.
 
-**Motorlar.** CFM LEAP-1A benzeri büyük baypaslı nacelle: giriş dudağı, fan kanalı, 18 kanatlı fan, spinner, pilon ve egzoz. Fan N1 ile orantılı döner.
+**Motorlar.** CFM LEAP-1A ölçülerinde büyük baypaslı nacelle (kamuya açık veriler: fan çapı 1,98 m, nacelle dış çapı ~2,42 m). Nacelle tek bir eksenel profilden döndürülerek üretilir ve uç uca eklenen üç parçadan oluşur: fan kaportası, ters itki derzi (sığ bir oluk) ve ters itki kaportası. Parçalar ORTAK yarıçapta birleşir — daha önce derz, daralan kaportanın içinden geçen ayrı bir silindirdi ve ekranda testere dişi gibi bir z-fighting bandı bırakıyordu.
 
-**Kontrol yüzeyleri.** Aileron, asansör, dümen, Fowler flap (0 / 1 / 2 / 3 / FULL), öne-aşağı uzayan slat, kanat başına beş spoyler paneli. Yüzeyler mekanik hızla hareket eder (ani sıçrama yok), sol ve sağ birbirini doğru aynalar, flap kolu spoyleri hiç kıpırdatmaz.
+Giriş dudağı, iç giriş kanalı, 18 geniş kirişli fan kanadı, spinner, fan lülesi, sıcak kısım kaportası, sıcak lüle ve merkez konisi ayrı ayrı modellenir. Fan kanatları yarıçapla birlikte burulur (kökte eksene ~30°, uçta ~62°), böylece fan diski önden bakıldığında gerçek bir fan gibi yoğun okunur. Kanat kökü göbeğin, ucu kanal duvarının içinde kalır; kapatılmamış uçlar hiçbir açıdan görünmez. Pilon dikey bir kanatçık olarak loft edilir: alt sıraları nacelle'in, üst sıraları kanadın İÇİNDE kalır, dolayısıyla iki uçta da ne boşluk ne taşma olur. Fan N1 ile orantılı döner.
+
+**Kanat.** Sabit kanat TAM profil olarak (veterin %0'ından %100'üne) kapalı biçimde loft edilir. Daha önce yalnızca %13-74 arası bir "kutu" vardı; slat ve flap panellerinin arasındaki açıklıklarda kanadın içi görünüyor, hücum ve firar kenarları kesik duruyordu. Hareketli yüzeyler bu kapalı kabuğun 14 mm dışına oturur, böylece nötr konumda çakışıp z-fighting yapmazlar ve açıldıklarında altından gerçek kanat yapısı çıkar.
+
+Sharklet'in kök kesiti kanadın uç kesitiyle birebir aynıdır (aynı veter, kalınlık ve y), yükselme ise dairesel bir kıvrımla başlayıp düz devam eder — A320neo'nun "yumuşak dip, dik uç" silueti. Kanat başına dört flap ray karinası (kano) firar kenarının ~1,5 m gerisine uzanır; A320 ailesinin en tanınır alt-kanat detayıdır.
+
+**Kontrol yüzeyleri.** Aileron, asansör, dümen, Fowler flap (0 / 1 / 2 / 3 / FULL), öne-aşağı uzayan slat, kanat başına beş spoyler paneli. Spoyler panelleri artık düz kutular değil, üst yüzeyi izleyen ince levhalardır ve süpürülmüş menteşe çizgisi etrafında döner (düz X ekseni 45°'de panel uçlarında ~0,2 m sapma bırakıyordu). Yüzeyler mekanik hızla hareket eder (ani sıçrama yok), sol ve sağ birbirini doğru aynalar, flap kolu spoyleri hiç kıpırdatmaz.
 
 **Kokpit.** A320 ailesine özgü düzen: iki sidestick, PFD ve ND ekranları, iki ECAM ekranı, glareshield üzerinde FCU, orta konsolda gaz kolları ile flap / hız freni / takım kolları, tavan paneli ve koltuklar. Gaz kolları, kollar ve sidestick'ler uçuş girdileriyle birlikte hareket eder.
 

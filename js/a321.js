@@ -31,9 +31,12 @@ const st = (s) => s - A321.cgStation;
 // yani yandan bakıldığında burun A320'nin karakteristik "aşağı bakan" siluetini alır.
 // Kesitler dairesele yakın (h/2 ≈ w), çünkü A320 ön gövdesi dairesel kesitlidir.
 const SECTIONS = [
-  [0.00, 0.085, -1.045, -1.215], // radom ucu — kabin ekseninin ~1,13 m altında.
+  [0.00, 0.028, -1.098, -1.162], // radom ucu — kabin ekseninin ~1,13 m altında.
                                  // Yarı genişlik ≈ yarı yükseklik: uç YUVARLAK bir kapak,
                                  // sıfır genişlikli bir yarık değil (yarıkta gölgeleme bozuluyordu).
+                                 // Kapak ~6 cm: eskiden 17 cm'lik açıklık yakından bakınca
+                                 // radomun ucunda düz bir kesik/kırık gibi görünüyordu.
+  [0.06, 0.120, -1.018, -1.246], // uç yuvarlaması
   [0.16, 0.205, -0.900, -1.410],
   [0.35, 0.360, -0.700, -1.560],
   [0.65, 0.600, -0.330, -1.680],
@@ -60,11 +63,16 @@ const SECTIONS = [
 // kenarı göz hizasının ~18° ÜSTÜNDE, alt kenarı ~24° ALTINDA kalır. Önceki değerlerde
 // bant çok aşağıdaydı (-41°..+8°): pilot çoğunlukla üst çerçeveye bakıyor, dışarıyı
 // ince bir yarıktan görüyordu.
+// Kenar değerleri "taç çizgisinden şu kadar aşağı, şu kadar yüksek" hedefine göre
+// çözüldü: üst kenar burunda taçın 0,06 m, arkada 0,28 m altında; pencere yüksekliği
+// önde 0,70 m'den arkada 0,30 m'ye iner. Önceki tabloda üst kenar taçın yalnızca
+// 0,01-0,14 m altındaydı, yani bant gövdenin TEPESİNE biniyordu; yandan bakıldığında
+// camların üstünde gövde kalmıyor, uçak "camı sırtında" gibi duruyordu.
 export const COCKPIT_WINDOWS = [
-  [2.98, 3.88, 0.034, 0.291, 0.042, 0.278],   // No.1 ön cam (büyük, dik eğimli)
-  [3.95, 4.54, 0.046, 0.274, 0.056, 0.262],   // No.2 ön cam
-  [4.62, 5.16, 0.070, 0.254, 0.088, 0.240],   // DV penceresi (açılabilir)
-  [5.24, 5.70, 0.104, 0.231, 0.124, 0.216],   // arka çeyrek pencere
+  [2.98, 3.88, 0.089, 0.336, 0.097, 0.323],   // No.1 ön cam (büyük, dik eğimli)
+  [3.95, 4.54, 0.101, 0.319, 0.111, 0.307],   // No.2 ön cam
+  [4.62, 5.16, 0.125, 0.299, 0.143, 0.285],   // DV penceresi (açılabilir)
+  [5.24, 5.70, 0.159, 0.276, 0.179, 0.261],   // arka çeyrek pencere
 ];
 // Bir (istasyon, v) noktası herhangi bir camın içine düşüyor mu? Kabuk açıklıkları için.
 function inWindow(sv, v, pad = 0) {
@@ -77,7 +85,7 @@ function inWindow(sv, v, pad = 0) {
   return false;
 }
 
-const RADOME_END = 7;            // radom derzi istasyon 2,50 — ön camın belirgin biçimde önünde
+const RADOME_END = 8;            // radom derzi istasyon 2,50 — ön camın belirgin biçimde önünde
 const NS = 15;                                    // kesit başına nokta (tam halka = 2*NS)
 const SE = 2.15;                                  // süperelips üssü (dolgun yuvarlak kesit)
 function ring(sec) {
@@ -138,6 +146,51 @@ function surfacePoint(s, v) {
     y: cy + hy * Math.sign(sa) * Math.pow(Math.abs(sa), 2 / SE),
     z: st(s),
   };
+}
+
+// Gövde yüzeyinin o noktadaki DIŞ normali (birim).
+// Çıkartmaları ve kokpit camlarını yüzeyden "belirli bir metre" kaldırmak için gerekir.
+// Önceden kaldırma işi x ve y'yi bir katsayıyla çarpmakla yapılıyordu; bu, modelin
+// ORİJİNİ etrafında ölçekleme demektir, yüzey normali boyunca ötelemek değil. Burunda
+// kesit merkezi aşağıda (cy ~ -1,1) ve yüzey z yönünde hızla daraldığı için o ölçekleme
+// camı yüzeyden neredeyse hiç ayırmıyordu; panel kaplamanın içine giriyor ve z-fighting
+// (alacalı siyah/beyaz lekeler) oluşuyordu.
+function surfaceNormal(s, v) {
+  const ds = 0.02, dv = 0.004;
+  const vc = Math.min(0.995, Math.max(0.005, v));
+  const a = surfacePoint(s + ds, vc), b = surfacePoint(s - ds, vc);
+  const c = surfacePoint(s, Math.min(0.999, vc + dv)), d = surfacePoint(s, Math.max(0.001, vc - dv));
+  const ts = new THREE.Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
+  const tv = new THREE.Vector3(c.x - d.x, c.y - d.y, c.z - d.z);
+  const n = new THREE.Vector3().crossVectors(tv, ts);
+  if (n.lengthSq() < 1e-12) return new THREE.Vector3(0, 1, 0);
+  n.normalize();
+  // Dışa baksın: kesit merkezinden noktaya giden yönle aynı yarımküre olmalı.
+  const p = surfacePoint(s, vc), cy = sectionCenterY(s);
+  if (n.x * p.x + n.y * (p.y - cy) < 0) n.negate();
+  return n;
+}
+// Kesit merkezinin y'si (normal yönünü belirlemek için)
+function sectionCenterY(s) {
+  let a = SECTIONS[0], b = SECTIONS[SECTIONS.length - 1];
+  for (let i = 0; i < SECTIONS.length - 1; i++) if (s >= SECTIONS[i][0] && s <= SECTIONS[i + 1][0]) { a = SECTIONS[i]; b = SECTIONS[i + 1]; break; }
+  const t = Math.min(1, Math.max(0, (s - a[0]) / Math.max(1e-6, b[0] - a[0])));
+  return ((a[2] + (b[2] - a[2]) * t) + (a[3] + (b[3] - a[3]) * t)) / 2;
+}
+// Kokpit cam bandının üst/alt kenarı: COCKPIT_WINDOWS köşelerinden geçen parçalı doğru.
+// Tek bir sürekli fonksiyon olması şart: çerçeve şeritleri, direkler ve camlar bu aynı
+// kenardan üretilir, böylece birbirine TAM oturur — aralarında ne boşluk ne bindirme kalır.
+const BAND = (() => {
+  const k = [];
+  for (const [a, b, v0, v1, v0b, v1b] of COCKPIT_WINDOWS) { k.push([a, v0, v1]); k.push([b, v0b, v1b]); }
+  return k;
+})();
+function bandAt(s) {
+  let i = 0;
+  while (i < BAND.length - 2 && s > BAND[i + 1][0]) i++;
+  const A = BAND[i], B = BAND[i + 1];
+  const t = (s - A[0]) / Math.max(1e-6, B[0] - A[0]);       // uçlarda dışarı uzatılır
+  return { top: A[1] + (B[1] - A[1]) * t, bot: A[2] + (B[2] - A[2]) * t };
 }
 
 const WING = { rootX: 1.95, tipX: 17.0, leRoot: 18.3, teRoot: 24.70, leTip: 25.90, teTip: 27.65, tRoot: 0.125, tTip: 0.098, yRoot: -1.25, dihedral: 5 * DEG };
@@ -221,43 +274,78 @@ export class A321neo {
     this.group.add(fm);
   }
 
-  // Kanat paneli: x0..x1 arası, veter oranı cStart..cEnd
-  wingPanel(side, x0, x1, cStart, cEnd, N = 6, K = 8) {
+  // Kanat paneli: x0..x1 arası, veter oranı cStart..cEnd.
+  // `bulge` verilirse profil üst yüzeyde +, alt yüzeyde - o kadar ötelenir: hareketli
+  // yüzeyler sabit kanadın kabuğunun hemen DIŞINDA kalır, böylece nötr konumda iki
+  // yüzey çakışıp z-fighting yapmaz.
+  wingPanel(side, x0, x1, cStart, cEnd, N = 6, K = 8, bulge = 0) {
     const rows = [];
     for (let j = 0; j <= N; j++) {
       const x = x0 + (x1 - x0) * (j / N);
       const le = wingLE(x), te = wingTE(x), chord = te - le;
-      rows.push(airfoilPoints(K, chord, wingThick(x), cStart, cEnd).map((p) => ({ x: side * x, y: wingY(x) + p.y, z: st(le + chord * p.c) })));
+      rows.push(airfoilPoints(K, chord, wingThick(x), cStart, cEnd)
+        .map((p, i) => ({ x: side * x, y: wingY(x) + p.y + (i <= K ? bulge : -bulge), z: st(le + chord * p.c) })));
     }
     return ensureOutward(loft(rows, { uScale: 1, vScale: 1 }));
+  }
+
+  // Kanat yüzeyinde bir nokta: veter oranı c, üst (up=true) ya da alt yüzey.
+  wingSurfY(x, c, up) {
+    const le = wingLE(x), chord = wingTE(x) - le;
+    const p = airfoilPoints(1, chord, wingThick(x), c, c)[0];
+    return wingY(x) + (up ? p.y : -p.y);
   }
 
   buildWings() {
     this.parts.ailerons = {}; this.parts.flaps = {}; this.parts.slats = {}; this.parts.spoilers = {};
     const hingeAxis = (side, x0, x1, fn) => new THREE.Vector3(x1 - x0, 0, side * (fn(x1) - fn(x0))).normalize();
+    const BULGE = 0.014;          // hareketli yüzeylerin kabuk dışına çıkma payı (m)
     for (const side of [-1, 1]) {
-      // Ana kanat kutusu: slat hattından (0.14) spoyler/flap hattına (0.72)
-      this.paintGeos.push(this.wingPanel(side, WING.rootX, WING.tipX, 0.13, 0.74, 8, 10));
-      // Sharklet: uçta yukarı kıvrılan kanatçık
-      const shRows = [];
-      for (let j = 0; j <= 5; j++) {
-        const t = j / 5;
-        const x = WING.tipX + 0.35 * t;
-        const le = wingLE(WING.tipX) + 0.45 * t, chord = (wingTE(WING.tipX) - wingLE(WING.tipX)) * (1 - 0.55 * t);
-        const y = wingY(WING.tipX) + 2.40 * t;
-        shRows.push(airfoilPoints(6, chord, 0.09, 0, 1).map((p) => ({ x: side * x, y: y + p.y, z: st(le + chord * p.c) })));
+      // ---- Sabit kanat ----
+      // TAM profil (0..1). Eskiden yalnızca 0,13-0,74 arası bir "kutu" vardı; slat ve
+      // flap panellerinin arasındaki açıklıklarda kanadın İÇİ görünüyor, hücum ve firar
+      // kenarları kesik duruyordu. Artık altta kapalı bir kanat var, hareketli yüzeyler
+      // onun üstüne oturuyor: açılırken altından gerçek kanat yapısı çıkıyor.
+      // wingLE/wingTE/wingY/wingThick hepsi x'te DOĞRUSAL: yüzey çizgisel (ruled),
+      // bu yüzden açıklık yönünde 4 sıra 14 sırayla birebir aynı geometriyi verir.
+      this.paintGeos.push(this.wingPanel(side, WING.rootX, WING.tipX, 0, 1, 4, 12));
+
+      // ---- Sharklet ----
+      // Kök kesiti kanadın uç kesitiyle BİREBİR aynı (aynı veter, aynı kalınlık, aynı y),
+      // böylece geçişte basamak kalmaz. Yükselme dairesel bir kıvrımla başlar ve sonra
+      // düz devam eder — A320neo sharklet'inin karakteristik "yumuşak dip, dik uç" silueti.
+      {
+        const Rb = 0.95, TH = 1.40;                       // kıvrım yarıçapı ve yatma açısı (80°)
+        const leTip = wingLE(WING.tipX), cTip = wingTE(WING.tipX) - leTip;
+        const shRows = [];
+        const NS2 = 12;
+        for (let j = 0; j <= NS2; j++) {
+          const t = j / NS2;
+          const th = TH * Math.min(1, t / 0.5);
+          const ext = Math.max(0, t - 0.5) / 0.5 * 1.72;
+          const dx = Rb * Math.sin(th) + ext * Math.cos(TH);
+          const dy = Rb * (1 - Math.cos(th)) + ext * Math.sin(TH);
+          const f = dy / 2.50;                            // yükseklik oranı
+          const chord = cTip * (1 - 0.64 * f);
+          const le = leTip + 1.28 * f;
+          const thick = 0.098 - 0.030 * f;
+          const y = wingY(WING.tipX) + dy;
+          shRows.push(airfoilPoints(10, chord, thick * (j === NS2 ? 0.18 : 1), 0, 1)
+            .map((p) => ({ x: side * (WING.tipX + dx), y: y + p.y, z: st(le + chord * p.c) })));
+        }
+        this.paintGeos.push(ensureOutward(loft(shRows, { uScale: 1, vScale: 1 })));
       }
-      this.paintGeos.push(ensureOutward(loft(shRows, { uScale: 1, vScale: 1 })));
-      // Firar kenarı hareketli yüzeyleri: flap (iç, iki panel) ve aileron (dış)
+
+      // ---- Firar kenarı: flaplar (iç/dış) ve aileron ----
       const teSurfaces = [
-        { key: 'flaps', i: 0, x0: 2.30, x1: 6.60 },
-        { key: 'flaps', i: 1, x0: 7.00, x1: 12.20 },
-        { key: 'ailerons', i: 0, x0: 13.00, x1: 16.40 },
+        { key: 'flaps', x0: 2.30, x1: 6.60 },
+        { key: 'flaps', x0: 7.00, x1: 12.20 },
+        { key: 'ailerons', x0: 13.00, x1: 16.40 },
       ];
       for (const sf of teSurfaces) {
         const hinge = (x) => wingLE(x) + (wingTE(x) - wingLE(x)) * 0.74;
         const xm = (sf.x0 + sf.x1) / 2;
-        const geo = this.wingPanel(side, sf.x0, sf.x1, 0.735, 1.0, 3, 5);
+        const geo = this.wingPanel(side, sf.x0, sf.x1, 0.735, 1.0, 2, 6, BULGE);
         geo.translate(-side * xm, -wingY(xm), -st(hinge(xm)));
         geo.computeVertexNormals();
         const mesh = new THREE.Mesh(this.track(geo), this.m.paint);
@@ -269,11 +357,12 @@ export class A321neo {
         const bucket = this.parts[sf.key][side < 0 ? 'left' : 'right'] || (this.parts[sf.key][side < 0 ? 'left' : 'right'] = []);
         bucket.push(mesh);
       }
-      // Hücum kenarı slatları (üç panel)
+
+      // ---- Hücum kenarı slatları (üç panel) ----
       for (const [x0, x1] of [[2.40, 6.80], [7.20, 11.60], [12.00, 16.60]]) {
         const hinge = (x) => wingLE(x) + (wingTE(x) - wingLE(x)) * 0.135;
         const xm = (x0 + x1) / 2;
-        const geo = this.wingPanel(side, x0, x1, 0.0, 0.14, 3, 6);
+        const geo = this.wingPanel(side, x0, x1, 0.0, 0.14, 2, 7, BULGE);
         geo.translate(-side * xm, -wingY(xm), -st(hinge(xm)));
         geo.computeVertexNormals();
         const mesh = new THREE.Mesh(this.track(geo), this.m.paint);
@@ -284,90 +373,205 @@ export class A321neo {
         this.group.add(mesh);
         (this.parts.slats[side < 0 ? 'left' : 'right'] || (this.parts.slats[side < 0 ? 'left' : 'right'] = [])).push(mesh);
       }
-      // Spoyler / hız freni panelleri: üst yüzeyde, flapların önünde
+
+      // ---- Spoyler / hız freni panelleri ----
+      // Eskiden düz BoxGeometry'lerdi: kanat yüzeyi eğri olduğu için panellerin ön kenarı
+      // havada duruyor, arka kenarı kabuğa gömülüyordu (yandan bakınca merdiven basamağı
+      // gibi görünüyordu). Artık her panel ÜST YÜZEYİ İZLEYEN ince bir levha: kapalıyken
+      // kabuğa oturur, açılınca menteşe çizgisi etrafında kalkar.
       const spo = [];
       for (let k = 0; k < 5; k++) {
         const x0 = 4.6 + k * 1.55, x1 = x0 + 1.35;
         const xm = (x0 + x1) / 2;
-        const c0 = 0.58, c1 = 0.735;
-        const le = wingLE(xm), te = wingTE(xm), chord = te - le;
-        const w0 = chord * (c1 - c0);
-        const g = new THREE.BoxGeometry(x1 - x0, 0.06, w0);
-        g.translate(0, 0, w0 / 2);
-        const mesh = new THREE.Mesh(this.track(g), this.m.paint);
-        mesh.position.set(side * xm, wingY(xm) + wingThick(xm) * chord * 0.42, st(le + chord * c0));
+        const c0 = 0.58, c1 = 0.732;
+        const hinge = (x) => wingLE(x) + (wingTE(x) - wingLE(x)) * c0;
+        const rows = [];
+        const NK = 5;
+        for (let j = 0; j <= 2; j++) {
+          const x = x0 + (x1 - x0) * (j / 2);
+          const le = wingLE(x), chord = wingTE(x) - le;
+          const ring = [];
+          for (let i = 0; i <= NK; i++) { const c = c0 + (c1 - c0) * (i / NK); ring.push({ x: side * x, y: this.wingSurfY(x, c, true) + 0.052, z: st(le + chord * c) }); }
+          for (let i = NK; i >= 0; i--) { const c = c0 + (c1 - c0) * (i / NK); ring.push({ x: side * x, y: this.wingSurfY(x, c, true) + 0.012, z: st(le + chord * c) }); }
+          rows.push(ring);
+        }
+        const geo = ensureOutward(loft(rows, { uScale: 1, vScale: 1, closeRing: true }), (v, out) => out.set(v.x, this.wingSurfY(Math.abs(v.x), (c0 + c1) / 2, true) + 0.032, v.z));
+        geo.translate(-side * xm, -wingY(xm), -st(hinge(xm)));
+        geo.computeVertexNormals();
+        const mesh = new THREE.Mesh(this.track(geo), this.m.paint);
+        mesh.position.set(side * xm, wingY(xm), st(hinge(xm)));
         mesh.castShadow = true;
-        mesh.userData.axis = new THREE.Vector3(1, 0, 0);
+        // Menteşe ekseni SÜPÜRÜLMÜŞ menteşe çizgisiyle aynı; düz X ekseni etrafında
+        // döndürmek 45°'de panelin uçlarında ~0,2 m'lik sapma bırakıyordu.
+        mesh.userData.axis = hingeAxis(side, x0, x1, hinge);
         this.group.add(mesh);
         spo.push(mesh);
       }
       this.parts.spoilers[side < 0 ? 'left' : 'right'] = spo;
+
+      // ---- Flap ray karinaları ----
+      // A320 ailesinin en tanınır alt-kanat detayı: firar kenarının altından geriye
+      // uzanan dört "kano". Kanadın altına oturur, arkaya doğru sivrilir.
+      for (const xT of [3.35, 6.25, 9.10, 11.85]) {
+        const le = wingLE(xT), chord = wingTE(xT) - le;
+        const c0 = 0.45, cEnd = 1.26;                      // firar kenarının ~1,5 m gerisine taşar
+        const rows = [];
+        const NF = 8;
+        for (let j = 0; j <= NF; j++) {
+          const u = j / NF;
+          const c = c0 + (cEnd - c0) * u;
+          // Kesit ölçeği: önde kanada gömülü, ortada dolgun, arkada küt biter.
+          // İğne gibi sivrilmemeli: gerçek flap ray kanoları kalın ve yuvarlak uçludur.
+          const s = j === NF ? 0.05 : Math.pow(Math.sin(Math.PI * (0.04 + 0.86 * u)), 0.80);
+          const w = 0.30 * s + 0.015, h = 0.36 * s + 0.015;
+          const yTop = this.wingSurfY(xT, Math.min(1, c), false) + 0.04;
+          const cy = yTop - h * 0.72;
+          const ring = [];
+          for (let i = 0; i < 10; i++) {
+            const a = (i / 10) * Math.PI * 2;
+            ring.push({ x: side * (xT + Math.cos(a) * w), y: cy + Math.sin(a) * h, z: st(le + chord * c) });
+          }
+          rows.push(ring);
+        }
+        this.paintGeos.push(ensureOutward(loft(rows, { uScale: 1, vScale: 1, closeRing: true }), (v, out) => out.set(side * xT, v.y, v.z)));
+      }
     }
   }
 
+  // ---------------------------------------------------------------------
+  // MOTORLAR — CFM LEAP-1A (A321neo)
+  // ---------------------------------------------------------------------
+  // Kamuya açık ölçüler: fan çapı 1,98 m, nacelle dış çapı ~2,42 m, giriş düzlemi
+  // kanat hücum kenarının ~2,8 m önünde. Yerden açıklık A320 ailesinde düşüktür
+  // (~0,6-0,7 m); nacelle kanadın altına sıkıca sokulur ve pylon kısadır.
+  //
+  // Nacelle TEK eksenel profilden döndürülerek üretilir; böylece yüzey her yerde
+  // pürüzsüz ve simetriktir. Önceki sürümde ters itki kuşağı, daralan kaportanın
+  // İÇİNDEN geçen ayrı bir silindirdi: iki yüzey kesişiyor ve ekranda testere
+  // dişi gibi bir z-fighting bandı oluşuyordu. Artık kaporta üç ardışık parçadan
+  // kurulur (fan kaportası / derz / ters itki kaportası) ve parçalar uç uca,
+  // ORTAK yarıçapla birleşir: kesişme yok, derz gerçek bir oluk olarak okunur.
   buildEngines() {
     this.parts.fans = [];
-    const R = 1.34, RI = 1.05, LEN = 4.70, zF = st(17.0);
+    const R = 1.21;              // nacelle en büyük dış yarıçapı
+    const RF = 0.985;            // fan yarıçapı
+    const zF = st(17.4);         // giriş (highlight) düzlemi
+    const SEG = 28;
+    // Eksenel profili (yarıçap, z) döndürerek yüzey üretir. z profil içinde girişe
+    // göredir; parça sonra motorun kendi yerine ötelenir.
+    const revolve = (pts, seg = SEG) => {
+      const g = new THREE.LatheGeometry(pts.map(([r, z]) => new THREE.Vector2(Math.max(1e-4, r), z)), seg);
+      g.rotateX(Math.PI / 2);    // dönme ekseni +Y -> +Z
+      g.translate(0, 0, zF);
+      return this.track(g);
+    };
+    // Dış kaporta profili — derzden önce ve sonra ORTAK yarıçap kullanılır.
+    const FAN_COWL = [
+      [1.035, 0.00],             // giriş dudağı (highlight)
+      [1.108, 0.055], [1.163, 0.135], [1.198, 0.270],
+      [R, 0.470], [R, 0.860], [1.206, 1.300], [1.190, 1.780], [1.178, 2.020],
+    ];
+    const SEAM = [               // fan kaportası / ters itki derzi: sığ bir oluk
+      [1.178, 2.020], [1.150, 2.048], [1.148, 2.092], [1.174, 2.120],
+    ];
+    const REV_COWL = [
+      [1.174, 2.120], [1.168, 2.450], [1.146, 2.850],
+      [1.100, 3.150], [1.040, 3.350], [1.005, 3.420],   // fan lülesi çıkışı
+    ];
+    const NOZ_IN = [             // fan lülesinin iç yüzeyi (arkadan görünür kalınlık)
+      [1.005, 3.420], [0.986, 3.370], [0.974, 3.150], [0.970, 3.020],
+    ];
+    const INLET_IN = [           // giriş kanalı: dudaktan boğaza, oradan fan düzlemine
+      [1.035, 0.00], [0.996, 0.060], [0.974, 0.175],
+      [0.970, 0.340], [0.980, 0.570], [0.992, 0.780], [0.998, 0.960],
+    ];
+    const CORE_COWL = [          // sıcak kısım kaportası: fan lülesinin arkasından çıkar
+      [0.720, 2.700], [0.712, 3.100], [0.690, 3.550], [0.640, 4.000],
+      [0.575, 4.400], [0.510, 4.720], [0.470, 4.900],
+    ];
+    const CORE_LIP = [           // sıcak lüle dudağının iç yüzü
+      [0.470, 4.900], [0.442, 4.868], [0.418, 4.700],
+    ];
+    const PLUG = [               // merkez konisi
+      [0.405, 4.560], [0.362, 4.850], [0.255, 5.220], [0.125, 5.450], [0.000, 5.560],
+    ];
+    const seamMat = this.track(new THREE.MeshStandardMaterial({ color: 0x9aa1a8, roughness: 0.55, metalness: 0.45 }));
+    const spinMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd6dade, roughness: 0.28, metalness: 0.72 }));
     for (const side of [-1, 1]) {
-      const ex = side * 5.75, ey = wingY(5.75) - 1.55;
       const grp = new THREE.Group();
-      grp.position.set(ex, ey, 0);
-      // Nacelle dış kabuğu: giriş dudağı yuvarlak, arkaya doğru daralır
-      const prof = [[0.00, R * 0.87], [0.16, R * 0.995], [0.50, R], [1.90, R], [2.90, R * 0.96], [3.90, R * 0.87], [4.70, R * 0.76]];
-      const rows = prof.map(([dz, r]) => {
-        const row = [];
-        for (let i = 0; i <= 20; i++) { const a = (i / 20) * Math.PI * 2; row.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, z: zF + dz }); }
-        return row;
-      });
-      const cowl = this.track(ensureOutward(loft(rows, { uScale: 1, vScale: 1, closeRing: true }), (v, out) => out.set(0, 0, v.z)));
-      const cm = new THREE.Mesh(cowl, this.m.paint); cm.castShadow = true; grp.add(cm);
-      // Giriş dudağı iç yüzeyi ve fan kanalı
-      const lipRows = [
-        rows[1].map((p) => ({ ...p })),
-        rows[0].map((p) => ({ x: p.x * (RI / (R * 0.86)), y: p.y * (RI / (R * 0.86)), z: zF + 0.10 })),
-        rows[0].map((p) => ({ x: p.x * (RI / (R * 0.86)), y: p.y * (RI / (R * 0.86)), z: zF + 1.05 })),
-      ];
-      grp.add(new THREE.Mesh(this.track(loft(lipRows, { uScale: 1, vScale: 1, closeRing: true })), this.m.duct));
-      // Fan: 18 kanat + göbek + spinner
+      grp.position.set(side * 5.75, wingY(5.75) - 1.50, 0);
+      const addMesh = (geo, mat, shadow = true) => { const m2 = new THREE.Mesh(geo, mat); m2.castShadow = shadow; grp.add(m2); return m2; };
+      addMesh(revolve(FAN_COWL), this.m.paint);
+      addMesh(revolve(SEAM), seamMat, false);
+      addMesh(revolve(REV_COWL), this.m.paint);
+      addMesh(revolve(NOZ_IN), this.m.duct, false);
+      addMesh(revolve(INLET_IN), this.m.duct, false);
+      addMesh(revolve(CORE_COWL), this.m.metal);
+      addMesh(revolve(CORE_LIP), this.m.duct, false);
+      addMesh(revolve(PLUG), this.m.dark);
+      // Fan düzleminin arkasını kapatan koyu disk: giriş "delik" gibi görünmesin
+      const back = new THREE.CircleGeometry(RF, SEG); back.translate(0, 0, zF + 1.24);
+      addMesh(this.track(back), this.m.dark, false);
+      // Fan: 18 geniş kirişli, burularak açılan kanat + göbek + spinner
       const fan = new THREE.Group();
-      fan.position.set(0, 0, zF + 0.92);
+      fan.position.set(0, 0, zF + 1.05);
       const blades = [];
       for (let i = 0; i < 18; i++) {
-        const a = (i / 18) * Math.PI * 2;
-        const b = new THREE.BoxGeometry(0.085, RI * 0.78, 0.30);
-        b.translate(0, RI * 0.60, 0);
-        b.rotateZ(a); b.rotateY(0.42);
-        blades.push(b);
+        const rows = [];
+        // Kanat kesiti (teğet, eksenel) düzleminde durur ve yarıçapla birlikte BURULUR.
+        // Uçta çevresel hız büyük olduğu için bağıl akı eksenden çok saparak gelir:
+        // gerçek bir fanda kesit uçta neredeyse teğete yatar (burada 62°), kökte ise
+        // eksene yakındır (30°). Bu burulma olmadan kanatlar öne bakan bıçaklar gibi
+        // görünüyor ve disk "seyrek" okunuyordu.
+        // Kök yarıçapı göbeğin, uç yarıçapı ise kanal duvarının İÇİNDE kalır; böylece
+        // kapatılmamış uçlar hiçbir açıdan görünmez.
+        for (let k = 0; k <= 4; k++) {
+          const t = k / 4;
+          const r = 0.22 + (1.00 - 0.22) * t;
+          const chord = 0.42 + 0.10 * t;                 // geniş kirişli fan
+          const tw = 0.52 + 0.56 * t;                    // 30° -> 62° yatma
+          const half = 0.030 - 0.014 * t;
+          const row = [];
+          for (const [cf, sgn] of [[-0.5, 1], [-0.15, 1], [0.25, 1], [0.5, 0], [0.25, -1], [-0.15, -1], [-0.5, -1]]) {
+            const camber = sgn * half * (1 - Math.abs(cf) * 1.4);
+            row.push({
+              x: cf * chord * Math.sin(tw) + camber * Math.cos(tw),
+              y: r,
+              z: cf * chord * Math.cos(tw) - camber * Math.sin(tw),
+            });
+          }
+          rows.push(row);
+        }
+        const g = ensureOutward(loft(rows, { uScale: 1, vScale: 1, closeRing: true }), (v, out) => out.set(0, v.y, 0));
+        g.rotateZ((i / 18) * Math.PI * 2);
+        blades.push(g);
       }
       const bl = new THREE.Mesh(this.track(mergeGeometries(blades, false)), this.m.metal);
       fan.add(bl);
-      const hub = new THREE.CylinderGeometry(0.30, 0.30, 0.34, 14); hub.rotateX(Math.PI / 2);
+      const hub = new THREE.CylinderGeometry(0.28, 0.30, 0.30, 18); hub.rotateX(Math.PI / 2);
       fan.add(new THREE.Mesh(this.track(hub), this.m.metal));
-      const spin = new THREE.ConeGeometry(0.30, 0.62, 14); spin.rotateX(-Math.PI / 2); spin.translate(0, 0, -0.45);
-      const spinMesh = new THREE.Mesh(this.track(spin), this.track(new THREE.MeshStandardMaterial({ color: 0xdadde0, roughness: 0.3, metalness: 0.7 })));
-      fan.add(spinMesh);
+      // Spinner: öne bakan koni, ucu giriş düzleminin biraz gerisinde
+      const spin = new THREE.ConeGeometry(0.28, 0.66, 18); spin.rotateX(-Math.PI / 2); spin.translate(0, 0, -0.48);
+      fan.add(new THREE.Mesh(this.track(spin), spinMat));
       grp.add(fan);
       this.parts.fans.push(fan);
-      // Ters itki kaskat kuşağı: nacelle'in ortasında koyu bir bant
-      const rv = new THREE.CylinderGeometry(R * 0.985, R * 0.97, 0.52, 22, 1, true);
-      rv.rotateX(Math.PI / 2); rv.translate(0, 0, zF + 2.55);
-      grp.add(new THREE.Mesh(this.track(rv), this.track(new THREE.MeshStandardMaterial({ color: 0x8d949b, roughness: 0.5, metalness: 0.4, side: THREE.DoubleSide }))));
-      // Egzoz konisi ve sıcak kısım
-      const ex1 = new THREE.CylinderGeometry(0.62, 0.50, 1.15, 16, 1, true); ex1.rotateX(Math.PI / 2); ex1.translate(0, 0, zF + LEN + 0.45);
-      grp.add(new THREE.Mesh(this.track(ex1), this.m.metal));
-      const plug = new THREE.ConeGeometry(0.42, 1.25, 16); plug.rotateX(-Math.PI / 2); plug.translate(0, 0, zF + LEN + 1.15);
-      grp.add(new THREE.Mesh(this.track(plug), this.m.dark));
-      // Pylon: kanadın alt yüzeyine bağlanır
-      const py = new THREE.Shape();
-      py.moveTo(zF + 0.55, 0.55); py.lineTo(zF + LEN + 0.30, 0.75); py.lineTo(zF + LEN + 0.10, 1.95); py.lineTo(zF + 1.30, 1.95);
-      const pyGeo = new THREE.ExtrudeGeometry(py, { depth: 0.30, bevelEnabled: false });
-      pyGeo.rotateY(Math.PI / 2); pyGeo.translate(0.15, 0, 0);
-      const pyM = new THREE.Mesh(this.track(pyGeo), this.m.paint);
-      pyM.castShadow = true;
-      pyM.rotation.set(0, 0, 0);
-      const pyWrap = new THREE.Group(); pyWrap.add(pyM);
-      pyWrap.rotation.x = 0;
-      grp.add(pyWrap);
+      // Pylon: dikey bir kanatçık gibi; alt sıraları nacelle'in, üst sıraları kanadın
+      // İÇİNDE kalır, böylece iki uçta da boşluk ya da taşma olmaz. Yandan bakıldığında
+      // hücum kenarı yukarı gittikçe geriye yatar — A320 ailesinin pylon silueti budur.
+      const yWing = wingY(5.75) - (wingY(5.75) - 1.50) + 0.06;   // kanat veter hattı (yerel)
+      const pyRows = [];
+      for (let k = 0; k <= 5; k++) {
+        const t = k / 5;
+        const yl = 0.82 + (yWing - 0.82) * t;
+        // Alt sıra nacelle'in üstünde girişin GERİSİNDEN başlar; üst sıra kanat hücum
+        // kenarının hemen önünde. Böylece pylon yukarı gittikçe geriye yatar ve hiçbir
+        // yerde nacelle'in önüne taşmaz.
+        const le = zF + (0.62 + 1.93 * t), te = zF + (3.35 + 1.80 * t);
+        const chord = te - le, thick = 0.105 - 0.020 * t;
+        pyRows.push(airfoilPoints(7, chord, thick, 0, 1).map((p) => ({ x: p.y, y: yl, z: le + chord * p.c })));
+      }
+      const pyGeo = ensureOutward(loft(pyRows, { uScale: 1, vScale: 1 }), (v, out) => out.set(0, v.y, v.z));
+      addMesh(this.track(pyGeo), this.m.paint);
       this.group.add(grp);
     }
   }
@@ -508,24 +712,43 @@ export class A321neo {
 
   buildDetails() {
     const m = this.m;
-    // Yüzeyi izleyen çıkartma paneli: gövde eğrisine oturur, aynalanan tarafta sarım çevrilir.
-    // Cam, kapı, çerçeve ve kargo kapakları aynı yardımcıyı kullanır.
+    // Yüzeyi izleyen panel: gövde eğrisine oturur, aynalanan tarafta sarım çevrilir.
+    // Cam, çerçeve, kapı ve kargo kapakları aynı yardımcıyı kullanır.
+    //
+    // `off` panelin yüzeyden YÜZEY NORMALİ boyunca kaç METRE kaldırılacağıdır. Eskiden
+    // bunun yerine koordinatlar bir katsayıyla çarpılıyordu (orijin etrafında ölçekleme);
+    // burun bölgesinde bu, panelleri kaplamanın içinde bırakıyordu.
+    //
     // v0b/v1b verilirse panel (istasyon, v) uzayında bir YAMUK olur: ön ve arka kenarın
     // v aralıkları farklı olabilir. A320 kokpit camları buna ihtiyaç duyar — ön cam
     // arkadaki yan camlardan belirgin biçimde DAHA YÜKSEKTİR ve alt kenar öne doğru
     // aşağı iner. Dikdörtgen panellerle bant "otobüs camı" gibi düz görünüyordu.
-    const surfPanel = (side, s0, s1, v0, v1, lift, into, cols = 4, rows = 4, v0b = null, v1b = null) => {
+    //
+    // Bölüntü SAYISI otomatik sıkılaştırılır: panelin kendi dörtgenleri gövde kaplamasının
+    // halkalarından daha kaba olursa, kirişleri kaplamanın İÇİNE girer ve hangi kaldırma
+    // verilirse verilsin z-fighting kalır. Gereken incelik kaldırma payına bağlıdır:
+    // 12 mm ötelenen kapı çıkartmaları için ~6°, yalnızca 5 mm ötelenen camlar için ~3°
+    // yeterlidir (r≈1,9 m'de 3°'lik kirişin sarkması 0,7 mm, 6°'lik kirişinki 2,7 mm).
+    const surfPanel = (side, s0, s1, v0, v1, off, into, cols = 4, rows = 4, v0b = null, v1b = null, stepDeg = 6) => {
       const pos = [], idx = [];
       const va = v0b === null ? v0 : v0b, vb = v1b === null ? v1 : v1b;
+      const dv = Math.max(Math.abs(v1 - v0), Math.abs(vb - va));
+      rows = Math.max(rows, Math.ceil(dv * 180 / stepDeg));  // 1 v birimi = 180°
+      cols = Math.max(cols, Math.ceil(Math.abs(s1 - s0) / 0.16));
       for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
         const fi = i / cols;
+        const sv = s0 + (s1 - s0) * fi;
         const vt = v0 + (va - v0) * fi, vBot = v1 + (vb - v1) * fi;
-        const p = surfacePoint(s0 + (s1 - s0) * fi, vt + (vBot - vt) * (j / rows));
-        pos.push(side * p.x * lift, p.y * lift, p.z);
+        const vv = vt + (vBot - vt) * (j / rows);
+        const p = surfacePoint(sv, vv), n = surfaceNormal(sv, vv);
+        pos.push(side * (p.x + n.x * off), p.y + n.y * off, p.z + n.z * off);
       }
       for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
         const a = j * (cols + 1) + i, b = a + 1, c = a + cols + 1, d = c + 1;
-        if (side > 0) idx.push(a, c, b, b, c, d); else idx.push(a, b, c, b, d, c);
+        // Sarım: sağ tarafta yüzler DIŞA baksın. i istasyon (+z), j ise v (aşağı) yönünde
+        // arttığı için dışa bakan normal ts x tv'dir; aynalanan tarafta x işareti değişince
+        // elin yönü döner, sarım da ters çevrilir.
+        if (side > 0) idx.push(a, b, c, b, d, c); else idx.push(a, c, b, b, c, d);
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -533,19 +756,147 @@ export class A321neo {
       g.setIndex(idx); g.computeVertexNormals();
       into.push(g);
     };
-    // Kokpit camları: A320 ailesinin altı pencereli düzeni — iki ön cam, açılabilir DV penceresi
-    // ve arka yan pencere. Her camın arkasında koyu bir çerçeve paneli var (cam direkleri).
+    // Cam bandının üst/alt kenarını izleyen şerit: (istasyon -> v) sürekli bir fonksiyondan
+    // üretilir, bu yüzden komşu parçalar birbirine tam oturur.
+    const bandStrip = (side, sA, sB, edge, inner, outer, off, into) => {
+      // edge: 'top' | 'bot';  inner/outer: kenardan v cinsinden sapmalar
+      const pos = [], idx = [];
+      const cols = Math.max(2, Math.ceil((sB - sA) / 0.10)), rows = 1;
+      for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
+        const sv = sA + (sB - sA) * (i / cols);
+        const e = bandAt(sv)[edge];
+        const vv = e + (inner + (outer - inner) * (j / rows));
+        const p = surfacePoint(sv, vv), n = surfaceNormal(sv, vv);
+        pos.push(side * (p.x + n.x * off), p.y + n.y * off, p.z + n.z * off);
+      }
+      for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+        const a = j * (cols + 1) + i, b = a + 1, c = a + cols + 1, d = c + 1;
+        // Sarım: sağ tarafta yüzler DIŞA baksın. i istasyon (+z), j ise v (aşağı) yönünde
+        // arttığı için dışa bakan normal ts x tv'dir; aynalanan tarafta x işareti değişince
+        // elin yönü döner, sarım da ters çevrilir.
+        if (side > 0) idx.push(a, b, c, b, d, c); else idx.push(a, c, b, b, c, d);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((cols + 1) * (rows + 1) * 2), 2));
+      g.setIndex(idx); g.computeVertexNormals();
+      into.push(g);
+    };
+    // Cam bandını boydan boya dolduran direk/dolgu parçası (camların arasında ve uçlarında).
+    const bandFill = (side, sA, sB, off, into) => {
+      const pos = [], idx = [];
+      const cols = Math.max(2, Math.ceil((sB - sA) / 0.08)), rows = 10;
+      for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
+        const sv = sA + (sB - sA) * (i / cols);
+        const e = bandAt(sv);
+        const vv = e.top + (e.bot - e.top) * (j / rows);
+        const p = surfacePoint(sv, vv), n = surfaceNormal(sv, vv);
+        pos.push(side * (p.x + n.x * off), p.y + n.y * off, p.z + n.z * off);
+      }
+      for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+        const a = j * (cols + 1) + i, b = a + 1, c = a + cols + 1, d = c + 1;
+        // Sarım: sağ tarafta yüzler DIŞA baksın. i istasyon (+z), j ise v (aşağı) yönünde
+        // arttığı için dışa bakan normal ts x tv'dir; aynalanan tarafta x işareti değişince
+        // elin yönü döner, sarım da ters çevrilir.
+        if (side > 0) idx.push(a, b, c, b, d, c); else idx.push(a, c, b, b, c, d);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((cols + 1) * (rows + 1) * 2), 2));
+      g.setIndex(idx); g.computeVertexNormals();
+      into.push(g);
+    };
+    // Pencere açıklığının çevresini dolaşan, dıştan içe inen şerit (cam yanağı / reveal).
+    // Aynı (istasyon, v) sınırını iki farklı normal ötelemesinde örnekleyip bağlar;
+    // derinliği ve kenardaki gölge çizgisini asıl bu parça verir.
+    const revealStrip = (side, s0, s1, v0, v1, v0b, v1b, offOut, offIn, into) => {
+      const pts = [];                       // açıklık sınırı: saat yönünde
+      const N = 10;
+      const at = (f, g) => {                // f: istasyon oranı, g: v oranı
+        const vt = v0 + (v0b - v0) * f, vb = v1 + (v1b - v1) * f;
+        return { sv: s0 + (s1 - s0) * f, v: vt + (vb - vt) * g };
+      };
+      for (let i = 0; i <= N; i++) pts.push(at(i / N, 0));          // üst kenar
+      for (let i = 1; i <= N; i++) pts.push(at(1, i / N));          // arka kenar
+      for (let i = N - 1; i >= 0; i--) pts.push(at(i / N, 1));      // alt kenar
+      for (let i = N - 1; i >= 1; i--) pts.push(at(0, i / N));      // ön kenar
+      const pos = [], idx = [];
+      for (const q of pts) {
+        const vv = Math.min(0.999, Math.max(0.001, q.v));
+        const o = surfacePoint(q.sv, vv), n = surfaceNormal(q.sv, vv);
+        pos.push(side * (o.x + n.x * offOut), o.y + n.y * offOut, o.z + n.z * offOut);
+        pos.push(side * (o.x + n.x * offIn), o.y + n.y * offIn, o.z + n.z * offIn);
+      }
+      const n = pts.length;
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        const a0 = i * 2, a1 = i * 2 + 1, b0 = j * 2, b1 = j * 2 + 1;
+        if (side > 0) idx.push(a0, a1, b0, b1, b0, a1);
+        else idx.push(a0, b0, a1, b1, a1, b0);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3 * 2), 2));
+      g.setIndex(idx); g.computeVertexNormals();
+      into.push(g);
+    };
+
+    // ---------------------------------------------------------------------
+    // KOKPİT CAMLARI
+    // ---------------------------------------------------------------------
+    // A320 ailesinin altı pencereli düzeni: iki ön cam, açılabilir DV penceresi ve
+    // arka çeyrek pencere. Bant öne doğru DERİNLEŞİR ve arkaya doğru daralır; gerçek
+    // A320'de ayırt edici olan tam da budur.
+    //
+    // Camlar gövdeye GÖMÜLÜ gibi durmalı, yüzeye yapıştırılmış dekal gibi değil. Gövde
+    // kaplaması kapalı ve opak bir yüzey olduğu için camı içeri gömmek onu tamamen
+    // görünmez yapar; bu yüzden derinlik DIŞA doğru kurulur:
+    //   - çerçeve kuşağı gövdeden 22 mm taşar,
+    //   - cam yüzeyi yalnızca 5 mm taşar,
+    //   - ikisinin arasını 17 mm'lik bir yanak (reveal) bağlar.
+    // Kenarda gerçek bir gölge oluşur; camlar yapıya gömülmüş gibi okunur.
+    //
+    // Çerçeve kuşağı TEK bir döşeme olarak kurulur: üst şerit, alt şerit ve camların
+    // arasındaki direkler. Parçalar ortak bir kenar fonksiyonundan (bandAt) üretildiği
+    // için ne bindirme (z-fighting) ne de boşluk kalır. Önceki sürümde her cam kendi
+    // dikdörtgen halkasını taşıyordu; komşu halkalar üst üste biniyor ve çerçeveler
+    // hem kalın hem lekeli görünüyordu.
     const winGeos = [], winFrameGeos = [];
-    // [s0, s1, v0ön, v1ön, v0arka, v1arka] — v: 0 kesit tepesi, 1 kesit altı.
-    // Bant öne doğru DERİNLEŞİR: ön cam en yüksek, arka çeyrek pencere en alçak.
-    // Gerçek A320'de ayırt edici olan tam da bu daralma ve alt kenarın eğimidir.
-    for (const side of [-1, 1]) for (const [a, b, v0, v1, v0b, v1b] of COCKPIT_WINDOWS) {
-      surfPanel(side, a, b, v0, v1, 1.0045, winGeos, 4, 4, v0b, v1b);
-      surfPanel(side, a - 0.10, b + 0.10, v0 - 0.026, v1 + 0.026, 1.0025, winFrameGeos, 4, 4, v0b - 0.026, v1b + 0.026);
+    const GLASS_OUT = 0.005;     // cam yüzeyi: gövdeden 5 mm taşar
+    const FRAME_OUT = 0.022;     // çerçeve kuşağı: gövdeden 22 mm taşar
+    const FW_V = 0.024;          // çerçeve genişliği — çevresel yönde (v birimi, ~4,3°)
+    const NOSE_LIP = 0.07;       // kuşağın ön cam önündeki payı (m) — radom derzini aşmaz
+    const TAIL_LIP = 0.13;       // kuşağın arka çeyrek pencerenin arkasındaki payı (m)
+    const S_FIRST = COCKPIT_WINDOWS[0][0], S_LAST = COCKPIT_WINDOWS[COCKPIT_WINDOWS.length - 1][1];
+    const BAND_A = S_FIRST - NOSE_LIP, BAND_B = S_LAST + TAIL_LIP;
+    for (const side of [-1, 1]) {
+      // 1) Camlar
+      for (const [a, b, v0, v1, v0b, v1b] of COCKPIT_WINDOWS) {
+        surfPanel(side, a, b, v0, v1, GLASS_OUT, winGeos, 6, 6, v0b, v1b, 3);
+        revealStrip(side, a, b, v0, v1, v0b, v1b, FRAME_OUT, GLASS_OUT, winFrameGeos);
+      }
+      // 2) Çerçeve kuşağı: üst ve alt şerit boydan boya
+      bandStrip(side, BAND_A, BAND_B, 'top', -FW_V, 0, FRAME_OUT, winFrameGeos);
+      bandStrip(side, BAND_A, BAND_B, 'bot', 0, FW_V, FRAME_OUT, winFrameGeos);
+      // 3) Direkler: camların arasındaki ve uçlardaki dolgular (tam cam yüksekliğinde)
+      let cursor = BAND_A;
+      for (const [a, b] of COCKPIT_WINDOWS) { bandFill(side, cursor, a, FRAME_OUT, winFrameGeos); cursor = b; }
+      bandFill(side, cursor, BAND_B, FRAME_OUT, winFrameGeos);
     }
-    const frameMat = this.track(new THREE.MeshStandardMaterial({ color: 0x2a2f35, roughness: 0.55, metalness: 0.2, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 }));
+    // Derinlik gerçek olduğu için polygonOffset'e gerek yok (kaldırma normal boyunca
+    // ve metre cinsinden, dolayısıyla kaplamanın kirişlerini her yerde aşıyor).
+    // Çerçeve çift yüzlü: yanak (reveal) şeridinin hangi yöne baktığı bakış açısına göre
+    // değişir; çift yüzlü malzemede three.js arka yüzlerde normali kendisi çevirir,
+    // dolayısıyla aydınlatma her iki durumda da doğru kalır.
+    const frameMat = this.track(new THREE.MeshStandardMaterial({ color: 0x23282e, roughness: 0.42, metalness: 0.30, side: THREE.DoubleSide }));
     this.group.add(new THREE.Mesh(this.track(mergeGeometries(winFrameGeos, false)), frameMat));
-    const glassMat = this.track(new THREE.MeshPhysicalMaterial({ color: 0x0c1218, roughness: 0.06, metalness: 0.5, clearcoat: 1, envMapIntensity: 1.3, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -10 }));
+    // Cam: dışarıdan koyu, hafif mavi ve parlak. Ortamda env map yok, bu yüzden metalness
+    // düşük tutulur (yüksek metalness env map'siz yüzeyi tamamen karartır) ve parlaklık
+    // clearcoat ile verilir: güneş yansıması tek, temiz bir vurgu olarak okunur.
+    const glassMat = this.track(new THREE.MeshPhysicalMaterial({
+      color: 0x131b24, roughness: 0.14, metalness: 0.10,
+      clearcoat: 1, clearcoatRoughness: 0.05, reflectivity: 0.9,
+    }));
     // Kokpit camı DIŞARIDAN koyu ve yansımalı görünür (opak malzeme). Bu yüzden
     // KOKPİT GÖRÜNÜMÜNDE gizlenir: aksi halde pilot koyu cama bakar ve dışarısı
     // tamamen kararır. Çerçeveler görünür kalır, böylece ön cam yapısı yerinde durur.
@@ -559,7 +910,9 @@ export class A321neo {
     const doorMat = this.track(new THREE.MeshStandardMaterial({ color: (this.livery && this.livery.door !== undefined) ? this.livery.door : 0xe9ecef, roughness: 0.45, metalness: 0.06, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }));
     const seamMat = this.track(new THREE.MeshStandardMaterial({ color: 0x424a52, roughness: 0.75, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }));
     const panelGeos = [], seamGeos = [];
-    const addPanel = (side, s0, s1, v0, v1, into) => surfPanel(side, s0, s1, v0, v1, 1.002, into);
+    // Kapı/derz çıkartmaları gövdeden 12 mm taşar (yüzey normali boyunca), böylece
+    // kaplamaya gömülmez ve kaba bölüntüyle bile z-fighting yapmaz.
+    const addPanel = (side, s0, s1, v0, v1, into) => surfPanel(side, s0, s1, v0, v1, 0.012, into, 3, 3);
     for (const side of [-1, 1]) {
       // Yolcu kapıları (4 adet, ~1,85 m yüksek): iç panel + belirgin koyu çerçeve
       for (const s of [6.2, 15.6, 27.6, 37.0]) { addPanel(side, s, s + 0.92, 0.300, 0.590, panelGeos); addPanel(side, s - 0.10, s + 1.02, 0.283, 0.607, seamGeos); }
@@ -861,7 +1214,7 @@ export class A321neo {
       // Spoyler panelleri: ön kenardan yukarı kalkar (yatışta yukarı giden kanatta ek açılma)
       const rollAssist = side === 'right' ? Math.max(0, -sm.aileron) : Math.max(0, sm.aileron);
       const sp = Math.min(1, sm.spoiler + rollAssist * 0.55);
-      for (const s of p.spoilers[side]) s.rotation.x = -sp * 45 * DEG;
+      for (const s of p.spoilers[side]) setHinge(s, -sp * 45 * DEG);
     }
     setHinge(p.rudder, -sm.rudder * 22 * DEG);
     // İniş takımı ve kapaklar
