@@ -212,12 +212,12 @@ Sharklet'in kök kesiti kanadın uç kesitiyle birebir aynıdır (aynı veter, k
 | Süperkruvaziyer | **M 1,5** | 36 000 ft, art yakıcı KAPALI |
 | Azami Mach | **M 2,0** | yapay tavan değil: itki-sürükleme dengesi |
 | Yapısal G | +12 / −5 | FCS tavanı; ölçülen tepe 12,1 g |
-| Yatış oranı | 420°/s | yüksek AoA'da FCS tarafından kısılır |
+| Yatış oranı | 320°/s | FCS oran tavanı; yüksek AoA'da ayrıca kısılır |
 | AoA yetkisi | 70° sınır, 38° yumuşak | çine girdapları 45°'ye kadar tutunur |
 
 Buna karşılık uçak **konumu ya da dönüşü doğrudan oynanan bir nesne DEĞİLDİR**. Aynı rijit cisim çözücüsünden geçer ve kütle, atalet (I_xz dahil), yer çekimi, taşıma, sürükleme ve açısal momentum yasalarına uyar:
 
-- **Anlık dönüş yok.** Tam yatış komutu verildiğinde oran sıfırdan tavana bir adımda çıkmaz: ölçümde 0 → 369 → 422 → 425 °/s (0,2 s aralıklarla). Eyleyici hızı 6,0 birim/s ile sınırlıdır (tam sapma ≈ 0,17 s).
+- **Anlık dönüş yok.** Tam yatış komutu verildiğinde oran sıfırdan tavana bir adımda çıkmaz: ölçümde kademeli yükselir (0,2 s aralıklarla örneklenmiştir). Eyleyici hızı 6,0 birim/s ile sınırlıdır (tam sapma ≈ 0,17 s).
 - **Sonsuz ivme yok.** 40 000 ft'te tam art yakıcıyla düz uçuşta hız M 2,0'da itki-sürükleme dengesine oturur ve orada kalır.
 - **Enerji korunumu.** 40 000 ft'te sürekli tam çubuk manevrasında hız 340 → 226 kt düşer.
 - **Departure koruması aerodinamiktir.** Yüksek AoA'da yatış oranı tavanı (26°'den itibaren kısılır) ve koordinasyon geri beslemesi vardır; 35° AoA'da tam yatışta kayma açısı 3,9°'de kalır.
@@ -290,9 +290,9 @@ Aerodinamik her zaman **havaya göre bağıl hızla** hesaplanır, yer hızıyla
 ## Kontroller
 
 - **Sol joystick:** yunuslama ve yatış. **Sağ kaydırıcı:** gaz kolu; üstteki turuncu bölge art yakıcı.
-- **Alt sol kümede soldan sağa sıra: RUDDER → JOYSTICK → FLAPS.** Üçünün konumu `index.html` içindeki tek bir ölçü setinden (`--rud-w`, `--stk-d`, `--flp-w`, `--ctl-gap`) türetilir; `clamp()` sayesinde ekran daraldıkça ölçüler orantılı küçülür ve denetimler üst üste binmez. Güvenli alan payları (`env(safe-area-inset-*)`) her üçüne de uygulanır, böylece iPhone çentiği ve alt çubuk hiçbir denetimi kesmez.
-- **RUDDER kaydırıcısı (kümenin en solu):** yaylı analog dümen ve burun tekeri; parmağı/fareyi bırakınca tam merkeze döner. **Takım / Fren:** aç-kapat.
-- **FLAPS kolu (joystickin sağında):** gerçek bir kol gibi çalışan dikey kaydırıcı. Yukarı 0 (temiz), aşağı son kademe; sürüklerken en yakın kademeye oturur, ize dokunmak da o kademeye atlar. Topuz kademe adını ve **flap açısını** gösterir (A321neo: 0 / 1 = 10° / 2 = 15° / 3 = 20° / FULL = 40°; FA-90: UP / MVR = 9° / LAND = 18°). Kol her uçuşta **0'da** başlar. Klavyedeki **F** kademeleri sırayla gezer; kol onu da izler.
+- **Alt kümede soldan sağa sıra: FLAPS → JOYSTICK → RUDDER.** Dümen ekranın ortasında durur; dar ekranda ortaya sığmazsa joystickin hemen sağına çekilir (çakışmama güvencesi her zaman önde gelir).
+- **RUDDER kaydırıcısı (ekranın ortası):** yaylı analog dümen ve burun tekeri; parmağı/fareyi bırakınca tam merkeze döner. **Takım / Fren:** aç-kapat.
+- **FLAPS kolu (ekranın en solu):** gerçek bir kol gibi çalışan dikey kaydırıcı. Yukarı 0 (temiz), aşağı son kademe; sürüklerken en yakın kademeye oturur, ize dokunmak da o kademeye atlar. Topuz kademe adını ve **flap açısını** gösterir (A321neo: 0 / 1 = 10° / 2 = 15° / 3 = 20° / FULL = 40°; FA-90: UP / MVR = 9° / LAND = 18°). Kol her uçuşta **0'da** başlar. Klavyedeki **F** kademeleri sırayla gezer; kol onu da izler.
 - **☰ Menü (sol üst):** Duraklat, Kamera, Ses ve Işık düğmeleri bu çekmecede toplanır; dokununca yumuşak bir geçişle açılır, 7 s hareketsizlikte veya duraklatınca kendini kapatır. Ekranda sürekli yalnızca uçuş için gerekli kontroller kalır. Çekmece açıkken joystick alanı onun altından başlar, böylece uçuş girişi ile menü dokunuşları çakışmaz.
 - **Spoilers (A321neo ve FA-90):** hız freni / yer spoyleri. A321neo'da kanat üstü spoyler, FA-90'da sırt hava frenleri. Klavyede **V**.
 - **Kalkış durumu:** uçak piste **fren basılı DEĞİL**, gaz rölantide ve **flap 0** ile doğar. Yerinde durmasını fren değil, aşağıda anlatılan kopma sürtünmesi sağlar.

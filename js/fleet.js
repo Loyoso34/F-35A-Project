@@ -130,8 +130,11 @@ const FA90_CFG = {
     // Eyleyiciler F-35'ten hızlı, kazançlar yüksek; ama zeta ve prefilter korunur:
     // kapalı çevrim hâlâ SÖNÜMLÜ ikinci derece bir sistem gibi davranır, adım yanıtı
     // anlık değildir. surfRate 6,0 => tam sapma ~0,17 s (fiziksel bir eyleyici sınırı).
-    Kq0: 4.2, KqA: 5.4, Kp0: 6.5, KpA: 9.0, Kr0: 2.8, KrA: 4.0,
-    zeta: 0.92, prefilter: 0.085, rollFilter: 0.045, actuator: 0.022, stickPow: 1.45,
+    // Kp ve rollFilter, düşürülen yatış oranı tavanıyla birlikte yumuşatıldı:
+    // kazanç aynı kalsaydı çubuk yeni tavana yine "çarparak" oturur, oran düştüğü
+    // hâlde giriş hissi sert kalırdı.
+    Kq0: 4.2, KqA: 5.4, Kp0: 5.4, KpA: 7.4, Kr0: 2.8, KrA: 4.0,
+    zeta: 0.92, prefilter: 0.085, rollFilter: 0.055, actuator: 0.022, stickPow: 1.45,
     qAuth: 14000, qRoll: 11000, qBlend: [2200, 9000],
     rollAuth: 0.90,
     Vmin: 38, surfRate: 6.0,

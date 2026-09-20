@@ -274,7 +274,10 @@ export const FA90_AERO = {
   gMax: 12.0, gMin: -5.0,
   alphaLimit: 70 * DEG,
   alphaSoft: 38 * DEG,
-  rollRateMax: 420 * DEG,
+  // 420°/s fazla çevikti; 320°/s hâlâ F-35'in ölçülen 274°/s'sinin belirgin
+  // üstünde ama daha yönetilebilir. Bu bir FCS oran tavanıdır — aerodinamik
+  // yatış yetkisi (Clda) değişmedi, uçak tavana biraz daha yumuşak oturur.
+  rollRateMax: 320 * DEG,
   pitchRateMax: 90 * DEG,
   yawRateMax: 34 * DEG,
 };

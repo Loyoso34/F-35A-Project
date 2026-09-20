@@ -37,9 +37,16 @@
       --stk-d: clamp(82px, 13vw, 108px);
       --flp-w: clamp(52px, 7.6vw, 64px);
       --ctl-l: calc(var(--sal) + 10px);
-      --stk-l: calc(var(--ctl-l) + var(--rud-w) + var(--ctl-gap));
-      --flp-l: calc(var(--stk-l) + var(--stk-d) + var(--ctl-gap));
-      --ctl-r: calc(var(--flp-l) + var(--flp-w));
+      --flp-l: var(--ctl-l);
+      --stk-l: calc(var(--flp-l) + var(--flp-w) + var(--ctl-gap));
+      /* Dümenin çakışmadan durabileceği EN SOL konum */
+      --rud-min-l: calc(var(--stk-l) + var(--stk-d) + var(--ctl-gap));
+      /* Dümen ekranın ORTASINA yerleşir; yer kalmazsa çakışmayan en sol konuma
+         düşer, sağda da düğme sütununa girmeyecek şekilde sınırlanır.
+         clamp(MIN, TERCİH, MAKS): MIN > MAKS olursa MIN kazanır, yani çakışmama
+         güvencesi her zaman önde gelir. */
+      --rud-l: clamp(var(--rud-min-l), calc(50% - var(--rud-w) / 2), calc(100% - var(--sar) - 150px - var(--rud-w)));
+      --ctl-r: calc(var(--rud-l) + var(--rud-w));
       --ctl-b: calc(var(--sab) + 10px);
       --hud: #39ff6a;
       --panel: rgba(10, 16, 24, 0.86);
@@ -70,9 +77,10 @@
     }
     /* Menü açıkken joystick alanı çekmecenin altından başlar: yanlışlıkla düğmeye basmak yerine uçuş girişi bozulmaz */
     body.menu-open #stick-zone { top: calc(var(--sat) + 112px); }
-    /* Kamera sürükleme alanı kümenin SAĞ kenarından başlar (eski sabit %40 değeri
-       yeni düzende flap kolunun üstüne biniyordu). */
-    #view-zone { left: calc(var(--ctl-r) + 8px); right: calc(var(--sar) + 150px); top: calc(var(--sat) + 56px); bottom: calc(var(--sab) + 64px); }
+    /* Kamera sürükleme alanı joystickin sağından başlar. Dümen ekranın ortasında
+       olsa bile çakışma olmaz: bu alanın ALT kenarı dümen şeridinin ve "RUDDER"
+       etiketinin üstünde biter. Böylece kamera alanı dar ekranlarda daralmaz. */
+    #view-zone { left: calc(var(--rud-min-l) + 4px); right: calc(var(--sar) + 150px); top: calc(var(--sat) + 56px); bottom: calc(var(--sab) + 72px); }
     #stick-base {
       position: absolute; width: var(--stk-d); height: var(--stk-d); border-radius: 50%;
       border: 1.5px solid rgba(255,255,255,0.28); background: rgba(10,16,24,0.35);
@@ -167,10 +175,9 @@
     #drawer:not(.open) .btn { pointer-events: none; }
     #drawer .btn:nth-child(2) { transition-delay: 0.03s; } #drawer .btn:nth-child(3) { transition-delay: 0.06s; } #drawer .btn:nth-child(4) { transition-delay: 0.09s; }
     #drawer:not(.open) .btn { transform: translateX(-8px); }
-    /* Dümen artık ekranın ortasında değil, kümenin en solunda: istenen soldan sağa
-       sıra RUDDER -> JOYSTICK -> FLAPS. Ortadayken sağdaki düğme sütununa yaklaşıp
-       dar ekranlarda onunla çakışıyordu. */
-    #rudder { position: absolute; left: var(--ctl-l); bottom: var(--ctl-b); width: var(--rud-w); height: var(--rud-h); pointer-events: auto; touch-action: none; }
+    /* Soldan sağa sıra: FLAPS -> JOYSTICK -> RUDDER. Dümen ekranın ortasında
+       durur; dar ekranlarda ortaya sığmazsa joystickin hemen sağına çekilir. */
+    #rudder { position: absolute; left: var(--rud-l); bottom: var(--ctl-b); width: var(--rud-w); height: var(--rud-h); pointer-events: auto; touch-action: none; }
     #rudder-track {
       position: absolute; inset: 0; border-radius: 22px; background: rgba(10,16,24,0.5); border: 1.5px solid rgba(255,255,255,0.26);
       box-shadow: inset 0 0 14px rgba(0,0,0,0.35);
@@ -394,7 +401,7 @@
       <ul>
         <li><b>Left stick:</b> pitch and roll</li>
         <li><b>Right slider:</b> throttle — afterburner (AB) at the top</li>
-        <li><b>Bottom left, in order:</b> rudder slider &rarr; stick &rarr; flap lever</li>
+        <li><b>Bottom, left to right:</b> flap lever &rarr; stick &rarr; rudder slider (centre)</li>
         <li><b>Rudder slider:</b> drag it; it springs back to centre. On the ground it steers the nosewheel</li>
         <li><b>Flap lever:</b> slide it down to extend, up to retract. It snaps to each detent and shows the setting with its flap angle</li>
         <li><b>Landing Gear / Brakes:</b> toggle on and off. <b>Spoilers</b> on the A321neo and the FA-90</li>
