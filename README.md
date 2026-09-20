@@ -141,25 +141,31 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 
 **Model.** Gerçek ölçüler: uzunluk 44,51 m, kanat açıklığı 35,8 m (sharklet dahil), yükseklik 11,8 m. Yuvarlatılmış gövde kesiti 20 istasyonluk bir tablodan loft edilir (düz alt yüzey yok).
 
-**Burun ve ön gövde.** Kesitler 0 → 7,00 m arasında **analitik eğrilerden** üretilir, elle yazılmaz:
+**Burun ve ön gövde.** Kesitler 0 → 6,50 m arasında analitik bir eğriden üretilir. Yarı genişlik oranı f(s) kontrol noktalarından **monoton kübik (PCHIP)** ile geçirilir; ilk 1,5 m gerçek bir **teğet ojiv** radomdan gelir (taban yarıçapı 1,35 m, uzunluk 2,5 m → ojiv yarıçapı ρ = (R_b² + L_n²)/(2R_b) = 2,99 m, r(x) = √(ρ² − (L_n − x)²) + R_b − ρ). Bu ojiv s = 0,25 / 0,50 / 1,00 / 1,50 m'de gövde genişliğinin **%14 / %26 / %43 / %55**'i kadardır — yani A320 radomu küttür. Radom tabanı silindire teğet değildir (gövde arkasında genişlemeyi sürdürür), bu yüzden eğri 1,9 m'den sonra sekant gibi devam eder ve 6,8 m'de tam kesite teğet oturur.
 
-- Yarı genişlik ve yarı yükseklik ortak bir biçim fonksiyonundan gelir: `f(t) = 0,45·LD-Haack(t) + 0,55·(1 − (1−t)^2,4)`, `t = s/7,00`. LD-Haack (Von Kármán) terimi uçta **dikey teğet** verir — gerçek bir radom gibi yuvarlak uç, koni değil. Üs yasası terimi orta bölgeyi doldurur: A320 burnu ince değil, dolgun bir ojivdir. İki terim de `s = 7,00`'de teğettir, dolayısıyla sabit kesite geçişte kırık ya da çap sıçraması olmaz.
-- Kesit merkezi `c(t) = −0,035 − 1,095·(1−t)²` ile sarkar: uçta kabin ekseninin 1,10 m altında. A320 ailesinin düşük burun ekseni budur.
+Karina doğrudan tanımlıdır: `yb(s) = −2,06 + 1,15·(1 − s/5)³`, uçta −0,90. Sarkma buradan gelir, taç ise `yb + 4,05·f(s)` olarak türetilir; kesit her yerde dairesele yakın kalır. **Üs 3'tür**: karina uçta hızla yükselir, böylece siluet alttan da daralır — üs 2 ile alt hat neredeyse yataydı ve burun yuvarlak kapaklı bir *boru* gibi görünüyordu.
 
-Önceki tablo elle yazılmıştı ve burnu **kısa, şişkin ve yumurta biçimli** yapıyordu: istasyon 1,05'te yarı genişlik 0,850 (tam genişliğin %43'ü), 2,00'de 1,270 (%64), alt hat daha ilk metrede −1,79'a iniyordu. Yeni eğride aynı istasyonlarda 0,623 ve 1,034; alt hat 1,05'te −1,465, 2,00'de −1,653. Sonuç: daha uzun, daha ince, karnı belirgin biçimde daha düz bir burun.
+Denenen ve elenen iki eğri vardı: 7,0 m'lik uzun bir ojiv (aynı istasyonlarda %9 / %16 / %31) burnu **sivri** yapıyordu; sonraki 5,0 m'lik dolgun eğri (%17 / %30 / %49) ise onu **şişkin** yapıyor, üstelik radom camları örtüyordu. Şimdiki eğri ikisinin arasındadır.
 
-Radom **ayrı bir küre değildir**; aynı kesit tablosunun ilk parçasının loft'udur, yalnızca malzemesi farklıdır (derz istasyon 2,68'de). Radom ile kaplama aynı halkayı paylaştığı için geçişte ne dikiş ne çap sıçraması olur.
+Radom **ayrı bir küre değildir**; aynı kesit tablosunun ilk parçasının loft'udur, yalnızca malzemesi farklıdır (derz istasyon 2,44'te). Radom ile kaplama aynı halkayı paylaştığı için geçişte ne dikiş ne çap sıçraması olur.
 
-**Kokpit camları.** A320 ailesinin altı pencereli düzeni: iki ön cam, açılabilir DV penceresi ve arka çeyrek pencere. Her cam **(u, w) parametre uzayında yuvarlatılmış köşeli bir dış hattan** üretilir (u = 0 ön direk → 1 arka direk, w = 0 üst → 1 alt kenar). Gerçek Airbus ön camının en tanınır çizgisi **No.1 camın üst-ön köşesindeki geniş yuvarlama**dır; köşeleri dik olan dikdörtgen paneller uçağı jenerik gösteriyordu.
+**Kokpit camları.** A320 ailesinin altı pencereli düzeni: iki ön cam (No.1), yan ön cam (No.2), açılabilir DV penceresi ve arka çeyrek pencere. Her cam **(u, w) parametre uzayında hafifçe yuvarlatılmış köşeli** bir dış hattan üretilir (u = 0 ön direk → 1 arka direk, w = 0 üst → 1 alt kenar); No.1 camın üst-ön köşesi diğerlerinden geniş yuvarlanır — Airbus ön camının imzası budur.
+
+Bandın kenarları sabit v ile değil **mutlak yükseklikle** çözülür: üst kenar y = 1,38 → 1,17 m, eşik y = 0,66 → 0,75 m. Bant böylece neredeyse yataydır ve gövde onun çevresinde büyür; A320'nin kaşı (üst camın üstündeki gövde) önde 0,01 m'den arkada 0,80 m'ye açılır, cam yükseklikleri 0,71 → 0,42 m'ye iner. Sabit v ile çalışırken eşik arkaya doğru yükseliyor, DV penceresinin alt kenarı pilot göz hizasının üstünde kalıyordu (yana bakınca gövde duvarı görünüyordu). Camlar arasındaki istasyon boşlukları 0,16-0,18 m'dir; daha dar boşluklarda çerçeve halkaları birleşiyor ve dört cam **tek bir kara leke** gibi okunuyordu.
 
 Camlar yüzeye yapıştırılmış dekal değildir, **gerçek derinliği olan** dört katmanlı bir yapıdır (hepsi yüzey normali boyunca, metre cinsinden ötelenir):
 
-1. **Parlama maskesi** — 4 mm, mat siyah. Bandın tamamını cömert bir payla örter ve uçlara doğru pay sıfıra inerek kama gibi sivrilir. Gerçek uçakta camların çevresindeki geniş siyah alan budur.
-2. **Çerçeve halkası** — 22 mm, koyu gri metal. Cam başına ayrı bir halka; dış hattı aynı yuvarlatılmış eğrinin genişletilmiş kopyasıdır. Halkalar birbirine değmez, aralarında maske görünür — yani gerçek direk görüntüsü, bindirme (z-fighting) olmadan.
-3. **Yanak (reveal)** — çerçeve yüzeyinden cam yüzeyine inen 17 mm'lik duvar; kenardaki gölge çizgisi buradan gelir.
+1. **Parlama maskesi** — 4 mm, mat siyah; bandı saran ince şerit, uçlara doğru kama gibi sivrilir. Üst kenarı taç çizgisini geçemez, böylece burnun tepesinde gövde rengi bir **orta direk** kalır ve iki ön cam ayrı okunur.
+2. **Çerçeve halkası** — 22 mm, koyu gri metal; cam başına ayrı bir halka, dış hattı aynı eğrinin genişletilmiş kopyası. Halkalar birbirine değmez, aralarında maske görünür.
+3. **Yanak (reveal)** — çerçeveden cam yüzeyine inen 17 mm'lik duvar; kenardaki gölge çizgisi buradan gelir.
 4. **Cam** — 5 mm, koyu ve parlak.
 
-Kaldırma işlemi **yüzey normali boyunca ve metre cinsinden** yapılır (`surfaceNormal`). Daha önce koordinatlar bir katsayıyla çarpılıyordu; bu modelin orijini etrafında ölçekleme demektir ve burunda paneller kaplamanın içinde kalıp alacalı z-fighting lekeleri veriyordu. Bant üst kenarı gövde taç çizgisinin önde 0,06 m, arkada 0,28 m altındadır; pencere yüksekliği önde 0,70 m'den arkada 0,30 m'ye iner. Bandın kenarları tek bir sürekli fonksiyondan (`bandAt`) üretilir, bu yüzden dış camlar ile kokpit astarındaki açıklıklar asla birbirinden kayamaz.
+**Kokpit astarı.** Gövdeyi izleyen, cam açıklıkları kesilmiş bir tüptür. İki kural onu doğru kılar:
+
+- Astar hücresi cam çerçevesinden **küçük** olmalıdır (0,055 m × 0,023 v hücreye karşı 0,062 m × 0,028 v çerçeve). Açıklık camdan bir hücre büyük kesildiği için, hücre çerçeveden büyükse kesim izi çerçevenin dışına taşar ve kokpitten bakınca testere dişi bir kenar görünür.
+- Ön camın **önünde** bir koridor açıktır. Astar orada da devam ediyordu ve camdan çıkan bakış ışınını birkaç on santim sonra yeniden kesiyordu: pilot düz ileri baktığında dışarıyı göremiyor, kokpit dar bir kemer gibi duruyordu. Eşiğin altı ve tacın üstü kapalı kalır, yani burnun içinden aşağı ya da yukarı bakılamaz.
+
+Pilot göz noktası tacın ~0,95 m altındadır (gerçek A320'de ~1,0-1,1 m). Ölçülen görüş: düz ileri −10°…+20°, yan pencerelerden −12°…+26°.
 
 **Işıklar.** Seyir ve çakar ışıkları kanat ucu kaportasına oturur: kırmızı/yeşil hücum kenarında, beyaz flaşör firar kenarında — sharklet'in dibinde, gerçek A320neo'daki gibi. (Sharklet eklendikten sonra ışıklar bir süre ESKİ kanat ucu noktasında kalmış ve uçağın ~1 m yanında havada asılı duruyordu; konumlar artık doğrudan kanat geometrisinden türetilir ve `fleet.mjs` her ışığın gövdeye uzaklığını 0,15 m sınırıyla sınar.)
 

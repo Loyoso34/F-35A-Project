@@ -14,7 +14,7 @@ export const A321 = {
   noseGearZ: 5.1 - 20.6, mainGearZ: 23.5 - 20.6, mainGearX: 3.8,
   // Göz noktası: kokpit zemininin ~1,34 m, glareshield tepesinin ~0,16 m üstünde;
   // yanal olarak kaptan koltuğu hizasında (-0,44 m). Ön cam bandının üst üçte birinde durur.
-  pilotEye: new THREE.Vector3(-0.44, 0.98, 4.9 - 20.6),
+  pilotEye: new THREE.Vector3(-0.44, 0.92, 4.9 - 20.6),
 };
 const st = (s) => s - A321.cgStation;
 
@@ -31,68 +31,106 @@ const st = (s) => s - A321.cgStation;
 // yani yandan bakıldığında burun A320'nin karakteristik "aşağı bakan" siluetini alır.
 // Kesitler dairesele yakın (h/2 ≈ w), çünkü A320 ön gövdesi dairesel kesitlidir.
 const SECTIONS = [
-  // --- ÖN GÖVDE (0 -> 7,00 m): analitik eğrilerden üretildi ---
-  // Yarı genişlik ve yarı yükseklik ortak bir biçim fonksiyonundan gelir:
-  //   f(t) = 0,45 · LD-Haack(t) + 0,55 · (1 - (1-t)^2,4),   t = s / 7,00
-  // LD-Haack (Von Kármán) terimi uçta DİKEY teğet verir — gerçek bir radom gibi
-  // yuvarlak uç, koni değil; üs yasası terimi orta bölgeyi doldurur (A320 burnu
-  // ince değil, dolgun bir ojivdir); her iki terim de s=7,00'de teğettir, bu yüzden
-  // sabit kesite geçişte kırık ya da çap sıçraması olmaz.
-  // Kesit merkezi c(t) = -0,035 - 1,095·(1-t)² ile sarkar: uçta kabin ekseninin
-  // 1,10 m altında, kabinde -0,035.
+  // --- ÖN GÖVDE (0 -> 6,50 m) ---
+  // Yarı genişlik oranı f(s) kontrol noktalarından MONOTON KÜBİK (PCHIP) ile üretildi.
+  // İlk 1,5 m gerçek bir TEĞET OJİV radomdan gelir: taban yarıçapı 1,35 m, uzunluk
+  // 2,5 m -> ojiv yarıçapı rho = (Rb² + Ln²)/(2·Rb) = 2,99 m,
+  //   r(x) = sqrt(rho² - (Ln - x)²) + Rb - rho
+  // Bu ojiv s = 0,25 / 0,50 / 1,00 / 1,50'de gövde genişliğinin %17 / %29 / %48 / %60'ı
+  // kadardır — yani A320 radomu KÜTTÜR. Radom tabanı silindire teğet değildir (gövde
+  // arkasında genişlemeyi sürdürür), bu yüzden eğri 1,9 m'den sonra sekant gibi devam
+  // eder ve 6,8 m'de tam kesite teğet oturur.
   //
-  // Önceki tablo elle yazılmıştı ve burnu ÇOK ŞİŞKİN yapıyordu: istasyon 1,05'te
-  // yarı genişlik 0,850 (tam genişliğin %43'ü), 2,00'de 1,270 (%64) idi ve alt hat
-  // daha ilk metrede -1,79'a iniyordu. Sonuç kısa, yumurta biçimli, alt tarafı
-  // kabarık bir burundu. Yeni eğride aynı istasyonlarda 0,623 ve 1,034; alt hat
-  // 1,05'te -1,465, 2,00'de -1,653 — yani daha uzun, daha ince, karnı daha düz.
-  [0.01, 0.014, -1.112, -1.141],   // radom ucu: dikey teğetli yuvarlak kapak
-  [0.09, 0.077, -1.023, -1.181],
-  [0.19, 0.147, -0.921, -1.222],
-  [0.31, 0.223, -0.807, -1.264],
-  [0.45, 0.307, -0.679, -1.308],
-  [0.62, 0.402, -0.532, -1.357],
-  [0.82, 0.508, -0.367, -1.410],
-  [1.05, 0.623, -0.187, -1.465],
-  [1.32, 0.750, 0.013, -1.525],
-  [1.62, 0.881, 0.221, -1.585],
-  [1.95, 1.014, 0.435, -1.645],
-  [2.30, 1.144, 0.644, -1.702],
-  [2.68, 1.273, 0.853, -1.757],   // radom derzi / ön basınç perdesi
-  [3.08, 1.395, 1.052, -1.808],   // ön cam tabanı
-  [3.52, 1.514, 1.247, -1.858],
-  [4.00, 1.627, 1.432, -1.904],
-  [4.52, 1.731, 1.602, -1.947],
-  [5.08, 1.821, 1.750, -1.985],   // burun takımı istasyonu
-  [5.68, 1.895, 1.869, -2.017],
-  [6.32, 1.949, 1.953, -2.043],
-  [7.00, 1.975, 1.990, -2.060],   // sabit kesit başlangıcı
+  // Karina doğrudan tanımlıdır: yb(s) = -2,06 + 1,15·(1 - s/5)³  (uçta -0,90).
+  // Üs 3'tür: karina uçta HIZLA yükselir, böylece siluet alttan da daralır. Üs 2 ile
+  // alt hat neredeyse yataydı ve burun yuvarlak kapaklı bir BORU gibi görünüyordu.
+  // Sarkma buradan gelir; taç yb + 4,05·f(s) olarak türetilir, böylece kesit her yerde
+  // dairesele yakın kalır ve alt hat baştan sona düz ilerler.
+  //
+  // Önceki iki eğri burnu çok İNCE bırakıyordu: 0,25 m'de %9-14, 0,50 m'de %16-25,
+  // 1,00 m'de %31-35 — gerçek radomun yarısı kadar. Yandan bakıldığında burun sivri bir
+  // kamaydı; üstelik ön cam bölgesi neredeyse silindirik kaldığı için camlar ÖNE değil
+  // YANA bakıyor, önden bakınca ön cam yok gibi duruyordu.
+  [0.01, 0.020, -0.879, -0.920],
+  [0.07, 0.091, -0.771, -0.958],
+  [0.14, 0.170, -0.655, -1.004],
+  [0.23, 0.266, -0.515, -1.062],
+  [0.34, 0.371, -0.368, -1.129],
+  [0.47, 0.486, -0.208, -1.205],
+  [0.62, 0.607, -0.042, -1.287],
+  [0.79, 0.723, 0.109, -1.374],
+  [0.99, 0.843, 0.263, -1.467],
+  [1.22, 0.961, 0.408, -1.563],
+  [1.48, 1.069, 0.533, -1.659],
+  [1.78, 1.175, 0.657, -1.753],
+  [2.10, 1.279, 0.787, -1.836],
+  [2.44, 1.383, 0.929, -1.906],   // radom derzi
+  [2.80, 1.487, 1.087, -1.962],
+  [3.18, 1.593, 1.261, -2.005],
+  [3.58, 1.687, 1.425, -2.034],
+  [4.00, 1.768, 1.575, -2.051],
+  [4.44, 1.840, 1.716, -2.058],
+  [4.90, 1.897, 1.830, -2.060],
+  [5.38, 1.936, 1.910, -2.060],
+  [5.90, 1.963, 1.965, -2.060],
+  [6.50, 1.972, 1.984, -2.060],
   // --- KABİN ve ARKA GÖVDE ---
+  [7.60, 1.975, 1.99, -2.06],
   [12.0, 1.975, 1.99, -2.06],
   [20.0, 1.975, 1.99, -2.06], [28.0, 1.975, 1.99, -2.06], [33.0, 1.97, 1.99, -2.04],
   [35.5, 1.90, 2.03, -1.86], [38.0, 1.66, 2.16, -1.38], [40.5, 1.30, 2.30, -0.76],
   [42.5, 0.88, 2.40, -0.18], [43.8, 0.48, 2.44, 0.30], [44.51, 0.10, 2.42, 0.72],
 ];
 // Kokpit camları — [s0, s1, v0ön, v1ön, v0arka, v1arka]; v: 0 kesit tepesi, 1 kesit altı.
-// Bant öne doğru DERİNLEŞİR: ön cam en yüksek, arka çeyrek pencere en alçak. Gerçek
-// A320'de ayırt edici olan tam da bu daralma ve alt kenarın eğimidir.
-// Modül düzeyindedir çünkü hem DIŞ cam panelleri hem KOKPİT KABUĞUNDAKİ açıklıklar
-// bu tek tablodan üretilir; ikisi asla birbirinden kayamaz.
-// v değerleri PİLOT GÖZ NOKTASINDAN ölçülen görüş açısına göre seçildi: ön camın üst
-// kenarı göz hizasının ~18° ÜSTÜNDE, alt kenarı ~24° ALTINDA kalır. Önceki değerlerde
-// bant çok aşağıdaydı (-41°..+8°): pilot çoğunlukla üst çerçeveye bakıyor, dışarıyı
-// ince bir yarıktan görüyordu.
-// Kenar değerleri "taç çizgisinden şu kadar aşağı, şu kadar yüksek" hedefine göre
-// çözüldü: üst kenar burunda taçın 0,06 m, arkada 0,28 m altında; pencere yüksekliği
-// önde 0,70 m'den arkada 0,30 m'ye iner. Önceki tabloda üst kenar taçın yalnızca
-// 0,01-0,14 m altındaydı, yani bant gövdenin TEPESİNE biniyordu; yandan bakıldığında
-// camların üstünde gövde kalmıyor, uçak "camı sırtında" gibi duruyordu.
+// A320 ailesinin gerçek düzeni: iki büyük ÖN CAM (No.1), yan ön cam (No.2), açılabilir
+// DV penceresi ve küçük arka çeyrek pencere. Modül düzeyindedir çünkü hem DIŞ cam
+// panelleri hem KOKPİT KABUĞUNDAKİ açıklıklar bu tek tablodan üretilir; ikisi asla
+// birbirinden kayamaz.
+//
+// Belirleyici iki ölçü:
+//
+// 1) ÜST KENAR ÖNDE NEREDEYSE TACA DEĞER (v = 0,030 @ 2,78) ve arkaya doğru hızla
+//    iner (v = 0,242 @ 5,56). Gerçek A320'de No.1 ön camın üst-ön köşesi burnun üst
+//    hattına dokunur; kaş (brow) yalnızca arkaya doğru açılır. Önceki tabloda üst
+//    kenar önde de 0,089'daydı: iki cam grubu burnun tepesinde 0,88 m'lik bir açıklıkla
+//    ayrılıyor ve uçak önden bakınca ÖN CAMI OLMAYAN, yanlarında iki "göz" taşıyan bir
+//    şeye benziyordu. Yeni değerlerde aradaki açıklık ~0,11 m: gerçek bir orta direk.
+//
+// 2) CAMLAR ARASINDA GERÇEK DİREK VAR: istasyon boşlukları 0,16-0,18 m (eskiden
+//    0,07-0,08 m). Çerçeve halkaları her yandan 0,04 m taştığı için eski boşluklarda
+//    direk görünmüyor, dört cam tek bir kara leke gibi birleşiyordu.
+//
+// Panellerin yüksekliği de öne doğru belirgin biçimde artar (v aralığı 0,286 -> 0,050):
+// No.1 büyük ve dik, No.4 küçük ve yatık. Eşit yükseklikli bir bant "otobüs camı" gibi
+// duruyordu.
 export const COCKPIT_WINDOWS = [
-  [2.98, 3.88, 0.089, 0.336, 0.097, 0.323],   // No.1 ön cam (büyük, dik eğimli)
-  [3.95, 4.54, 0.101, 0.319, 0.111, 0.307],   // No.2 ön cam
-  [4.62, 5.16, 0.125, 0.299, 0.143, 0.285],   // DV penceresi (açılabilir)
-  [5.24, 5.70, 0.159, 0.276, 0.179, 0.261],   // arka çeyrek pencere
+  // Kenarlar MUTLAK YÜKSEKLİKTEN çözüldü, sabit v'den değil: üst kenar y = 1,38 -> 1,17 m,
+  // alt kenar (eşik) y = 0,66 -> 0,75 m. Bant böylece neredeyse YATAY kalır ve gövde onun
+  // çevresinde büyür — A320'nin kaşı (üst camın üstündeki gövde) önde 0,01 m'den arkada
+  // 0,80 m'ye açılır. Cam yükseklikleri 0,71 -> 0,42 m.
+  // Sabit v ile çalışırken eşik arkaya doğru YÜKSELİYOR, DV penceresinin alt kenarı pilot
+  // göz hizasının ÜSTÜNDE kalıyordu (yana bakınca gövde duvarı görünüyordu).
+  //
+  // Bant, burun tacının yeterince yükseldiği yere (3,47 m) oturtuldu: daha önde taç
+  // alçak olduğu için ön cam kısa kalıyor ve kokpitten bakınca dar bir kemer görünüyordu.
+  [3.47, 4.27, 0.038, 0.313, 0.190, 0.353],   // No.1 ön cam — öne bakar, orta direğe dayanır
+  [4.44, 4.98, 0.211, 0.358, 0.249, 0.373],   // No.2 yan ön cam
+  [5.16, 5.62, 0.262, 0.375, 0.283, 0.381],   // DV penceresi (açılabilir)
+  [5.78, 6.16, 0.292, 0.381, 0.303, 0.380],   // arka çeyrek pencere
 ];
+// Kokpit astarında bir dörtgen AÇIK mı? Camların içi açıktır; ayrıca No.1 ön camın
+// ÖNÜNDE kalan bölüm de aynı v aralığında açıktır.
+//
+// Astar gövdeyi izleyen kapalı bir tüptür ve ön camın önünde de devam eder. Oradaki
+// duvar, camdan çıkan bakış ışınını birkaç on santim sonra yeniden kesiyordu: pilot
+// düz ileri baktığında dışarıyı göremiyor, kokpit dar bir kemer gibi görünüyordu.
+// Ön camın önünde bir KORİDOR açılır; eşiğin altı ve tacın üstü kapalı kalır, yani
+// burnun içinden aşağı/yukarı bakılamaz.
+function linerOpen(sv, v) {
+  const w0 = COCKPIT_WINDOWS[0];
+  if (sv < w0[0]) return v >= w0[2] && v <= w0[3];
+  return inWindow(sv, v, 0);
+}
 // Bir (istasyon, v) noktası herhangi bir camın içine düşüyor mu? Kabuk açıklıkları için.
 function inWindow(sv, v, pad = 0) {
   for (const [a, b, v0, v1, v0b, v1b] of COCKPIT_WINDOWS) {
@@ -104,7 +142,7 @@ function inWindow(sv, v, pad = 0) {
   return false;
 }
 
-const RADOME_END = 12;           // radom derzi istasyon 2,68 — ön camın belirgin biçimde önünde
+const RADOME_END = 13;           // radom derzi istasyon 2,44 — ön camın belirgin biçimde önünde
 const NS = 15;                                    // kesit başına nokta (tam halka = 2*NS)
 const SE = 2.15;                                  // süperelips üssü (dolgun yuvarlak kesit)
 function ring(sec) {
@@ -970,8 +1008,10 @@ export class A321neo {
         const u = i / cols, sv = sA + (sB - sA) * u;
         const e = bandAt(sv);
         const k = Math.pow(Math.sin(Math.PI * u), 0.42);      // uçlarda pay -> 0 (kama)
-        const vv = Math.min(0.999, Math.max(0.001,
-          (e.top - mTop * k) + ((e.bot + mBot * k) - (e.top - mTop * k)) * (j / rows)));
+        // Üst kenar taç çizgisine (v = 0,008) kadar çıkabilir, daha yukarı değil:
+        // iki taraftaki maske burnun tepesinde birleşirse orta direk kaybolur.
+        const vTop = Math.max(0.008, e.top - mTop * k), vBot = e.bot + mBot * k;
+        const vv = Math.min(0.999, Math.max(0.001, vTop + (vBot - vTop) * (j / rows)));
         const p = surfacePoint(sv, vv), n = surfaceNormal(sv, vv);
         pos.push(side * (p.x + n.x * off), p.y + n.y * off, p.z + n.z * off);
       }
@@ -988,19 +1028,24 @@ export class A321neo {
 
     // Cam başına köşe yarıçapları. No.1 ön camın üst-ön köşesi belirgin biçimde
     // daha geniş yuvarlanır — Airbus ön camının imzası budur.
+    // Köşeler HAFİFÇE yuvarlatılır. Gerçek Airbus camı köşeli/yamuktur; önceki
+    // yarıçaklar (0,20-0,30) panelleri badem biçimli, organik bir "göz"e çeviriyordu.
+    // No.1 camın üst-ön köşesi yine de diğerlerinden geniştir — Airbus imzası budur.
     const PANE_R = [
-      [0.30, 0.15, 0.17, 0.11],
-      [0.21, 0.17, 0.18, 0.17],
-      [0.21, 0.20, 0.21, 0.20],
-      [0.24, 0.26, 0.27, 0.23],
+      [0.15, 0.08, 0.09, 0.07],
+      [0.10, 0.09, 0.10, 0.09],
+      [0.12, 0.12, 0.12, 0.12],
+      [0.14, 0.16, 0.16, 0.14],
     ];
-    const FW_S = 0.040;          // çerçeve genişliği — istasyon yönünde (m)
-    const FW_V = 0.022;          // çerçeve genişliği — çevresel yönde (v birimi)
+    const FW_S = 0.062;          // çerçeve genişliği — istasyon yönünde (m); astar hücresinden (0,055) geniş
+    const FW_V = 0.028;          // çerçeve genişliği — çevresel yönde (v birimi); astar hücresinden (0,023) geniş
     const S_FIRST = COCKPIT_WINDOWS[0][0], S_LAST = COCKPIT_WINDOWS[COCKPIT_WINDOWS.length - 1][1];
     for (const side of [-1, 1]) {
-      // Maske payı: üstte dar, altta biraz geniş (gerçek uçakta da böyledir).
-      // Ön ucu radom derzinin (2,68) gerisinde kalır, yani boya radoma taşmaz.
-      bandMask(side, S_FIRST - 0.26, S_LAST + 0.21, 0.026, 0.040, MASK_OUT, winMaskGeos);
+      // Maske payı dar tutulur: camların çevresini saran ince bir parlama önleyici
+      // şerittir, kocaman bir leke değil. Üst pay, taç çizgisini GEÇMEYECEK biçimde
+      // kırpılır (bandMask içinde), böylece burnun tepesinde gövde rengi bir ORTA
+      // DİREK şeridi kalır ve iki ön cam birbirinden ayrı okunur.
+      bandMask(side, S_FIRST - 0.10, S_LAST + 0.16, 0.016, 0.030, MASK_OUT, winMaskGeos);
       for (let k = 0; k < COCKPIT_WINDOWS.length; k++) {
         const win = COCKPIT_WINDOWS[k];
         const [a, b, v0, v1] = win;
@@ -1046,7 +1091,7 @@ export class A321neo {
     const addPanel = (side, s0, s1, v0, v1, into) => surfPanel(side, s0, s1, v0, v1, 0.012, into, 3, 3);
     for (const side of [-1, 1]) {
       // Yolcu kapıları (4 adet, ~1,85 m yüksek): iç panel + belirgin koyu çerçeve
-      for (const s of [6.2, 15.6, 27.6, 37.0]) { addPanel(side, s, s + 0.92, 0.300, 0.590, panelGeos); addPanel(side, s - 0.10, s + 1.02, 0.283, 0.607, seamGeos); }
+      for (const s of [6.45, 15.6, 27.6, 37.0]) { addPanel(side, s, s + 0.92, 0.300, 0.590, panelGeos); addPanel(side, s - 0.10, s + 1.02, 0.283, 0.607, seamGeos); }
       // Kanat üstü acil çıkışlar (2 adet, daha küçük)
       for (const s of [21.0, 22.7]) { addPanel(side, s, s + 0.60, 0.322, 0.508, panelGeos); addPanel(side, s - 0.09, s + 0.69, 0.307, 0.523, seamGeos); }
       // Kargo kapakları: alt gövdede, çerçeveli
@@ -1091,7 +1136,7 @@ export class A321neo {
     // bakılır, pist ve ufuk doğal biçimde görünür.
     // Kabuk ve tavan paneli kaydırılmaz: kabuğun tavanı cam bandının üstünde kalmalı.
     const gi = new THREE.Group();
-    gi.position.y = -0.46;
+    gi.position.y = -0.52;
     g.add(gi);
     // Gösterge paneli + glareshield + FCU ayrıca 0,26 m daha aşağıda durur.
     // Bunlar pilotun İLERİ bakışını kapatmamalıdır: FCU tam göz hizasındayken
@@ -1112,7 +1157,11 @@ export class A321neo {
     // Artık astar GÖVDE KESİTİNİ izler (içeriden ~%1,5 içeride) ve cam bandına denk
     // gelen dörtgenler ATLANIR. Sonuç: içerisi kapalı ve karanlık, dışarısı yalnızca
     // gerçek cam açıklıklarından görünür — yani görüşü uçağın cam çerçeveleri sınırlar.
-    const SH_S = []; for (let sv = 3.00; sv <= 7.401; sv += 0.11) SH_S.push(+sv.toFixed(2));
+    // Astar hücresi cam çerçevesinden KÜÇÜK olmalı: açıklık camdan bir hücre büyük
+    // kesildiği için, hücre çerçeveden büyükse kesim izi çerçevenin dışına taşar ve
+    // kokpitten bakınca testere dişi bir kenar görünür (0,11 m x 0,023 v hücre,
+    // 0,042 m x 0,015 v çerçeve ile tam olarak bu oluyordu).
+    const SH_S = []; for (let sv = 2.55; sv <= 7.401; sv += 0.055) SH_S.push(+sv.toFixed(3));
     // Halka adımı (1/44 = 0,023 v) cam çerçevesinin payından (0,026) küçük: kesim izi
       // her zaman çerçevenin altında kalır, ama üçgen sayısı gereksiz yere şişmez.
       const SH_N = 88;
@@ -1143,7 +1192,7 @@ export class A321neo {
         // cam çerçevesinin altında kalır ve görünmez.
         const cells = [[i, k], [i, k1], [i + 1, k], [i + 1, k1]];
         let open = false;
-        for (const [ii, kk] of cells) { const q = rows[ii][kk]; if (inWindow(q.sv, q.v, 0)) { open = true; break; } }
+        for (const [ii, kk] of cells) { const q = rows[ii][kk]; if (linerOpen(q.sv, q.v)) { open = true; break; } }
         if (open) continue;
         const a = i * M + k, b = i * M + k1, c = (i + 1) * M + k, d = (i + 1) * M + k1;
         idx.push(a, c, b, b, c, d);
