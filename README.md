@@ -141,15 +141,27 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 
 **Model.** Gerçek ölçüler: uzunluk 44,51 m, kanat açıklığı 35,8 m (sharklet dahil), yükseklik 11,8 m. Yuvarlatılmış gövde kesiti 20 istasyonluk bir tablodan loft edilir (düz alt yüzey yok).
 
-**Burun ve radom.** Kesit tablosu merkez kaçıklığı (kambur) taşır: A320 ailesinde olduğu gibi radom ekseni gövde ekseninin ~1,13 m altındadır ve burun ucundan ön cama doğru yükselen bir sırt oluşur. Radom **ayrı bir küre değildir**; aynı kesit tablosunun ilk parçasının loft'udur, yalnızca malzemesi farklıdır. Radom ile kaplama aynı halkayı paylaştığı için geçişte ne dikiş ne çap sıçraması olur. Radom ucu ~6 cm'lik yuvarlak bir kapakla kapanır, böylece yakından bakıldığında uçta düz bir kesik görünmez.
+**Burun ve ön gövde.** Kesitler 0 → 7,00 m arasında **analitik eğrilerden** üretilir, elle yazılmaz:
 
-**Kokpit camları.** A320 ailesinin altı pencereli düzeni: iki ön cam, açılabilir DV penceresi ve arka çeyrek pencere. Camlar yüzeye yapıştırılmış dekal değildir, **gerçek derinliği olan** bir yapıdır:
+- Yarı genişlik ve yarı yükseklik ortak bir biçim fonksiyonundan gelir: `f(t) = 0,45·LD-Haack(t) + 0,55·(1 − (1−t)^2,4)`, `t = s/7,00`. LD-Haack (Von Kármán) terimi uçta **dikey teğet** verir — gerçek bir radom gibi yuvarlak uç, koni değil. Üs yasası terimi orta bölgeyi doldurur: A320 burnu ince değil, dolgun bir ojivdir. İki terim de `s = 7,00`'de teğettir, dolayısıyla sabit kesite geçişte kırık ya da çap sıçraması olmaz.
+- Kesit merkezi `c(t) = −0,035 − 1,095·(1−t)²` ile sarkar: uçta kabin ekseninin 1,10 m altında. A320 ailesinin düşük burun ekseni budur.
 
-- gövdeden 22 mm taşan sürekli bir çerçeve kuşağı (üst şerit, alt şerit ve camlar arası direkler tek bir döşeme oluşturur; hiçbir yerde bindirme yoktur),
-- yalnızca 5 mm taşan cam yüzeyi,
-- ikisini bağlayan 17 mm'lik bir yanak (reveal) — kenardaki gölge çizgisi buradan gelir.
+Önceki tablo elle yazılmıştı ve burnu **kısa, şişkin ve yumurta biçimli** yapıyordu: istasyon 1,05'te yarı genişlik 0,850 (tam genişliğin %43'ü), 2,00'de 1,270 (%64), alt hat daha ilk metrede −1,79'a iniyordu. Yeni eğride aynı istasyonlarda 0,623 ve 1,034; alt hat 1,05'te −1,465, 2,00'de −1,653. Sonuç: daha uzun, daha ince, karnı belirgin biçimde daha düz bir burun.
+
+Radom **ayrı bir küre değildir**; aynı kesit tablosunun ilk parçasının loft'udur, yalnızca malzemesi farklıdır (derz istasyon 2,68'de). Radom ile kaplama aynı halkayı paylaştığı için geçişte ne dikiş ne çap sıçraması olur.
+
+**Kokpit camları.** A320 ailesinin altı pencereli düzeni: iki ön cam, açılabilir DV penceresi ve arka çeyrek pencere. Her cam **(u, w) parametre uzayında yuvarlatılmış köşeli bir dış hattan** üretilir (u = 0 ön direk → 1 arka direk, w = 0 üst → 1 alt kenar). Gerçek Airbus ön camının en tanınır çizgisi **No.1 camın üst-ön köşesindeki geniş yuvarlama**dır; köşeleri dik olan dikdörtgen paneller uçağı jenerik gösteriyordu.
+
+Camlar yüzeye yapıştırılmış dekal değildir, **gerçek derinliği olan** dört katmanlı bir yapıdır (hepsi yüzey normali boyunca, metre cinsinden ötelenir):
+
+1. **Parlama maskesi** — 4 mm, mat siyah. Bandın tamamını cömert bir payla örter ve uçlara doğru pay sıfıra inerek kama gibi sivrilir. Gerçek uçakta camların çevresindeki geniş siyah alan budur.
+2. **Çerçeve halkası** — 22 mm, koyu gri metal. Cam başına ayrı bir halka; dış hattı aynı yuvarlatılmış eğrinin genişletilmiş kopyasıdır. Halkalar birbirine değmez, aralarında maske görünür — yani gerçek direk görüntüsü, bindirme (z-fighting) olmadan.
+3. **Yanak (reveal)** — çerçeve yüzeyinden cam yüzeyine inen 17 mm'lik duvar; kenardaki gölge çizgisi buradan gelir.
+4. **Cam** — 5 mm, koyu ve parlak.
 
 Kaldırma işlemi **yüzey normali boyunca ve metre cinsinden** yapılır (`surfaceNormal`). Daha önce koordinatlar bir katsayıyla çarpılıyordu; bu modelin orijini etrafında ölçekleme demektir ve burunda paneller kaplamanın içinde kalıp alacalı z-fighting lekeleri veriyordu. Bant üst kenarı gövde taç çizgisinin önde 0,06 m, arkada 0,28 m altındadır; pencere yüksekliği önde 0,70 m'den arkada 0,30 m'ye iner. Bandın kenarları tek bir sürekli fonksiyondan (`bandAt`) üretilir, bu yüzden dış camlar ile kokpit astarındaki açıklıklar asla birbirinden kayamaz.
+
+**Işıklar.** Seyir ve çakar ışıkları kanat ucu kaportasına oturur: kırmızı/yeşil hücum kenarında, beyaz flaşör firar kenarında — sharklet'in dibinde, gerçek A320neo'daki gibi. (Sharklet eklendikten sonra ışıklar bir süre ESKİ kanat ucu noktasında kalmış ve uçağın ~1 m yanında havada asılı duruyordu; konumlar artık doğrudan kanat geometrisinden türetilir ve `fleet.mjs` her ışığın gövdeye uzaklığını 0,15 m sınırıyla sınar.)
 
 Dört yolcu kapısı, iki kanat üstü acil çıkış, iki kargo kapağı çerçeveleriyle birlikte modellenir; ayrıca VHF blade antenler, SATCOM, pitot ve AoA probları, APU egzozu ve dikey stabilizatör kökünde dorsal fileto vardır. Takım kapakları yalnızca takım hareket ederken açılır (gerçek davranış), takım tam açık ya da kapalıyken kapanır.
 
@@ -238,17 +250,29 @@ Aerodinamik her zaman **havaya göre bağıl hızla** hesaplanır, yer hızıyla
 ## Kontroller
 
 - **Sol joystick:** yunuslama ve yatış. **Sağ kaydırıcı:** gaz kolu; üstteki turuncu bölge art yakıcı.
-- **RUDDER kaydırıcısı (alt orta):** yaylı analog dümen ve burun tekeri; parmağı/fareyi bırakınca tam merkeze döner. **Takım / Flap / Fren:** aç-kapat.
+- **RUDDER kaydırıcısı (alt orta):** yaylı analog dümen ve burun tekeri; parmağı/fareyi bırakınca tam merkeze döner. **Takım / Fren:** aç-kapat.
+- **FLAPS kolu (sol alt):** gerçek bir kol gibi çalışan dikey kaydırıcı. Yukarı 0 (temiz), aşağı son kademe; sürüklerken en yakın kademeye oturur, ize dokunmak da o kademeye atlar. Topuz kademe adını ve **flap açısını** gösterir (A321neo: 0 / 1 = 10° / 2 = 15° / 3 = 20° / FULL = 40°). Kol her uçuşta **0'da** başlar. Klavyedeki **F** kademeleri sırayla gezer; kol onu da izler.
 - **☰ Menü (sol üst):** Duraklat, Kamera, Ses ve Işık düğmeleri bu çekmecede toplanır; dokununca yumuşak bir geçişle açılır, 7 s hareketsizlikte veya duraklatınca kendini kapatır. Ekranda sürekli yalnızca uçuş için gerekli kontroller kalır. Çekmece açıkken joystick alanı onun altından başlar, böylece uçuş girişi ile menü dokunuşları çakışmaz.
 - **Spoilers (yalnızca A321neo):** hız freni / yer spoyleri kolu. Klavyede **V**.
-- **Flaps:** F-35'te aç/kapat, A321neo'da kol 0 → 1 → 2 → 3 → FULL sırayla ilerler; düğme etiketi geçerli kademeyi gösterir.
+- **Kalkış durumu:** uçak piste **fren basılı DEĞİL**, gaz rölantide ve **flap 0** ile doğar. Yerinde durmasını fren değil, aşağıda anlatılan kopma sürtünmesi sağlar.
 - **Uçak ve kamera düğmeleri İngilizcedir:** `Flaps`, `Spoilers`, `Camera`, `Landing Gear`. Kamera modu adları da İngilizcedir (CHASE / COCKPIT / FREE / FLYBY / LEFT WING / RIGHT WING / LANDING GEAR).
 - **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır) → uçuş geçişi (sabit dış kamera, Doppler sesi) → sol kanat → sağ kanat → iniş takımı. Kanat ve takım görünümleri gövdeye sabittir ve her uçak için ayrı konumlanır. Tam HUD yalnızca kokpit görünümünde çizilir; tüm dış görünümlerde üst ortada kompakt bir şerit sürekli **IAS / ALT / VS / HDG** gösterir, A321neo'da ayrıca **THR / GEAR / FLAP / SPD BRK / WIND**; altında kısa uyarılar (STALL, İNİŞ TAKIMI) çıkar. Dar ekranda sığmayan alanlar sondan düşer.
 - **Işık:** iniş ışıkları (takım açıkken burun önünü aydınlatır). Seyir ışıkları (kırmızı/yeşil/beyaz), flaşörler ve dönen ikaz ışıkları her zaman açıktır.
 - **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, L ışıklar, M ses, P/Esc duraklat.
-- **Kalkış:** Fren'i kapatın, gazı sonuna kadar itin, ~145 kt'ta burnu kaldırın, tırmanışta takımı toplayın.
+- **Kalkış:** gazı sonuna kadar itin, ~145 kt'ta burnu kaldırın, tırmanışta takımı toplayın. (Fren zaten açıktır; park freni istenirse **Brakes** düğmesiyle basılır.)
 - **Stall:** Hücum açısı 19°'de uyarı (HUD ve ses), 24°'nin üzerinde taşıma hızla düşer; burun düşer, kanat sallanır. Toparlamak için çubuğu ileri itip hız kazanın.
 - **Eğim kontrolü:** Ayarlar → Eğim kontrolü → Açık. Telefonu rahat tuttuğunuz açıda **Kalibre Et**'e basın.
+
+## Yerde yuvarlanma ve kopma sürtünmesi
+
+Yer temasında uçağa iki ayrı sürtünme uygulanır:
+
+- **Kinetik yuvarlanma** (`rollMu`): tekerler dönerken. Betonda 0,015-0,02, çimde 0,075-0,09. [E]
+- **Kopma / statik** (`stictionMu`): uçak DURUYORKEN yuvarlanmaya başlaması için aşılması gereken eşik. Betonda 0,060-0,065, çimde 0,16-0,17. [E] Lastik deformasyonu, rulman direnci ve fren balatası temasının toplamıdır; kamuya açık ölçümlerde beton üzerinde kopma direnci yuvarlanma direncinin 2-3 katıdır.
+
+Boyuna net kuvvet (itki − direnç ± eğim bileşeni) bu eşiğin altındaysa ve uçak 0,25 m/s'den yavaşsa tekerler dönmeye başlamaz: hız ve boyuna kuvvet sıfırlanır.
+
+Bu eşik olmadan model yalnızca kinetik yuvarlanmayı biliyordu ve **rölanti itkisi onu aşıyordu**: F-35'te rölanti 6,8 kN, yuvarlanma direnci ise 4,2 kN. Sonuçta gaz sıfırken ve fren bırakılmışken uçak düz pistte ~0,12 m/s² ile kendiliğinden ileri kayıyordu. Ölçülen sonuç: **60 saniye rölantide yer değiştirme 0,04 m'nin altında** (her iki uçakta), %4 gazda hâlâ duruyor, %35 gazda normal biçimde hızlanıyor.
 
 ## Güncelleme yayınlama
 

@@ -36,9 +36,12 @@ const F35_CFG = {
     betaAuth: 0.60,           // rad/s — koordinasyon komutunun tavanı
     yawBudgetT: 0.65,          // s — dümenin sapma oranı kurma süresi (yatış tavanı için)
   },
-  ground: { steerMax: 55 * DEG, steerV: 45, tireGrip: 0.45, rotQ: [2200, 5200], rotRate: 18 * DEG, pushRate: 10 * DEG, maxPitch: 13 * DEG, rollMu: [0.02, 0.09], brakeMu: [0.5, 0.25] },
+  ground: { steerMax: 55 * DEG, steerV: 45, tireGrip: 0.45, rotQ: [2200, 5200], rotRate: 18 * DEG, pushRate: 10 * DEG, maxPitch: 13 * DEG, rollMu: [0.02, 0.09], brakeMu: [0.5, 0.25], stictionMu: [0.065, 0.17] },
   limits: { alphaWarn: 19 * DEG, hardLandVs: -6.5, landRoll: 12 * DEG, groundRoll: 15 * DEG, landPitch: [-4 * DEG, 15 * DEG], offRunwayV: [55, 60] },
-  systems: { flapDetents: [0, 1], flapNames: ['0', 'İNİŞ'], flapRate: 1 / 3, slatLead: 0, gearRate: 1 / 6, spoilers: null, reverse: 0 },
+  // flapNames kol üstündeki kademe adı, flapNotes ise altındaki açıklamadır (İngilizce).
+  // F-35'in kanat yüzeyi açıları kamuya açık değildir; derece yazmak yerine kademe adı
+  // kullanılır (uydurma sayı verilmez).
+  systems: { flapDetents: [0, 1], flapNames: ['UP', 'LAND'], flapNotes: ['CLEAN', 'LDG'], flapRate: 1 / 3, slatLead: 0, gearRate: 1 / 6, spoilers: null, reverse: 0 },
   cameras: {
     cockpitEye: [F35.pilotEye.x, F35.pilotEye.y, F35.pilotEye.z], cockpitFov: 58, cockpitNear: 0.10, cockpitPitch: -4 * DEG,
     chase: { dist: [21, 30], vRef: 320, up: 2.8, ahead: 70, lookUp: 1.5, fov: 58 },
@@ -77,10 +80,14 @@ const A321_CFG = {
     rollA0: 10 * DEG, rollA1: 16 * DEG, rollAlphaCut: 0.70,
     betaGain: 2.0, betaRate: 0.40, betaAuth: 0.25, yawBudgetT: 1.4,
   },
-  ground: { steerMax: 45 * DEG, steerV: 40, tireGrip: 0.25, rotQ: [1200, 3100], rotRate: 6 * DEG, pushRate: 3.5 * DEG, maxPitch: 11 * DEG, rollMu: [0.015, 0.075], brakeMu: [0.42, 0.22] },
+  ground: { steerMax: 45 * DEG, steerV: 40, tireGrip: 0.25, rotQ: [1200, 3100], rotRate: 6 * DEG, pushRate: 3.5 * DEG, maxPitch: 11 * DEG, rollMu: [0.015, 0.075], brakeMu: [0.42, 0.22], stictionMu: [0.060, 0.16] },
   limits: { alphaWarn: 9.5 * DEG, hardLandVs: -3.6, landRoll: 8 * DEG, groundRoll: 10 * DEG, landPitch: [-2 * DEG, 11 * DEG], offRunwayV: [40, 45] },
   systems: {
-    flapDetents: [0, 0.25, 0.5, 0.75, 1], flapNames: ['0', '1', '2', '3', 'FULL'], flapRate: 1 / 9, slatLead: 1.6, gearRate: 1 / 11,
+    // A320 ailesinin kamuya açık kademeleri: CONF 0 / 1 / 2 / 3 / FULL.
+    // flapNotes kanat firar kenarı açısını gösterir (slat açısı ayrıca 0/18/22/22/27°).
+    flapDetents: [0, 0.25, 0.5, 0.75, 1], flapNames: ['0', '1', '2', '3', 'FULL'],
+    flapNotes: ['0°', '10°', '15°', '20°', '40°'],
+    flapRate: 1 / 9, slatLead: 1.6, gearRate: 1 / 11,
     // airFrac: havada hız freni yarım açılır (A320 ailesinde olduğu gibi), yerde tam yer spoyleri
     spoilers: { rate: 2.2, groundAuto: true, airFrac: 0.5 }, reverse: 0.38,
   },

@@ -62,6 +62,7 @@ class App {
     this.controls = new Controls({
       onGear: () => this.toggleGear(),
       onFlaps: () => this.toggleFlaps(),
+      onFlapIndex: (i) => this.setFlapIndex(i),
       onBrake: () => this.toggleBrake(),
       onCamera: () => this.cycleCamera(),
       onSound: () => this.toggleSound(),
@@ -517,6 +518,8 @@ class App {
     this.ui.el.btnSpoiler.hidden = !cfg.ui.spoilerButton;
     this.controls.setAfterburnerEnabled(!!cfg.ui.afterburner);
     this.controls.resetLever(0);
+    // Flap kolu: kademe adları ve açıları uçaktan gelir, kol her zaman 0'da başlar
+    this.controls.setFlapDetents(cfg.systems.flapNames, cfg.systems.flapNotes);
     this.updateToggleButtons();
     this.syncAircraft(0);
     this.cameraRig.update(1, this.physics);
@@ -599,7 +602,7 @@ class App {
     this.lastTime = performance.now();
     this.accumulator = 0;
     this.syncAircraft(0);
-    this.ui.message('Runway 09 threshold — brakes set, engines at idle');
+    this.ui.message('Runway 09 threshold — brakes off, engines at idle, flaps 0');
   }
   toggleGear() {
     if (this.state !== 'running') return;
@@ -615,6 +618,12 @@ class App {
     this.physics.toggleFlaps();
     this.updateToggleButtons();
   }
+  /** Flap kolundan gelen doğrudan kademe seçimi. */
+  setFlapIndex(i) {
+    if (this.state !== 'running') return;
+    this.physics.setFlapIndex(i);
+    this.updateToggleButtons();
+  }
   toggleBrake() {
     if (this.state !== 'running') return;
     this.physics.toggleBrakes();
@@ -624,12 +633,10 @@ class App {
     const ui = this.ui, p = this.physics;
     if (!p) return;
     ui.setToggle(ui.el.btnGear, p.gearCmd > 0.5);
-    ui.setToggle(ui.el.btnFlap, p.flapsCmd > 0.5);
     ui.setToggle(ui.el.btnBrake, p.brakes);
     ui.setToggle(ui.el.btnSpoiler, p.spoilerCmd > 0.5);
-    // Çok kademeli flap kolunda etiket kademeyi gösterir
-    const lab = ui.el.btnFlap.querySelector('.l');
-    if (lab) lab.textContent = p.sys.flapDetents.length > 2 ? 'Flaps ' + p.flapLabel : 'Flaps';
+    // Flap kolu fizikteki kademeyi izler (klavye ya da dokunma, fark etmez)
+    this.controls.setFlapUI(p.flapIndex);
   }
   toggleSpoilers() {
     if (this.state !== 'running' || !this.physics) return;
@@ -739,23 +746,24 @@ class App {
     const n = (v, k = 2) => (Number.isFinite(v) ? v.toFixed(k) : '—');
     const kN = (v) => (Number.isFinite(v) ? (v / 1000).toFixed(1) : '—');
     const L = [];
-    L.push(`<b>HAVA</b>  TAS ${n(T.ktas, 0)} kt   IAS ${n(T.kias, 0)} kt   M ${n(T.mach, 3)}`);
-    L.push(`       alt ${n(T.altFt, 0)} ft   q̄ ${n(d.qbar, 0)} Pa   VS ${n(T.vsFpm, 0)} ft/dk`);
-    L.push(`<b>AKIŞ</b>  α ${n(T.alpha, 2)}°   β ${n(T.beta, 2)}°   nz ${n(T.g, 2)} g`);
-    L.push(`<b>ORAN</b>  p ${n(p.rates.p * DEGR, 1)}  q ${n(p.rates.q * DEGR, 1)}  r ${n(p.rates.r * DEGR, 1)} °/s`);
-    L.push(`<b>TUTUM</b> φ ${n(T.roll, 1)}°  θ ${n(T.pitch, 1)}°  ψ ${n(T.heading, 0)}°`);
-    L.push(`<b>KATSAYI</b> CL ${n(d.CL, 3)}  CD ${n(d.CD, 4)}  CY ${n(d.CY, 4)}`);
-    L.push(`         Cl ${n(d.Cl, 4)}  Cm ${n(d.Cm, 4)}  Cn ${n(d.Cn, 4)}`);
-    L.push(`<b>KUVVET</b> T ${kN(d.Lift)}  S ${kN(d.Drag)}  Y ${kN(d.Side)} kN`);
+    // Oyuncuya görünen her yazı İngilizcedir; bu panel de açılabildiği için buna dahildir.
+    L.push(`<b>AIR</b>    TAS ${n(T.ktas, 0)} kt   IAS ${n(T.kias, 0)} kt   M ${n(T.mach, 3)}`);
+    L.push(`       alt ${n(T.altFt, 0)} ft   q̄ ${n(d.qbar, 0)} Pa   VS ${n(T.vsFpm, 0)} ft/min`);
+    L.push(`<b>FLOW</b>   α ${n(T.alpha, 2)}°   β ${n(T.beta, 2)}°   nz ${n(T.g, 2)} g`);
+    L.push(`<b>RATES</b>  p ${n(p.rates.p * DEGR, 1)}  q ${n(p.rates.q * DEGR, 1)}  r ${n(p.rates.r * DEGR, 1)} °/s`);
+    L.push(`<b>ATT</b>    φ ${n(T.roll, 1)}°  θ ${n(T.pitch, 1)}°  ψ ${n(T.heading, 0)}°`);
+    L.push(`<b>COEFF</b>  CL ${n(d.CL, 3)}  CD ${n(d.CD, 4)}  CY ${n(d.CY, 4)}`);
+    L.push(`       Cl ${n(d.Cl, 4)}  Cm ${n(d.Cm, 4)}  Cn ${n(d.Cn, 4)}`);
+    L.push(`<b>FORCE</b>  L ${kN(d.Lift)}  D ${kN(d.Drag)}  Y ${kN(d.Side)} kN`);
     L.push(`<b>MOMENT</b> L ${kN(d.Lm)}  M ${kN(d.Mm)}  N ${kN(d.Nm)} kN·m`);
-    L.push(`  jiro   L ${kN(d.Lgyro)}  M ${kN(d.Mgyro)}  N ${kN(d.Ngyro)} kN·m`);
-    L.push(`<b>İTKİ</b>  ${kN(d.thrust)} kN   kütle ${n(d.mass, 0)} kg   yakıt ${n(p.fuel, 0)} kg`);
-    L.push(`<b>YÜZEY</b> δe ${n(d.de)}  δa ${n(d.da)}  δr ${n(d.dr)}`);
-    L.push(`<b>FCS</b>   qCmd ${n(f.qCmd * DEGR, 1)}  pCmd ${n(f.pCmd * DEGR, 1)}  rCmd ${n(f.rCmd * DEGR, 1)} °/s`);
-    L.push(`       pMax ${n(f.pMax * DEGR, 0)}°/s  nHedef ${n(f.nTarget)}  nMevcut ${n(f.nAvail)}`);
-    L.push(`       αKomut ${n(f.aCmd * DEGR, 1)}°  g-harman ${n(f.wG)}  yetki ${n(f.auth)}`);
-    L.push(`<b>AERO</b>  ayrılma ${n(d.sepFrac)}  kuyrukEtk ${n(d.tailEff)}  CLmax ${n(d.CLmaxCfg)}`);
-    L.push(`       αtrim ${n(d.alphaTrim * DEGR, 1)}°  yerde ${p.onGround ? 'yes' : 'no'}  kırpma ${d.rateClamped ? 'YES' : 'no'}`);
+    L.push(`  gyro   L ${kN(d.Lgyro)}  M ${kN(d.Mgyro)}  N ${kN(d.Ngyro)} kN·m`);
+    L.push(`<b>THRUST</b> ${kN(d.thrust)} kN   mass ${n(d.mass, 0)} kg   fuel ${n(p.fuel, 0)} kg`);
+    L.push(`<b>SURF</b>   δe ${n(d.de)}  δa ${n(d.da)}  δr ${n(d.dr)}`);
+    L.push(`<b>FCS</b>    qCmd ${n(f.qCmd * DEGR, 1)}  pCmd ${n(f.pCmd * DEGR, 1)}  rCmd ${n(f.rCmd * DEGR, 1)} °/s`);
+    L.push(`       pMax ${n(f.pMax * DEGR, 0)}°/s  nTarget ${n(f.nTarget)}  nAvail ${n(f.nAvail)}`);
+    L.push(`       αCmd ${n(f.aCmd * DEGR, 1)}°  g-blend ${n(f.wG)}  authority ${n(f.auth)}`);
+    L.push(`<b>AERO</b>   separation ${n(d.sepFrac)}  tailEff ${n(d.tailEff)}  CLmax ${n(d.CLmaxCfg)}`);
+    L.push(`       αtrim ${n(d.alphaTrim * DEGR, 1)}°  onGround ${p.onGround ? 'yes' : 'no'}  rateClamp ${d.rateClamped ? 'YES' : 'no'}`);
     el.innerHTML = L.join('\n');
   }
 

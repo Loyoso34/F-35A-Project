@@ -31,25 +31,44 @@ const st = (s) => s - A321.cgStation;
 // yani yandan bakıldığında burun A320'nin karakteristik "aşağı bakan" siluetini alır.
 // Kesitler dairesele yakın (h/2 ≈ w), çünkü A320 ön gövdesi dairesel kesitlidir.
 const SECTIONS = [
-  [0.00, 0.028, -1.098, -1.162], // radom ucu — kabin ekseninin ~1,13 m altında.
-                                 // Yarı genişlik ≈ yarı yükseklik: uç YUVARLAK bir kapak,
-                                 // sıfır genişlikli bir yarık değil (yarıkta gölgeleme bozuluyordu).
-                                 // Kapak ~6 cm: eskiden 17 cm'lik açıklık yakından bakınca
-                                 // radomun ucunda düz bir kesik/kırık gibi görünüyordu.
-  [0.06, 0.120, -1.018, -1.246], // uç yuvarlaması
-  [0.16, 0.205, -0.900, -1.410],
-  [0.35, 0.360, -0.700, -1.560],
-  [0.65, 0.600, -0.330, -1.680],
-  [1.05, 0.850, -0.02, -1.79],
-  [1.50, 1.070, 0.30, -1.87],
-  [2.00, 1.270, 0.62, -1.93],
-  [2.50, 1.440, 0.90, -1.97],
-  [3.05, 1.590, 1.17, -2.00],   // radom kökü / basınç perdesi
-  [3.55, 1.700, 1.38, -2.02],   // ön cam tabanı
-  [4.20, 1.800, 1.58, -2.04],
-  [4.90, 1.870, 1.73, -2.05],   // pilot göz istasyonu
-  [5.70, 1.925, 1.85, -2.06],
-  [6.80, 1.975, 1.99, -2.06], [12.0, 1.975, 1.99, -2.06],
+  // --- ÖN GÖVDE (0 -> 7,00 m): analitik eğrilerden üretildi ---
+  // Yarı genişlik ve yarı yükseklik ortak bir biçim fonksiyonundan gelir:
+  //   f(t) = 0,45 · LD-Haack(t) + 0,55 · (1 - (1-t)^2,4),   t = s / 7,00
+  // LD-Haack (Von Kármán) terimi uçta DİKEY teğet verir — gerçek bir radom gibi
+  // yuvarlak uç, koni değil; üs yasası terimi orta bölgeyi doldurur (A320 burnu
+  // ince değil, dolgun bir ojivdir); her iki terim de s=7,00'de teğettir, bu yüzden
+  // sabit kesite geçişte kırık ya da çap sıçraması olmaz.
+  // Kesit merkezi c(t) = -0,035 - 1,095·(1-t)² ile sarkar: uçta kabin ekseninin
+  // 1,10 m altında, kabinde -0,035.
+  //
+  // Önceki tablo elle yazılmıştı ve burnu ÇOK ŞİŞKİN yapıyordu: istasyon 1,05'te
+  // yarı genişlik 0,850 (tam genişliğin %43'ü), 2,00'de 1,270 (%64) idi ve alt hat
+  // daha ilk metrede -1,79'a iniyordu. Sonuç kısa, yumurta biçimli, alt tarafı
+  // kabarık bir burundu. Yeni eğride aynı istasyonlarda 0,623 ve 1,034; alt hat
+  // 1,05'te -1,465, 2,00'de -1,653 — yani daha uzun, daha ince, karnı daha düz.
+  [0.01, 0.014, -1.112, -1.141],   // radom ucu: dikey teğetli yuvarlak kapak
+  [0.09, 0.077, -1.023, -1.181],
+  [0.19, 0.147, -0.921, -1.222],
+  [0.31, 0.223, -0.807, -1.264],
+  [0.45, 0.307, -0.679, -1.308],
+  [0.62, 0.402, -0.532, -1.357],
+  [0.82, 0.508, -0.367, -1.410],
+  [1.05, 0.623, -0.187, -1.465],
+  [1.32, 0.750, 0.013, -1.525],
+  [1.62, 0.881, 0.221, -1.585],
+  [1.95, 1.014, 0.435, -1.645],
+  [2.30, 1.144, 0.644, -1.702],
+  [2.68, 1.273, 0.853, -1.757],   // radom derzi / ön basınç perdesi
+  [3.08, 1.395, 1.052, -1.808],   // ön cam tabanı
+  [3.52, 1.514, 1.247, -1.858],
+  [4.00, 1.627, 1.432, -1.904],
+  [4.52, 1.731, 1.602, -1.947],
+  [5.08, 1.821, 1.750, -1.985],   // burun takımı istasyonu
+  [5.68, 1.895, 1.869, -2.017],
+  [6.32, 1.949, 1.953, -2.043],
+  [7.00, 1.975, 1.990, -2.060],   // sabit kesit başlangıcı
+  // --- KABİN ve ARKA GÖVDE ---
+  [12.0, 1.975, 1.99, -2.06],
   [20.0, 1.975, 1.99, -2.06], [28.0, 1.975, 1.99, -2.06], [33.0, 1.97, 1.99, -2.04],
   [35.5, 1.90, 2.03, -1.86], [38.0, 1.66, 2.16, -1.38], [40.5, 1.30, 2.30, -0.76],
   [42.5, 0.88, 2.40, -0.18], [43.8, 0.48, 2.44, 0.30], [44.51, 0.10, 2.42, 0.72],
@@ -85,7 +104,7 @@ function inWindow(sv, v, pad = 0) {
   return false;
 }
 
-const RADOME_END = 8;            // radom derzi istasyon 2,50 — ön camın belirgin biçimde önünde
+const RADOME_END = 12;           // radom derzi istasyon 2,68 — ön camın belirgin biçimde önünde
 const NS = 15;                                    // kesit başına nokta (tam halka = 2*NS)
 const SE = 2.15;                                  // süperelips üssü (dolgun yuvarlak kesit)
 function ring(sec) {
@@ -845,50 +864,162 @@ export class A321neo {
     // KOKPİT CAMLARI
     // ---------------------------------------------------------------------
     // A320 ailesinin altı pencereli düzeni: iki ön cam, açılabilir DV penceresi ve
-    // arka çeyrek pencere. Bant öne doğru DERİNLEŞİR ve arkaya doğru daralır; gerçek
-    // A320'de ayırt edici olan tam da budur.
+    // arka çeyrek pencere. Her cam (u, w) parametre uzayında YUVARLATILMIŞ KÖŞELİ
+    // bir dış hattan üretilir — u = 0 ön direk, 1 arka direk; w = 0 üst, 1 alt kenar.
+    // Gerçek Airbus ön camının en tanınır çizgisi No.1 camın üst-ön köşesindeki geniş
+    // yuvarlamadır; köşeleri dik olan dikdörtgen paneller uçağı "jenerik" gösteriyordu.
     //
-    // Camlar gövdeye GÖMÜLÜ gibi durmalı, yüzeye yapıştırılmış dekal gibi değil. Gövde
-    // kaplaması kapalı ve opak bir yüzey olduğu için camı içeri gömmek onu tamamen
-    // görünmez yapar; bu yüzden derinlik DIŞA doğru kurulur:
-    //   - çerçeve kuşağı gövdeden 22 mm taşar,
-    //   - cam yüzeyi yalnızca 5 mm taşar,
-    //   - ikisinin arasını 17 mm'lik bir yanak (reveal) bağlar.
-    // Kenarda gerçek bir gölge oluşur; camlar yapıya gömülmüş gibi okunur.
-    //
-    // Çerçeve kuşağı TEK bir döşeme olarak kurulur: üst şerit, alt şerit ve camların
-    // arasındaki direkler. Parçalar ortak bir kenar fonksiyonundan (bandAt) üretildiği
-    // için ne bindirme (z-fighting) ne de boşluk kalır. Önceki sürümde her cam kendi
-    // dikdörtgen halkasını taşıyordu; komşu halkalar üst üste biniyor ve çerçeveler
-    // hem kalın hem lekeli görünüyordu.
-    const winGeos = [], winFrameGeos = [];
+    // Katmanlar (hepsi yüzey normali boyunca, metre cinsinden ötelenir):
+    //   1) PARLAMA MASKESİ — 4 mm, mat siyah. Bandın tamamını cömert bir payla örter;
+    //      uçlara doğru pay sıfıra iner, yani öne doğru kama gibi sivrilir. Gerçek
+    //      uçakta camların çevresindeki siyah alan budur ve camlardan çok daha geniştir.
+    //   2) ÇERÇEVE HALKASI — 22 mm, koyu gri metal. Cam başına ayrı bir halka; dış
+    //      hattı aynı yuvarlatılmış eğrinin genişletilmiş kopyasıdır. Halkalar
+    //      birbirine değmez, aralarında maske görünür (gerçek direk görüntüsü).
+    //   3) YANAK (reveal) — çerçeve yüzeyinden cam yüzeyine inen 17 mm'lik duvar.
+    //   4) CAM — 5 mm, koyu ve parlak.
+    const winGeos = [], winFrameGeos = [], winMaskGeos = [];
     const GLASS_OUT = 0.005;     // cam yüzeyi: gövdeden 5 mm taşar
-    const FRAME_OUT = 0.022;     // çerçeve kuşağı: gövdeden 22 mm taşar
-    const FW_V = 0.024;          // çerçeve genişliği — çevresel yönde (v birimi, ~4,3°)
-    const NOSE_LIP = 0.07;       // kuşağın ön cam önündeki payı (m) — radom derzini aşmaz
-    const TAIL_LIP = 0.13;       // kuşağın arka çeyrek pencerenin arkasındaki payı (m)
-    const S_FIRST = COCKPIT_WINDOWS[0][0], S_LAST = COCKPIT_WINDOWS[COCKPIT_WINDOWS.length - 1][1];
-    const BAND_A = S_FIRST - NOSE_LIP, BAND_B = S_LAST + TAIL_LIP;
-    for (const side of [-1, 1]) {
-      // 1) Camlar
-      for (const [a, b, v0, v1, v0b, v1b] of COCKPIT_WINDOWS) {
-        surfPanel(side, a, b, v0, v1, GLASS_OUT, winGeos, 6, 6, v0b, v1b, 3);
-        revealStrip(side, a, b, v0, v1, v0b, v1b, FRAME_OUT, GLASS_OUT, winFrameGeos);
+    const FRAME_OUT = 0.022;     // çerçeve: gövdeden 22 mm taşar
+    const MASK_OUT = 0.004;      // parlama maskesi: boya kalınlığı kadar
+
+    // (u, w) birim karesinde yuvarlatılmış köşeli kapalı dış hat, saat yönünde.
+    // r = [üst-ön, üst-arka, alt-arka, alt-ön] köşe yarıçapları (birim kare oranı).
+    const unitOutline = (r, seg = 5, edgeSeg = 3) => {
+      const P = [];
+      const HP = Math.PI / 2;
+      const arc = (cu, cw, rad, a0, a1) => {
+        for (let i = 0; i <= seg; i++) { const a = a0 + (a1 - a0) * (i / seg); P.push([cu + rad * Math.cos(a), cw + rad * Math.sin(a)]); }
+      };
+      const line = (u0, w0, u1, w1) => {
+        for (let i = 1; i < edgeSeg; i++) { const f = i / edgeSeg; P.push([u0 + (u1 - u0) * f, w0 + (w1 - w0) * f]); }
+      };
+      const [r0, r1, r2, r3] = r;
+      arc(r0, r0, r0, Math.PI, Math.PI + HP);                 // üst-ön köşe
+      line(r0, 0, 1 - r1, 0);                                 // üst kenar
+      arc(1 - r1, r1, r1, Math.PI + HP, 2 * Math.PI);         // üst-arka köşe
+      line(1, r1, 1, 1 - r2);                                 // arka direk
+      arc(1 - r2, 1 - r2, r2, 0, HP);                         // alt-arka köşe
+      line(1 - r2, 1, r3, 1);                                 // alt kenar
+      arc(r3, 1 - r3, r3, HP, Math.PI);                       // alt-ön köşe
+      line(0, 1 - r3, 0, r0);                                 // ön direk
+      return P;
+    };
+    // Bir camın (u, w) noktasını gövde yüzeyine taşır. u ve w [0,1] dışına da
+    // taşabilir (çerçeve halkasının dış hattı bunu kullanır) — eşleme doğrusaldır.
+    const paneUV = (win, u, w) => {
+      const [a, b, v0, v1, v0b, v1b] = win;
+      const sv = a + (b - a) * u;
+      const vt = v0 + (v0b - v0) * u, vb = v1 + (v1b - v1) * u;
+      return { sv, v: Math.min(0.999, Math.max(0.001, vt + (vb - vt) * w)) };
+    };
+    const putPoint = (side, win, u, w, off, pos) => {
+      const q = paneUV(win, u, w);
+      const p = surfacePoint(q.sv, q.v), n = surfaceNormal(q.sv, q.v);
+      pos.push(side * (p.x + n.x * off), p.y + n.y * off, p.z + n.z * off);
+    };
+    // Kapalı iki halka arasındaki şerit (çerçeve halkası ve yanak bunu kullanır).
+    const ringBand = (side, win, outer, oOff, inner, iOff, into) => {
+      const pos = [], idx = [];
+      const n = outer.length;
+      for (let i = 0; i < n; i++) {
+        putPoint(side, win, outer[i][0], outer[i][1], oOff, pos);
+        putPoint(side, win, inner[i][0], inner[i][1], iOff, pos);
       }
-      // 2) Çerçeve kuşağı: üst ve alt şerit boydan boya
-      bandStrip(side, BAND_A, BAND_B, 'top', -FW_V, 0, FRAME_OUT, winFrameGeos);
-      bandStrip(side, BAND_A, BAND_B, 'bot', 0, FW_V, FRAME_OUT, winFrameGeos);
-      // 3) Direkler: camların arasındaki ve uçlardaki dolgular (tam cam yüksekliğinde)
-      let cursor = BAND_A;
-      for (const [a, b] of COCKPIT_WINDOWS) { bandFill(side, cursor, a, FRAME_OUT, winFrameGeos); cursor = b; }
-      bandFill(side, cursor, BAND_B, FRAME_OUT, winFrameGeos);
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n, a0 = i * 2, a1 = i * 2 + 1, b0 = j * 2, b1 = j * 2 + 1;
+        if (side > 0) idx.push(a0, a1, b0, b1, b0, a1); else idx.push(a0, b0, a1, b1, a1, b0);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3 * 2), 2));
+      g.setIndex(idx); g.computeVertexNormals();
+      into.push(g);
+    };
+    // Dış hattın içini dolduran yüzey: eş merkezli halkalar + merkezde yelpaze.
+    // Düz bir üçgen yelpazeye göre gövde eğriliğini doğru izler.
+    const fillOutline = (side, win, outline, off, into, rings = 3) => {
+      const pos = [], idx = [];
+      const n = outline.length;
+      for (let k = 0; k < rings; k++) {
+        const sc = 1 - k / rings;
+        for (const [u, w] of outline) putPoint(side, win, 0.5 + (u - 0.5) * sc, 0.5 + (w - 0.5) * sc, off, pos);
+      }
+      putPoint(side, win, 0.5, 0.5, off, pos);                 // merkez
+      const cIdx = rings * n;
+      for (let k = 0; k < rings - 1; k++) for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        const a0 = k * n + i, b0 = k * n + j, a1 = (k + 1) * n + i, b1 = (k + 1) * n + j;
+        if (side > 0) idx.push(a0, a1, b0, b1, b0, a1); else idx.push(a0, b0, a1, b1, a1, b0);
+      }
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n, a0 = (rings - 1) * n + i, b0 = (rings - 1) * n + j;
+        if (side > 0) idx.push(a0, cIdx, b0); else idx.push(a0, b0, cIdx);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3 * 2), 2));
+      g.setIndex(idx); g.computeVertexNormals();
+      into.push(g);
+    };
+    // Parlama maskesi: bandın tamamını örten, uçlara doğru sivrilen düz panel.
+    const bandMask = (side, sA, sB, mTop, mBot, off, into) => {
+      const cols = Math.max(10, Math.ceil((sB - sA) / 0.085)), rows = 7;
+      const pos = [], idx = [];
+      for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
+        const u = i / cols, sv = sA + (sB - sA) * u;
+        const e = bandAt(sv);
+        const k = Math.pow(Math.sin(Math.PI * u), 0.42);      // uçlarda pay -> 0 (kama)
+        const vv = Math.min(0.999, Math.max(0.001,
+          (e.top - mTop * k) + ((e.bot + mBot * k) - (e.top - mTop * k)) * (j / rows)));
+        const p = surfacePoint(sv, vv), n = surfaceNormal(sv, vv);
+        pos.push(side * (p.x + n.x * off), p.y + n.y * off, p.z + n.z * off);
+      }
+      for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+        const a = j * (cols + 1) + i, b = a + 1, c = a + cols + 1, d = c + 1;
+        if (side > 0) idx.push(a, b, c, b, d, c); else idx.push(a, c, b, b, c, d);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3 * 2), 2));
+      g.setIndex(idx); g.computeVertexNormals();
+      into.push(g);
+    };
+
+    // Cam başına köşe yarıçapları. No.1 ön camın üst-ön köşesi belirgin biçimde
+    // daha geniş yuvarlanır — Airbus ön camının imzası budur.
+    const PANE_R = [
+      [0.30, 0.15, 0.17, 0.11],
+      [0.21, 0.17, 0.18, 0.17],
+      [0.21, 0.20, 0.21, 0.20],
+      [0.24, 0.26, 0.27, 0.23],
+    ];
+    const FW_S = 0.040;          // çerçeve genişliği — istasyon yönünde (m)
+    const FW_V = 0.022;          // çerçeve genişliği — çevresel yönde (v birimi)
+    const S_FIRST = COCKPIT_WINDOWS[0][0], S_LAST = COCKPIT_WINDOWS[COCKPIT_WINDOWS.length - 1][1];
+    for (const side of [-1, 1]) {
+      // Maske payı: üstte dar, altta biraz geniş (gerçek uçakta da böyledir).
+      // Ön ucu radom derzinin (2,68) gerisinde kalır, yani boya radoma taşmaz.
+      bandMask(side, S_FIRST - 0.26, S_LAST + 0.21, 0.026, 0.040, MASK_OUT, winMaskGeos);
+      for (let k = 0; k < COCKPIT_WINDOWS.length; k++) {
+        const win = COCKPIT_WINDOWS[k];
+        const [a, b, v0, v1] = win;
+        const inner = unitOutline(PANE_R[k]);
+        // Dış hat: birim kare (istasyon ve v yönünde) çerçeve kalınlığı kadar büyütülür
+        const du = FW_S / (b - a), dw = FW_V / Math.max(0.04, v1 - v0);
+        const outer = inner.map(([u, w]) => [-du + u * (1 + 2 * du), -dw + w * (1 + 2 * dw)]);
+        ringBand(side, win, outer, FRAME_OUT, inner, FRAME_OUT, winFrameGeos);   // çerçeve yüzeyi
+        ringBand(side, win, inner, FRAME_OUT, inner, GLASS_OUT, winFrameGeos);   // yanak (reveal)
+        fillOutline(side, win, inner, GLASS_OUT, winGeos);                       // cam
+      }
     }
-    // Derinlik gerçek olduğu için polygonOffset'e gerek yok (kaldırma normal boyunca
-    // ve metre cinsinden, dolayısıyla kaplamanın kirişlerini her yerde aşıyor).
+    // Parlama maskesi: mat, neredeyse siyah. Gövde boyasının üstüne boyanmış gibi durur.
+    const maskMat = this.track(new THREE.MeshStandardMaterial({ color: 0x14181c, roughness: 0.82, metalness: 0.05 }));
+    this.group.add(new THREE.Mesh(this.track(mergeGeometries(winMaskGeos, false)), maskMat));
     // Çerçeve çift yüzlü: yanak (reveal) şeridinin hangi yöne baktığı bakış açısına göre
     // değişir; çift yüzlü malzemede three.js arka yüzlerde normali kendisi çevirir,
     // dolayısıyla aydınlatma her iki durumda da doğru kalır.
-    const frameMat = this.track(new THREE.MeshStandardMaterial({ color: 0x23282e, roughness: 0.42, metalness: 0.30, side: THREE.DoubleSide }));
+    const frameMat = this.track(new THREE.MeshStandardMaterial({ color: 0x2b3137, roughness: 0.55, metalness: 0.22, side: THREE.DoubleSide }));
     this.group.add(new THREE.Mesh(this.track(mergeGeometries(winFrameGeos, false)), frameMat));
     // Cam: dışarıdan koyu, hafif mavi ve parlak. Ortamda env map yok, bu yüzden metalness
     // düşük tutulur (yüksek metalness env map'siz yüzeyi tamamen karartır) ve parlaklık
@@ -993,8 +1124,11 @@ export class A321neo {
           const h = i / (SH_N / 2);
           const v = h <= 1 ? h : 2 - h;
           const sign = h <= 1 ? 1 : -1;
-          const q = surfacePoint(sv, Math.min(0.9999, Math.max(0.0001, v)));
-          row.push({ x: sign * q.x * 0.985, y: q.y * 0.985, z: q.z, v, sv });
+          // Astar gövde yüzeyinin 3 cm İÇİNDEDİR; öteleme yüzey normali boyunca
+          // yapılır (koordinatları katsayıyla çarpmak burunda yanlış yön verir).
+          const vc = Math.min(0.9999, Math.max(0.0001, v));
+          const q = surfacePoint(sv, vc), nq = surfaceNormal(sv, vc);
+          row.push({ x: sign * (q.x - nq.x * 0.03), y: q.y - nq.y * 0.03, z: q.z - nq.z * 0.03, v, sv });
         }
         return row;
       });
@@ -1114,14 +1248,24 @@ export class A321neo {
       this.group.add(grp);
       return grp;
     };
-    const tipY = wingY(WING.tipX) + 2.3, tipZ = st(wingLE(WING.tipX) + 0.4);
+    // Seyir ışıkları KANAT UCU KAPORTASINA oturur: kırmızı/yeşil hücum kenarında,
+    // beyaz flaşör firar kenarında — sharklet'in dibinde, gerçek A320neo'daki gibi.
+    //
+    // Önceden ışıklar (tipX + 0,35; wingY + 2,30) noktasındaydı. Bu, sharklet'ten
+    // ÖNCEKİ modelin kanat ucuydu; sharklet eklendikten sonra o nokta ne kanadın ne
+    // de sharklet'in üstünde kaldı: ışıklar havada, uçağın ~1 m yanında asılı
+    // duruyordu. Artık konumlar doğrudan kanat geometrisinden türetilir.
+    const tipX = WING.tipX, tipY = wingY(tipX), tipLE = wingLE(tipX), tipTE = wingTE(tipX);
+    const navZ = st(tipLE + 0.26);        // uç veterin hemen arkası: lens hücum kenarında
+    const strZ = st(tipTE - 0.16);        // firar kenarı: beyaz çakar
+    const lensX = tipX + 0.02;            // kaportanın dış yüzeyi
     this.lights = {
-      navLeft: mk(0xff2a2a, -(WING.tipX + 0.35), tipY, tipZ, 0.30),
-      navRight: mk(0x22ff44, WING.tipX + 0.35, tipY, tipZ, 0.30),
-      tail: mk(0xffffff, 0, 2.55, st(44.2), 0.26),
-      strobeLeft: mk(0xffffff, -(WING.tipX + 0.35), tipY, tipZ + 0.35, 0.52),
-      strobeRight: mk(0xffffff, WING.tipX + 0.35, tipY, tipZ + 0.35, 0.52),
-      beaconTop: mk(0xff3020, 0, 2.18, st(19.0), 0.40),
+      navLeft: mk(0xff2a2a, -lensX, tipY + 0.02, navZ, 0.30),
+      navRight: mk(0x22ff44, lensX, tipY + 0.02, navZ, 0.30),
+      tail: mk(0xffffff, 0, 2.41, st(44.05), 0.26),
+      strobeLeft: mk(0xffffff, -lensX, tipY + 0.01, strZ, 0.46),
+      strobeRight: mk(0xffffff, lensX, tipY + 0.01, strZ, 0.46),
+      beaconTop: mk(0xff3020, 0, 2.05, st(19.0), 0.40),
       beaconBottom: mk(0xff3020, 0, -2.68, st(21.5), 0.40),
     };
     // İniş farları (kanat kökü) ve taksi farı (burun takımı)

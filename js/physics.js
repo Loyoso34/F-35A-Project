@@ -24,6 +24,8 @@ import { RigidBody } from './rigidbody.js';
 export const FIXED_DT = 1 / 120;
 const G = G0;
 const DEG = Math.PI / 180;
+// Tekerlerin "durdu" sayıldığı hız: bunun altında kopma sürtünmesi devreye girer (m/s).
+const GND_CREEP = 0.25;
 export const KT = 1.943844;
 export const FT = 3.28084;
 export { atmosphere };
@@ -51,7 +53,9 @@ export class FlightModel {
     this.gearCmd = 1; this.gearPos = 1;
     this.flapIndex = 0; this.flapsCmd = 0; this.flapsPos = 0; this.slatsPos = 0;
     this.spoilerCmd = 0; this.spoilerPos = 0; this.reverseCmd = 0; this.reversePos = 0;
-    this.brakes = true;
+    // Uçak piste "yuvarlanmaya hazır" durumda doğar: park freni BASILI DEĞİLDİR.
+    // Kendiliğinden ileri kaymayı fren değil, aşağıdaki kopma (statik) sürtünmesi engeller.
+    this.brakes = false;
     this.fuel = this.D.fuel;
     this.crashed = false; this.crashReason = '';
     this.onGround = true; this.wasOnGround = true;
@@ -100,7 +104,7 @@ export class FlightModel {
     this.gearCmd = 1; this.gearPos = 1;
     this.flapIndex = 0; this.flapsCmd = 0; this.flapsPos = 0; this.slatsPos = 0;
     this.spoilerCmd = 0; this.spoilerPos = 0; this.reverseCmd = 0; this.reversePos = 0;
-    this.brakes = true; this.fuel = this.D.fuel;
+    this.brakes = false; this.fuel = this.D.fuel;
     this.crashed = false; this.crashReason = ''; this.onGround = true; this.wasOnGround = true;
     this.time = 0; this._nz = 1; this._buffet = 0;
     this.stick.pitch = this.stick.roll = this.stick.yaw = 0;
@@ -316,11 +320,28 @@ export class FlightModel {
       const N = Math.max(0, m * G - L * Math.cos(pitch));
       const rollMu = paved ? GND.rollMu[0] : GND.rollMu[1];
       const brakeMu = this.brakes ? (paved ? GND.brakeMu[0] : GND.brakeMu[1]) : 0;
-      const decel = (rollMu + brakeMu) * N / m;
       const lateralKill = 1 - Math.exp(-dt * 12);
       vel.addScaledVector(right, -vel.dot(right) * lateralKill);
       const vfwd = vel.dot(fwd);
-      vel.addScaledVector(fwd, -Math.sign(vfwd) * Math.min(Math.abs(vfwd), decel * dt));
+      // KOPMA (STATİK) SÜRTÜNMESİ.
+      // Duran bir uçağın yuvarlanmaya BAŞLAMASI, yuvarlanmayı sürdürmekten daha çok
+      // kuvvet ister: lastik deformasyonu, rulman direnci ve fren balatası teması
+      // birlikte bir eşik oluşturur. Kamuya açık ölçümlerde beton üzerinde kopma
+      // direnci ~0,04-0,08, yuvarlanma direnci ise ~0,02'dir. [E]
+      //
+      // Bu eşik yokken model yalnızca kinetik yuvarlanmayı biliyordu ve rölanti itkisi
+      // onu aşıyordu: F-35'te rölanti 6,8 kN, yuvarlanma direnci 4,2 kN — uçak gaz
+      // sıfırken ve fren bırakılmışken ~0,12 m/s² ile kendiliğinden ileri kayıyordu.
+      const stictionMu = (paved ? GND.stictionMu[0] : GND.stictionMu[1]) + brakeMu;
+      const Ffwd = F.dot(fwd);                       // net boyuna kuvvet (itki - direnç ± eğim)
+      if (Math.abs(vfwd) < GND_CREEP && Math.abs(Ffwd) <= stictionMu * N) {
+        // Eşiğin altında: tekerler dönmeye başlamaz, uçak yerinde durur.
+        vel.addScaledVector(fwd, -vfwd);
+        F.addScaledVector(fwd, -Ffwd);
+      } else {
+        const decel = (rollMu + brakeMu) * N / m;
+        vel.addScaledVector(fwd, -Math.sign(vfwd) * Math.min(Math.abs(vfwd), decel * dt));
+      }
       F.y = Math.max(F.y, 0);
     }
     this.onGround = onGround;

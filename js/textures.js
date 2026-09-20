@@ -679,7 +679,7 @@ export function makeAirbusScreenTexture(kind = 'pfd', size = 256) {
   if (kind === 'pfd') {
     // Yapay ufuk
     ctx.fillStyle = '#2f7fd0'; ctx.fillRect(w * 0.18, h * 0.08, w * 0.64, h * 0.34);
-    ctx.fillStyle = '#8a5a２6'.replace('２', '2'); ctx.fillStyle = '#8a5a26'; ctx.fillRect(w * 0.18, h * 0.42, w * 0.64, h * 0.30);
+    ctx.fillStyle = '#8a5a26'; ctx.fillRect(w * 0.18, h * 0.42, w * 0.64, h * 0.30);
     ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, w / 180);
     ctx.beginPath(); ctx.moveTo(w * 0.18, h * 0.42); ctx.lineTo(w * 0.82, h * 0.42); ctx.stroke();
     for (const [f, ww] of [[0.30, 0.10], [0.36, 0.06], [0.48, 0.06], [0.54, 0.10]]) {

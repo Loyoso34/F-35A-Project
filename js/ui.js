@@ -13,7 +13,7 @@ export class UI {
       updateToast: $('update-toast'), btnUpdate: $('btn-update'),
       guide: $('guide'), guideClose: $('guide-close'),
       touch: $('touch'), msg: $('msg'), fps: $('fps'),
-      btnGear: $('btn-gear'), btnFlap: $('btn-flap'), btnBrake: $('btn-brake'), btnSound: $('btn-sound'), btnLights: $('btn-lights'),
+      btnGear: $('btn-gear'), btnBrake: $('btn-brake'), btnSound: $('btn-sound'), btnLights: $('btn-lights'),
       btnMenu: $('btn-menu'), drawer: $('drawer'), btnSpoiler: $('btn-spoiler'),
       select: $('select'), selGrid: $('sel-grid'), selHint: $('sel-hint'), btnAircraft: $('btn-aircraft'), selApRow: $('sel-ap-row'), selLivery: $('sel-livery'),
     };

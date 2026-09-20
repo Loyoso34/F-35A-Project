@@ -37,10 +37,20 @@ export class Controls {
       touch: document.getElementById('touch'),
       rudder: document.getElementById('rudder'),
       rudderKnob: document.getElementById('rudder-knob'),
+      flaps: document.getElementById('flaps'),
+      flapsTrack: document.getElementById('flaps-track'),
+      flapsFill: document.getElementById('flaps-fill'),
+      flapsKnob: document.getElementById('flaps-knob'),
     };
+    // Flap kolu durumu: kademe adları uçaktan gelir, kol her zaman 0'da başlar.
+    this.flapNames = ['0'];
+    this.flapNotes = [''];
+    this.flapIndex = 0;
+    this.flapPointer = null;
     this.bindStick();
     this.bindThrottle();
     this.bindRudder();
+    this.bindFlaps();
     this.bindButtons();
     this.bindKeyboard();
     this.bindView();
@@ -125,7 +135,11 @@ export class Controls {
     const r = this.els.throttleTrack;
     const h = r.clientHeight || 200;
     const f = this.lever / this.leverMax;
-    this.els.throttleKnob.style.top = (h * (1 - f)) + 'px';
+    // Topuz merkezi izin İÇİNDE tutulur. Önceden merkez doluluk çizgisine konuyor,
+    // margin-top:-22px ile yarısı izin dışına taşıyordu: %0'da topuzun alt yarısı ve
+    // içindeki yüzde yazısı ekranın altında kalıyordu (kısa yatay ekranlarda görünür).
+    const half = (this.els.throttleKnob.offsetHeight || 44) / 2;
+    this.els.throttleKnob.style.top = clamp(h * (1 - f), half, Math.max(half, h - half)) + 'px';
     this.els.throttleFill.style.height = (f * 100) + '%';
     const ab = this.lever > AB_DETENT + 0.01;
     this.els.throttleKnob.textContent = ab ? 'AB' : Math.round(Math.min(this.lever, 1) * 100) + '%';
@@ -164,6 +178,79 @@ export class Controls {
     this.els.rudderKnob.style.transform = `translateX(${this.rudder * half}px)`;
   }
 
+  // ---- Flap kolu ----
+  // Dikey bir koldur: ÜST uç 0 (temiz), ALT uç son kademe. Sürüklerken en yakın
+  // kademeye oturur; ize dokunmak da o kademeye atlar. Her zaman 0'da başlar.
+  bindFlaps() {
+    const f = this.els.flaps;
+    if (!f) return;
+    const pick = (e) => {
+      const r = this.els.flapsTrack.getBoundingClientRect();
+      const n = this.flapNames.length;
+      if (n < 2 || r.height <= 0) return;
+      const t = clamp((e.clientY - r.top) / r.height, 0, 1);   // 0 üst = temiz
+      const i = Math.round(t * (n - 1));
+      if (i !== this.flapIndex) { this.flapIndex = i; this.cb.onFlapIndex && this.cb.onFlapIndex(i); }
+      this.setFlapUI(this.flapIndex);
+    };
+    f.addEventListener('pointerdown', (e) => {
+      if (!this.enabled) return;
+      this.flapPointer = e.pointerId;
+      f.setPointerCapture && f.setPointerCapture(e.pointerId);
+      f.classList.add('moving');
+      pick(e); e.preventDefault();
+    });
+    f.addEventListener('pointermove', (e) => { if (e.pointerId === this.flapPointer) { pick(e); e.preventDefault(); } });
+    const end = (e) => {
+      if (e.pointerId !== this.flapPointer) return;
+      this.flapPointer = null; f.classList.remove('moving');
+    };
+    f.addEventListener('pointerup', end);
+    f.addEventListener('pointercancel', end);
+    f.addEventListener('lostpointercapture', end);
+    f.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+  /** Uçak değişince kademeleri kurar ve kolu 0'a alır. */
+  setFlapDetents(names, notes) {
+    this.flapNames = (names && names.length) ? names.slice() : ['0'];
+    this.flapNotes = (notes && notes.length === this.flapNames.length) ? notes.slice() : this.flapNames.map(() => '');
+    // Kademe çizgileri
+    const tr = this.els.flapsTrack;
+    if (tr) {
+      for (const d of [...tr.querySelectorAll('.flap-det')]) d.remove();
+      const n = this.flapNames.length;
+      for (let i = 0; i < n; i++) {
+        const d = document.createElement('div');
+        d.className = 'flap-det' + (i === 0 ? ' first' : '');
+        d.style.top = (i / Math.max(1, n - 1)) * 100 + '%';
+        tr.appendChild(d);
+      }
+    }
+    this.flapIndex = 0;
+    this.setFlapUI(0);
+  }
+  /** Kolu verilen kademeye taşır (fizikten gelen durumla da çağrılır). */
+  setFlapUI(index) {
+    const n = this.flapNames.length;
+    this.flapIndex = clamp(index | 0, 0, n - 1);
+    const tr = this.els.flapsTrack, kn = this.els.flapsKnob;
+    if (!tr || !kn) return;
+    const h = tr.clientHeight || 160;
+    const frac = n > 1 ? this.flapIndex / (n - 1) : 0;
+    const half = (kn.offsetHeight || 36) / 2;
+    // Topuz izin İÇİNDE kalır: uçlarda yarısı dışarı taşıp yazısı kırpılmasın
+    kn.style.top = (tr.offsetTop + clamp(h * frac, half, Math.max(half, h - half))) + 'px';
+    if (this.els.flapsFill) this.els.flapsFill.style.height = (frac * 100) + '%';
+    kn.querySelector('b').textContent = this.flapNames[this.flapIndex];
+    kn.querySelector('span').textContent = this.flapNotes[this.flapIndex] || '';
+    const f = this.els.flaps;
+    if (f) {
+      f.setAttribute('aria-valuemax', String(n - 1));
+      f.setAttribute('aria-valuenow', String(this.flapIndex));
+      f.setAttribute('aria-valuetext', 'Flaps ' + this.flapNames[this.flapIndex] + (this.flapNotes[this.flapIndex] ? ' (' + this.flapNotes[this.flapIndex] + ')' : ''));
+    }
+  }
+
   // ---- Düğmeler ----
   bindButtons() {
     const tap = (id, fn) => {
@@ -179,7 +266,6 @@ export class Controls {
       el.addEventListener('contextmenu', (e) => e.preventDefault());
     };
     tap('btn-gear', () => this.cb.onGear && this.cb.onGear());
-    tap('btn-flap', () => this.cb.onFlaps && this.cb.onFlaps());
     tap('btn-brake', () => this.cb.onBrake && this.cb.onBrake());
     tap('btn-spoiler', () => this.cb.onSpoilers && this.cb.onSpoilers());
     const secondary = (fn) => () => { this.cb.onMenuActivity && this.cb.onMenuActivity(); fn(); };

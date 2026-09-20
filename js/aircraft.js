@@ -877,15 +877,18 @@ export class F35A {
       this.group.add(g);
       return g;
     };
-    const tipS = (P.leTip + P.teTip) / 2;
-    // Seyir ışıkları: sol kırmızı, sağ yeşil, kuyruk beyaz (sürekli)
+    // Seyir ışıkları: sol kırmızı, sağ yeşil, kuyruk beyaz (sürekli).
+    // Lensler kanat ucu kesitinin DIŞ yüzeyinde durur (tipX + 1 cm) — eskiden 5 cm
+    // İÇERİDEYDİ, yani ampul kanadın içine gömülüyor ve yalnızca parıltı görünüyordu.
+    // Kırmızı/yeşil hücum kenarında, beyaz çakar firar kenarındadır.
+    const lensX = P.tipX + 0.01;
     this.lights = {
-      navLeft: mkLight(0xff2a2a, -P.tipX + 0.05, P.y, st(tipS), 0.16),
-      navRight: mkLight(0x2aff5a, P.tipX - 0.05, P.y, st(tipS), 0.16),
+      navLeft: mkLight(0xff2a2a, -lensX, P.y, st(P.leTip + 0.20), 0.16),
+      navRight: mkLight(0x2aff5a, lensX, P.y, st(P.leTip + 0.20), 0.16),
       tail: mkLight(0xffffff, 0, 0.42, st(14.62), 0.14),
       // Çarpışma önleyici flaşörler: kanat uçları (beyaz, çift flaş), gövde üst/alt (kırmızı beacon)
-      strobeLeft: mkLight(0xffffff, -P.tipX + 0.05, P.y + 0.03, st(tipS) + 0.15, 0.30),
-      strobeRight: mkLight(0xffffff, P.tipX - 0.05, P.y + 0.03, st(tipS) + 0.15, 0.30),
+      strobeLeft: mkLight(0xffffff, -lensX, P.y, st(P.teTip - 0.30), 0.30),
+      strobeRight: mkLight(0xffffff, lensX, P.y, st(P.teTip - 0.30), 0.30),
       beaconTop: mkLight(0xff3020, 0, bodyTop(9.6) + 0.06, st(9.6), 0.24),
       beaconBottom: mkLight(0xff3020, 0, bodyBottom(9.6) - 0.06, st(9.6), 0.24),
     };
