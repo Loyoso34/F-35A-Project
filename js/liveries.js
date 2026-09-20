@@ -66,6 +66,43 @@ export const LIVERIES = {
   ],
 
   // =========================================================================
+  // FA-90 Vesper  (kurgusal 7. nesil hava üstünlüğü savaş uçağı)
+  // =========================================================================
+  fa90: [
+    {
+      id: 'graphite',
+      name: 'Graphite Test',
+      sub: 'Dark graphite low-observable finish, test squadron markings',
+      // Düşük gözlenebilirlikli kaplamalar mat ve koyudur: roughness yüksek,
+      // metalness düşük tutuldu; egzoz metali gövdeyle aynı soğuk tona çekildi.
+      paint: 0x4d5257, paintDark: 0x33383c,
+      roughness: 0.86, metalness: 0.12,
+      metalTint: 0x5f656b,
+      insignia: 'starbar', markColor: '#aeb5bc',
+      tailCode: 'VX', serial: 'FA-90 001',
+    },
+    {
+      id: 'arctic',
+      name: 'Arctic Splinter',
+      sub: 'Pale gray high-altitude scheme',
+      paint: 0xb6bec6, paintDark: 0x767e86,
+      roughness: 0.78, metalness: 0.18,
+      insignia: 'navy', markColor: '#8d959d',
+      tailCode: 'VF', serial: 'FA-90 014',
+    },
+    {
+      id: 'midnight',
+      name: 'Midnight Blue',
+      sub: 'Near-black blue night-intercept scheme',
+      paint: 0x2b3340, paintDark: 0x1b212b,
+      roughness: 0.90, metalness: 0.10,
+      metalTint: 0x4a5058,
+      insignia: 'ironcross', insigniaSquare: true, markColor: '#7d848c',
+      tailCode: 'NT', serial: 'FA-90 027',
+    },
+  ],
+
+  // =========================================================================
   // Airbus A321neo  (A320 ailesi)
   // =========================================================================
   a321: [

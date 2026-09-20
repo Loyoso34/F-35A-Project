@@ -27,6 +27,20 @@
       --sar: env(safe-area-inset-right, 0px);
       --sab: env(safe-area-inset-bottom, 0px);
       --sal: env(safe-area-inset-left, 0px);
+      /* ---- Alt sol kumanda kümesi: RUDDER -> JOYSTICK -> FLAP ----
+         Üç denetimin konumu TEK bir ölçü setinden türetilir; hiçbiri elle yazılmış
+         koordinat kullanmaz. Bu yüzden ekran daraldıkça clamp() ölçüleri küçültür
+         ve denetimler üst üste binmek yerine orantılı olarak sıkışır. */
+      --ctl-gap: clamp(9px, 1.5vw, 18px);
+      --rud-w: clamp(130px, 22vw, 200px);
+      --rud-h: 42px;
+      --stk-d: clamp(82px, 13vw, 108px);
+      --flp-w: clamp(52px, 7.6vw, 64px);
+      --ctl-l: calc(var(--sal) + 10px);
+      --stk-l: calc(var(--ctl-l) + var(--rud-w) + var(--ctl-gap));
+      --flp-l: calc(var(--stk-l) + var(--stk-d) + var(--ctl-gap));
+      --ctl-r: calc(var(--flp-l) + var(--flp-w));
+      --ctl-b: calc(var(--sab) + 10px);
       --hud: #39ff6a;
       --panel: rgba(10, 16, 24, 0.86);
       --btn: rgba(255, 255, 255, 0.10);
@@ -46,21 +60,30 @@
     #hud { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
     #touch { position: fixed; inset: 0; pointer-events: none; }
     #touch .zone { position: absolute; pointer-events: auto; }
-    /* Sol kenar flap koluna ayrılmıştır; joystick bölgesi onun sağından başlar */
-    #stick-zone { left: calc(var(--sal) + 76px); top: calc(var(--sat) + 56px); bottom: 0; width: 40%; transition: top 0.22s ease; }
+    /* Joystick bölgesi kümenin ORTA sütunudur: solunda dümen, sağında flap kolu
+       kalır, hiçbirinin üstüne binmez. İşaretçi yakalandığı için (setPointerCapture)
+       sürükleme bölgenin dışına taşabilir; bölge yalnızca dokunuşun BAŞLAYABİLECEĞİ
+       alanı belirler, bu yüzden dar olması kumandayı kısıtlamaz. */
+    #stick-zone {
+      left: calc(var(--stk-l) - var(--ctl-gap) / 2); width: calc(var(--stk-d) + var(--ctl-gap));
+      top: calc(var(--sat) + 56px); bottom: 0; transition: top 0.22s ease;
+    }
     /* Menü açıkken joystick alanı çekmecenin altından başlar: yanlışlıkla düğmeye basmak yerine uçuş girişi bozulmaz */
     body.menu-open #stick-zone { top: calc(var(--sat) + 112px); }
-    #view-zone { left: 40%; right: calc(var(--sar) + 150px); top: calc(var(--sat) + 56px); bottom: calc(var(--sab) + 64px); }
+    /* Kamera sürükleme alanı kümenin SAĞ kenarından başlar (eski sabit %40 değeri
+       yeni düzende flap kolunun üstüne biniyordu). */
+    #view-zone { left: calc(var(--ctl-r) + 8px); right: calc(var(--sar) + 150px); top: calc(var(--sat) + 56px); bottom: calc(var(--sab) + 64px); }
     #stick-base {
-      position: absolute; width: 100px; height: 100px; border-radius: 50%;
+      position: absolute; width: var(--stk-d); height: var(--stk-d); border-radius: 50%;
       border: 1.5px solid rgba(255,255,255,0.28); background: rgba(10,16,24,0.35);
-      left: calc(var(--sal) + 88px); bottom: calc(var(--sab) + 34px);
+      left: calc((100% - var(--stk-d)) / 2); bottom: calc(var(--sab) + 26px);
       transform: translate(0, 0); pointer-events: none; box-shadow: inset 0 0 18px rgba(0,0,0,0.35);
     }
     #stick-base::before { content: ""; position: absolute; inset: 14px; border-radius: 50%; border: 1px dashed rgba(255,255,255,0.14); }
     #stick-base::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: rgba(255,255,255,0.35); }
     #stick-knob {
-      position: absolute; width: 44px; height: 44px; border-radius: 50%; left: 28px; top: 28px;
+      position: absolute; width: 44px; height: 44px; border-radius: 50%;
+      left: calc((var(--stk-d) - 44px) / 2); top: calc((var(--stk-d) - 44px) / 2);
       background: radial-gradient(circle at 40% 35%, rgba(120,255,170,0.55), rgba(57,255,106,0.25) 60%, rgba(57,255,106,0.12));
       border: 1.5px solid rgba(57,255,106,0.85); box-shadow: 0 2px 10px rgba(0,0,0,0.45);
     }
@@ -84,8 +107,8 @@
        Gerçek bir kol gibi çalışır: yukarı 0 (temiz), aşağı tam flap. Kademeler ize
        çizilir, topuz kademe adını ve açısını taşır. Belirsiz bir düğme değildir. */
     #flaps {
-      position: absolute; left: calc(var(--sal) + 8px); bottom: calc(var(--sab) + 12px);
-      width: 64px; height: min(200px, 52vh); pointer-events: auto; touch-action: none;
+      position: absolute; left: var(--flp-l); bottom: var(--ctl-b);
+      width: var(--flp-w); height: min(190px, 50vh); pointer-events: auto; touch-action: none;
     }
     #flaps-cap {
       position: absolute; left: 0; right: 0; top: 0; height: 14px; line-height: 14px; text-align: center;
@@ -101,7 +124,7 @@
     .flap-det { position: absolute; left: 0; right: 0; height: 0; border-top: 1.5px dashed rgba(255,255,255,0.30); }
     .flap-det.first { border-top-style: solid; border-top-color: rgba(255,255,255,0.45); }
     #flaps-knob {
-      position: absolute; left: 0; width: 64px; height: 36px; margin-top: -18px; border-radius: 9px;
+      position: absolute; left: 0; width: var(--flp-w); height: 36px; margin-top: -18px; border-radius: 9px;
       background: rgba(14,20,28,0.94); border: 1.5px solid rgba(79,195,247,0.9); pointer-events: none;
       display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
       box-shadow: 0 2px 8px rgba(0,0,0,0.55);
@@ -111,8 +134,8 @@
     #flaps.moving #flaps-knob { border-color: rgba(255,200,90,0.95); }
     /* Kısa ekranlarda kol kısalır; kademeler orantılı kaldığı için okunurluk bozulmaz */
     @media (max-height: 400px) {
-      #flaps { width: 58px; height: min(168px, 56vh); }
-      #flaps-knob { width: 58px; height: 32px; margin-top: -16px; }
+      #flaps { height: min(160px, 54vh); }
+      #flaps-knob { height: 32px; margin-top: -16px; }
       #flaps-knob b { font-size: 12px; }
     }
     .btn {
@@ -144,7 +167,10 @@
     #drawer:not(.open) .btn { pointer-events: none; }
     #drawer .btn:nth-child(2) { transition-delay: 0.03s; } #drawer .btn:nth-child(3) { transition-delay: 0.06s; } #drawer .btn:nth-child(4) { transition-delay: 0.09s; }
     #drawer:not(.open) .btn { transform: translateX(-8px); }
-    #rudder { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--sab) + 12px); width: 210px; height: 44px; pointer-events: auto; }
+    /* Dümen artık ekranın ortasında değil, kümenin en solunda: istenen soldan sağa
+       sıra RUDDER -> JOYSTICK -> FLAPS. Ortadayken sağdaki düğme sütununa yaklaşıp
+       dar ekranlarda onunla çakışıyordu. */
+    #rudder { position: absolute; left: var(--ctl-l); bottom: var(--ctl-b); width: var(--rud-w); height: var(--rud-h); pointer-events: auto; touch-action: none; }
     #rudder-track {
       position: absolute; inset: 0; border-radius: 22px; background: rgba(10,16,24,0.5); border: 1.5px solid rgba(255,255,255,0.26);
       box-shadow: inset 0 0 14px rgba(0,0,0,0.35);
@@ -155,19 +181,22 @@
        taşıyor ve alt yarısı kırpılıyordu. */
     #rudder-track::after { content: "RUDDER"; position: absolute; left: 0; right: 0; top: -13px; text-align: center; font-size: 9px; line-height: 11px; letter-spacing: 1.5px; white-space: nowrap; color: rgba(255,255,255,0.62); text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
     #rudder-knob {
-      position: absolute; left: 50%; top: 3px; width: 38px; height: 38px; margin-left: -19px; border-radius: 50%;
+      position: absolute; left: 50%; top: 2px; width: 38px; height: 38px; margin-left: -19px; border-radius: 50%;
       background: radial-gradient(circle at 40% 35%, rgba(120,255,170,0.55), rgba(57,255,106,0.22) 60%, rgba(57,255,106,0.1));
       border: 1.5px solid rgba(57,255,106,0.85); pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.45);
     }
-    #right-col { position: absolute; right: calc(var(--sar) + 70px); bottom: calc(var(--sab) + 12px); display: flex; flex-direction: column; gap: 6px; }
+    #right-col { position: absolute; right: calc(var(--sar) + 70px); bottom: var(--ctl-b); display: flex; flex-direction: column; gap: 6px; }
     #right-col .btn { width: 72px; min-height: 46px; }
     #right-col .btn .l { line-height: 1.05; }
     /* ---- Uçak seçim ekranı ---- */
     #select { background: linear-gradient(160deg, rgba(6,10,16,0.82), rgba(6,10,16,0.94)); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: 24; }
-    .sel-wrap { width: min(1100px, 96vw); max-height: 100%; display: flex; flex-direction: column; gap: 10px; }
+    .sel-wrap { width: min(1100px, 96vw); max-height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 10px; }
     .sel-title { margin: 0; font-size: clamp(17px, 2.6vh, 26px); letter-spacing: 2.5px; text-transform: uppercase; color: #dbe6f2; font-weight: 800; text-align: center; }
     .sel-title small { display: block; font-size: 11px; letter-spacing: 1.4px; font-weight: 600; color: rgba(190,205,222,0.62); margin-top: 3px; text-transform: none; }
-    .sel-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    /* auto-fit: kart sayısı arttıkça sütunlar kendiliğinden ayarlanır. Sabit
+       repeat(2, 1fr) üç uçakla iki satır yapıyor ve kısa yatay ekranlarda alttaki
+       livery satırlarını ekran dışına itiyordu. */
+    .sel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
     .ac-card {
       position: relative; display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden;
       border-radius: 16px; border: 1.5px solid rgba(255,255,255,0.14); background: linear-gradient(170deg, #16202c 0%, #0c131c 60%, #090e15 100%);
@@ -227,7 +256,10 @@
       .ap-chip b { font-size: 11.5px; }
       .sel-hint { font-size: 10px; }
     }
-    @media (max-height: 380px) { .ac-specs { display: none; } .sel-hint { display: none; } .ac-thumb { height: 24vh; } }
+    @media (max-height: 380px) {
+      .ac-specs { display: none; } .sel-hint { display: none; } .ac-thumb { height: 24vh; }
+      .sel-wrap { gap: 5px; } .sel-lv-host { gap: 3px; margin-top: 0; } .sel-lv { gap: 8px; } .sel-lv-row { gap: 6px; }
+    }
     @media (max-width: 620px) { .sel-grid { grid-template-columns: 1fr; } .sel-wrap { overflow-y: auto; -webkit-overflow-scrolling: touch; } }
     .overlay {
       position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -362,13 +394,15 @@
       <ul>
         <li><b>Left stick:</b> pitch and roll</li>
         <li><b>Right slider:</b> throttle — afterburner (AB) at the top</li>
-        <li><b>Rudder slider (bottom centre):</b> drag it; it springs back to centre. On the ground it steers the nosewheel</li>
-        <li><b>Flap lever (bottom left):</b> slide it down to extend, up to retract. It snaps to each detent and shows the setting with its flap angle</li>
-        <li><b>Landing Gear / Brakes:</b> toggle on and off. <b>Spoilers</b> A321neo only</li>
+        <li><b>Bottom left, in order:</b> rudder slider &rarr; stick &rarr; flap lever</li>
+        <li><b>Rudder slider:</b> drag it; it springs back to centre. On the ground it steers the nosewheel</li>
+        <li><b>Flap lever:</b> slide it down to extend, up to retract. It snaps to each detent and shows the setting with its flap angle</li>
+        <li><b>Landing Gear / Brakes:</b> toggle on and off. <b>Spoilers</b> on the A321neo and the FA-90</li>
         <li><b>Take-off:</b> you start with the brakes off and flaps 0 — just open the throttle and rotate at about 140 kt</li>
         <li><b>☰ Menu:</b> Pause, <b>Camera</b> (free camera → cockpit → chase → flyby → left wing → right wing → landing gear), Sound and Landing Lights are in this drawer</li>
         <li><b>Keyboard:</b> WASD/arrows, Q/E rudder, Shift/Ctrl throttle, G gear, F flaps, V spoilers, B brakes, L lights, C camera, P pause</li>
         <li><b>A321neo:</b> flap detents are 0 / 1 (10&deg;) / 2 (15&deg;) / 3 (20&deg;) / FULL (40&deg;); on the ground the brake also engages reverse thrust</li>
+        <li><b>FA-90 Vesper:</b> a fictional tailless design &mdash; pitch and roll both come from the trailing-edge elevons, and the <b>Spoilers</b> button opens the dorsal air brakes. Flap detents are UP / MVR (9&deg;) / LAND (18&deg;)</li>
         <li><b>Two airports:</b> Anadolu Air Base and Yesilova Airport. Pick your departure point on the selection screen</li>
       </ul>
     </div>

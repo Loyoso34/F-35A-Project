@@ -3,7 +3,8 @@
 import * as THREE from 'three';
 import { F35A, F35 } from './aircraft.js';
 import { A321neo, A321 } from './a321.js';
-import { F35A_AERO, A321_AERO } from './aerodata.js';
+import { FA90Vesper, FA90 } from './fa90.js';
+import { F35A_AERO, A321_AERO, FA90_AERO } from './aerodata.js';
 
 const DEG = Math.PI / 180;
 
@@ -106,6 +107,65 @@ const A321_CFG = {
   thumb: { pos: [-26, 9, -34], look: [0, 0.4, 1.5], fov: 26 },
 };
 
-export const FLEET = { f35a: F35_CFG, a321: A321_CFG };
-export const FLEET_ORDER = ['f35a', 'a321'];
+// ---------------------------------------------------------------------------
+// FA-90 Vesper — KURGUSAL 7. nesil hava üstünlüğü savaş uçağı.
+// "10 kat güçlü" isteği bir OYUN HEDEFİ olarak ele alındı: itki/ağırlık, yuvarlanma
+// oranı, yapısal G ve AoA yetkisi çok yüksek; ancak uçak hâlâ kütle, atalet, yer
+// çekimi, kaldırma, sürükleme ve açısal momentum yasalarına uyar. Konum ya da dönüş
+// DOĞRUDAN oynanmaz: tüm hareket aynı rijit cisim çözücüsünden geçer.
+const FA90_CFG = {
+  id: 'fa90',
+  name: 'FA-90 Vesper',
+  sub: 'Single-seat 7th-generation air-dominance fighter (fictional)',
+  specs: ['Length 19.6 m', 'Wingspan 14.8 m', 'Supercruise M 1.5'],
+  accent: '#c07bff',
+  build: (o) => new FA90Vesper(o),
+  geom: {
+    wheelBottomY: FA90.wheelBottomY, noseGearZ: FA90.noseGearZ, mainGearZ: FA90.mainGearZ, mainGearX: FA90.mainGearX,
+    // bellyR: takım içerideyken karın yarıçapı; bellyArm/rollArmX gövde ve kanat kolu
+    bellyR: 1.10, bellyArm: 5.2, rollArmX: 7.4, rollArmY: 0.45,
+  },
+  aero: FA90_AERO,
+  law: {
+    // Eyleyiciler F-35'ten hızlı, kazançlar yüksek; ama zeta ve prefilter korunur:
+    // kapalı çevrim hâlâ SÖNÜMLÜ ikinci derece bir sistem gibi davranır, adım yanıtı
+    // anlık değildir. surfRate 6,0 => tam sapma ~0,17 s (fiziksel bir eyleyici sınırı).
+    Kq0: 4.2, KqA: 5.4, Kp0: 6.5, KpA: 9.0, Kr0: 2.8, KrA: 4.0,
+    zeta: 0.92, prefilter: 0.085, rollFilter: 0.045, actuator: 0.022, stickPow: 1.45,
+    qAuth: 14000, qRoll: 11000, qBlend: [2200, 9000],
+    rollAuth: 0.90,
+    Vmin: 38, surfRate: 6.0,
+    // Yüksek AoA'da yatış oranı tavanı: kuyruksuz düzende atalet çiftlenimi
+    // kaynaklı departure'ı önleyen ANA koruma. F-35'ten daha geç devreye girer
+    // (kanat yükü düşük, çine girdapları 45°'ye kadar tutunuyor) ama YOK DEĞİL.
+    rollA0: 26 * DEG, rollA1: 56 * DEG, rollAlphaCut: 0.82,
+    betaGain: 3.4, betaRate: 0.62, betaAuth: 0.70, yawBudgetT: 0.52,
+  },
+  ground: { steerMax: 58 * DEG, steerV: 48, tireGrip: 0.48, rotQ: [2400, 5600], rotRate: 20 * DEG, pushRate: 11 * DEG, maxPitch: 12 * DEG, rollMu: [0.02, 0.09], brakeMu: [0.52, 0.26], stictionMu: [0.068, 0.18] },
+  limits: { alphaWarn: 30 * DEG, hardLandVs: -7.0, landRoll: 13 * DEG, groundRoll: 16 * DEG, landPitch: [-4 * DEG, 12 * DEG], offRunwayV: [58, 64] },
+  // Kuyruksuz delta: firar kenarı yüzeyleri hem flaperon hem elevondur. Kademeler
+  // uçağın kendi sistem adlarıdır (kurgusal uçak olduğu için derece yazılabilir).
+  systems: {
+    flapDetents: [0, 0.5, 1], flapNames: ['UP', 'MVR', 'LAND'], flapNotes: ['0°', '9°', '18°'],
+    flapRate: 1 / 2.5, slatLead: 0, gearRate: 1 / 5,
+    // Sırt hava frenleri: yerde tam açılır (yer spoyleri gibi), havada tam yetki
+    spoilers: { rate: 3.0, groundAuto: true, airFrac: 1.0 }, reverse: 0,
+  },
+  cameras: {
+    cockpitEye: [FA90.pilotEye.x, FA90.pilotEye.y, FA90.pilotEye.z], cockpitFov: 60, cockpitNear: 0.10, cockpitPitch: -5 * DEG,
+    chase: { dist: [26, 38], vRef: 420, up: 3.4, ahead: 90, lookUp: 1.8, fov: 58 },
+    orbit: { dist: 32, min: 7, max: 320, lookUp: 1.2, fov: 50 },
+    flyby: { fov: 42, ahead: [200, 1100], side: [70, 180], up: 3.5, vScale: 4.5, reset: 1500 },
+    wing: { eye: [0.70, 0.95, -2.4], look: [6.6, -0.55, 2.6], fov: 62 },
+    gear: { eye: [1.25, -0.20, -2.2], look: [2.05, -2.8, 1.0], fov: 58 },
+    shake: 1.15,
+  },
+  audio: { rumbleF: [30, 64], rumbleFilter: [105, 240], rumbleGain: [0.12, 0.26], roarBP: [190, 560], roarLP: [430, 2000], roarGain: [0.06, 0.62], whineF: [620, 3200], whineGain: [0.005, 0.032], hissHP: [1700, 2400], hissGain: 0.055, ab: 1, reverse: 0, idle: 0.24, rollLP: 200 },
+  hud: 'fighter',
+  ui: { afterburner: true, spoilerButton: true, flapCycle: false },
+  thumb: { pos: [-12, 4.2, -15.5], look: [0, 0.2, 0.6], fov: 26 },
+};
+
+export const FLEET = { f35a: F35_CFG, a321: A321_CFG, fa90: FA90_CFG };
+export const FLEET_ORDER = ['f35a', 'a321', 'fa90'];
 export function getAircraftConfig(id) { return FLEET[id] || FLEET.f35a; }

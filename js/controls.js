@@ -58,6 +58,12 @@ export class Controls {
       if (e.beta === null || e.beta === undefined) return;
       this.tilt.beta = e.beta; this.tilt.gamma = e.gamma; this.tilt.has = true;
     };
+    // Ekran döndüğünde / yeniden boyutlandığında kol topuzları px cinsinden
+    // ESKİ yüksekliğe göre konumlanmış kalıyordu: kısa yatay ekranda gaz topuzu
+    // ekranın altına taşıyor ve yüzde yazısı kırpılıyordu. İkisini de tazele.
+    this.onResize = () => { this.setThrottleUI(); this.setFlapUI(this.flapIndex); };
+    window.addEventListener('resize', this.onResize);
+    window.addEventListener('orientationchange', this.onResize);
     document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
     document.addEventListener('gesturechange', (e) => e.preventDefault(), { passive: false });
     document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });

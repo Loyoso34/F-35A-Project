@@ -183,16 +183,24 @@ export function coefficients(s, D, u) {
 }
 
 // Ses altı sıkıştırılabilirlik ve ses üstü eğim düşüşü
+const TRANS_PEAK = 2.2;          // transonik taşıma eğimi tavanı
+// Ackeret dalı: eğim 1/sqrt(M²-1) ile düşer
+function ackeret(M, D) { return clamp(D.CLsupK / Math.sqrt(Math.max(0.35, M * M - 1)), 0.45, 1.6); }
 function machLiftFactor(M, D) {
   if (M < 0.75) return 1 / Math.sqrt(Math.max(0.36, 1 - M * M));   // Prandtl-Glauert, 0.8'de sınırlanır
   if (M < 1.05) {
     // Transonik: PG'den ses üstü değere düzgün geçiş
     const pg = 1 / Math.sqrt(Math.max(0.36, 1 - 0.75 * 0.75));
     const sup = 1 / Math.sqrt(Math.max(0.2, 1.05 * 1.05 - 1));
-    return pg + (Math.min(sup, 2.2) - pg) * smoothstep(0.75, 1.05, M);
+    return pg + (Math.min(sup, TRANS_PEAK) - pg) * smoothstep(0.75, 1.05, M);
   }
-  // Ackeret: eğim 1/sqrt(M²-1) ile düşer
-  return clamp(D.CLsupK / Math.sqrt(Math.max(0.35, M * M - 1)), 0.45, 1.6);
+  // M = 1,05'te iki dal arasında BASAMAK vardı: altses dalı TRANS_PEAK (2,2) ile
+  // biterken Ackeret dalı tavanı olan 1,6'dan başlıyordu — taşıma eğiminde tek
+  // adımda %27'lik sıçrama. Tam g çekerken bu bant geçildiğinde uçak "kopuyor",
+  // AoA bir kayıt adımında 3° düşüyor ve yük faktöründe sahte bir tepe oluşuyordu.
+  // 1,05–1,18 arasında yumuşak geçiş kurulur; bandın dışında davranış aynıdır.
+  if (M < 1.18) return TRANS_PEAK + (ackeret(M, D) - TRANS_PEAK) * smoothstep(1.05, 1.18, M);
+  return ackeret(M, D);
 }
 
 // Transonik/süpersonik dalga sürüklemesi.

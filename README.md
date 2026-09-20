@@ -1,8 +1,8 @@
-# FFS — Flight Simulator (F-35A Lightning II & Airbus A321neo, PWA)
+# FFS — Flight Simulator (F-35A Lightning II, Airbus A321neo & FA-90 Vesper, PWA)
 
 iPhone Safari (iOS 17+), Android Chrome ve masaüstü tarayıcılarda çalışan, ana ekrana eklenebilen (PWA) bir uçuş simülatörü. Derleme adımı yoktur; yalnızca statik dosyalardan oluşur ve Three.js CDN üzerinden sabit sürümle yüklenir.
 
-Açılışta **uçak seçim ekranı** gelir: **F-35A Lightning II** (savaş uçağı) ve **Airbus A321neo** (dar gövdeli yolcu uçağı). Her uçağın kendi 3B modeli, kokpiti, uçuş modeli, sistemleri, sesi, arayüzü ve kamera konumları vardır.
+Açılışta **uçak seçim ekranı** gelir: **F-35A Lightning II** (savaş uçağı), **Airbus A321neo** (dar gövdeli yolcu uçağı) ve **FA-90 Vesper** (KURGUSAL 7. nesil hava üstünlüğü savaş uçağı). Her uçağın kendi 3B modeli, kokpiti, uçuş modeli, sistemleri, sesi, arayüzü ve kamera konumları vardır.
 
 ## Dosya yapısı
 
@@ -132,8 +132,8 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 
 ## Uçak seçimi
 
-- Oyun açılınca **UÇAK SEÇ** ekranı gelir. İki büyük kart yan yana durur (dar ekranda alt alta); her kartta uçağın **oyun içi modelinden anlık üretilmiş** önizlemesi, adı ve teknik bilgileri vardır. Önizlemeler dışarıdan indirilmez; `WebGLRenderTarget` ile o anda render edilir.
-- Karta dokunulduğunda yalnızca seçilen uçak sahneye kurulur: modeli, fiziği, kokpiti, sesi, HUD biçimi, arayüz düğmeleri ve kamera konumları birlikte değişir. İki uçak aynı anda sahnede bulunmaz; önceki model ve tüm kaynakları (`dispose`) serbest bırakılır.
+- Oyun açılınca **UÇAK SEÇ** ekranı gelir. Kartlar yan yana durur (dar ekranda alt alta); her kartta uçağın **oyun içi modelinden anlık üretilmiş** önizlemesi, adı ve teknik bilgileri vardır. Önizlemeler dışarıdan indirilmez; `WebGLRenderTarget` ile o anda render edilir.
+- Karta dokunulduğunda yalnızca seçilen uçak sahneye kurulur: modeli, fiziği, kokpiti, sesi, HUD biçimi, arayüz düğmeleri ve kamera konumları birlikte değişir. Birden fazla uçak aynı anda sahnede bulunmaz; önceki model ve tüm kaynakları (`dispose`) serbest bırakılır.
 - Uçuş sırasında **☰ Menü → Duraklat → Uçak Değiştir** ile seçim ekranına dönülür.
 - Yeni uçak eklemek için `js/fleet.js` içine bir yapılandırma nesnesi eklemek yeterlidir; kodun geri kalanında uçağa özel dallanma yoktur.
 
@@ -189,6 +189,40 @@ Sharklet'in kök kesiti kanadın uç kesitiyle birebir aynıdır (aynı veter, k
 - **Spool gecikmesi:** rölantiden tam güce ~8 s (F-35'te ~3,5 s). Yaklaşmada gaz verince gecikmeyi hissedersiniz.
 - **Hız freni / yer spoyleri:** havada spoyler yarım açılır (hız freni), yerde tam açılır. Temastan sonra fren komutuyla kendiliğinden devreye girer.
 - **Ters itki:** yerde, 23 kt üzerinde ve fren komutuyla açılır; hız düşünce kendiliğinden kapanır.
+
+## FA-90 Vesper (kurgusal)
+
+**Bu uçak gerçek değildir.** Hiçbir gerçek uçağın geometrisi, performans verisi ya da sistem davranışı kopyalanmamıştır; tüm sayılar bu proje için tasarlanmış tutarlı bir kurgudur. Tasarımı `js/fa90.js` (model) ve `js/aerodata.js` içindeki `FA90_AERO` (aerodinamik/itki) tanımlar.
+
+**Siluet.** Uzunluk 19,6 m, açıklık 14,8 m, yükseklik 4,54 m. Gövde açıklığın %45'i kadar geniştir ve taşıma üretir (lifting body). Kesit elmas biçimlidir: düz üst güverte, keskin **çine** kenarı, düz karın — hiçbir istasyonda dairesel kesit yoktur. 21 satırlık bir istasyon tablosu `smoothstep` ile ara değerlenir, böylece iki istasyon arasında kırık oluşmaz.
+
+**Kırık lambda hattı.** Çine burun ucundan başlar, gövdenin en geniş yerinde kırılır ve kanat hücum kenarı olarak 44°/38° ile devam eder. Firar kenarı **W biçimlidir** (iki çentik). Bu iki hat uçağın imzasıdır.
+
+**Kuyruksuz düzen.** Yatay kuyruk yoktur. Yunuslama ve yatış, yan başına ÜÇ firar kenarı yüzeyiyle yapılır: iç flaperon + iki elevon. W firar kenarının her kolu ayrı bir yüzeydir, çünkü kırık bir menteşe çizgisi etrafında dönen tek parça yüzey fiziksel olarak imkânsız olurdu; her yüzeyin menteşesi DÜZDÜR ve firar kenarından sabit veter payı geriye alınarak türetilmiştir. Sapma, arka güvertedeki 45° eğik **tam hareketli** iki yüzeyle sağlanır; ikisi de sapma komutunda aynı yöne döner.
+
+**Hava alıkları.** Çinenin altında, gövdeye gömülü DSI mantığında iki alık. Kaporta ayrı bir levha değil KAPALI BİR HACİMDİR: her istasyonda kesit, dışta kaporta yayı ile içte gövde derisini izleyen yay arasındaki halkadır. Halka lofte edildiğinde nasel kendiliğinden su geçirmez olur ve yalnızca ön uçta açık kalır — ağız budur. Ağzın önünde sıkıştırma tümseği (rampa), içinde koyu kanal ve kapak vardır.
+
+**Lüleler.** Arka güverteye gömülü iki adet 2B dikdörtgen lüle, testere dişli çıkışlı. Art yakıcıda çıkış alanı **açılır** (gerçek yakınsak-ıraksak davranış) ve üç katmanlı alev uzar.
+
+**Performans — "10 kat güçlü" nasıl yorumlandı.** İstek, her fiziksel parametreyi onla çarpmak olarak DEĞİL, genel bir oyun hedefi olarak ele alındı. Uçak şunlara sahiptir:
+
+| | değer | not |
+|---|---|---|
+| İtki (art yakıcı) | 430 kN | tam yakıtta T/W ≈ 2,0, yarı yakıtta ≈ 2,5 |
+| Süperkruvaziyer | **M 1,5** | 36 000 ft, art yakıcı KAPALI |
+| Azami Mach | **M 2,0** | yapay tavan değil: itki-sürükleme dengesi |
+| Yapısal G | +12 / −5 | FCS tavanı; ölçülen tepe 12,1 g |
+| Yatış oranı | 420°/s | yüksek AoA'da FCS tarafından kısılır |
+| AoA yetkisi | 70° sınır, 38° yumuşak | çine girdapları 45°'ye kadar tutunur |
+
+Buna karşılık uçak **konumu ya da dönüşü doğrudan oynanan bir nesne DEĞİLDİR**. Aynı rijit cisim çözücüsünden geçer ve kütle, atalet (I_xz dahil), yer çekimi, taşıma, sürükleme ve açısal momentum yasalarına uyar:
+
+- **Anlık dönüş yok.** Tam yatış komutu verildiğinde oran sıfırdan tavana bir adımda çıkmaz: ölçümde 0 → 369 → 422 → 425 °/s (0,2 s aralıklarla). Eyleyici hızı 6,0 birim/s ile sınırlıdır (tam sapma ≈ 0,17 s).
+- **Sonsuz ivme yok.** 40 000 ft'te tam art yakıcıyla düz uçuşta hız M 2,0'da itki-sürükleme dengesine oturur ve orada kalır.
+- **Enerji korunumu.** 40 000 ft'te sürekli tam çubuk manevrasında hız 340 → 226 kt düşer.
+- **Departure koruması aerodinamiktir.** Yüksek AoA'da yatış oranı tavanı (26°'den itibaren kısılır) ve koordinasyon geri beslemesi vardır; 35° AoA'da tam yatışta kayma açısı 3,9°'de kalır.
+
+**Kontrol yüzeyi animasyonu sahte değildir.** Her yüzeyin açısı doğrudan pilot girdisinden türetilir ve dünya uzayında ölçülerek doğrulanır (`fa90surf` testi): elevator üç yüzeyi de simetrik hareket ettirir, aileron onları ayrıştırır, flap yalnızca iç flaperonları sarkıtır, dümen iki eğik yüzeyi de aynı yöne döndürür, spoiler girdisi sırt frenlerini orantılı açar. Sol ve sağ yüzeyler birbirinin tam aynasıdır (menteşe ekseninin hem y hem z bileşeni yan ile işaret değiştirir).
 
 ## Dünya ve havaalanları
 
@@ -256,10 +290,11 @@ Aerodinamik her zaman **havaya göre bağıl hızla** hesaplanır, yer hızıyla
 ## Kontroller
 
 - **Sol joystick:** yunuslama ve yatış. **Sağ kaydırıcı:** gaz kolu; üstteki turuncu bölge art yakıcı.
-- **RUDDER kaydırıcısı (alt orta):** yaylı analog dümen ve burun tekeri; parmağı/fareyi bırakınca tam merkeze döner. **Takım / Fren:** aç-kapat.
-- **FLAPS kolu (sol alt):** gerçek bir kol gibi çalışan dikey kaydırıcı. Yukarı 0 (temiz), aşağı son kademe; sürüklerken en yakın kademeye oturur, ize dokunmak da o kademeye atlar. Topuz kademe adını ve **flap açısını** gösterir (A321neo: 0 / 1 = 10° / 2 = 15° / 3 = 20° / FULL = 40°). Kol her uçuşta **0'da** başlar. Klavyedeki **F** kademeleri sırayla gezer; kol onu da izler.
+- **Alt sol kümede soldan sağa sıra: RUDDER → JOYSTICK → FLAPS.** Üçünün konumu `index.html` içindeki tek bir ölçü setinden (`--rud-w`, `--stk-d`, `--flp-w`, `--ctl-gap`) türetilir; `clamp()` sayesinde ekran daraldıkça ölçüler orantılı küçülür ve denetimler üst üste binmez. Güvenli alan payları (`env(safe-area-inset-*)`) her üçüne de uygulanır, böylece iPhone çentiği ve alt çubuk hiçbir denetimi kesmez.
+- **RUDDER kaydırıcısı (kümenin en solu):** yaylı analog dümen ve burun tekeri; parmağı/fareyi bırakınca tam merkeze döner. **Takım / Fren:** aç-kapat.
+- **FLAPS kolu (joystickin sağında):** gerçek bir kol gibi çalışan dikey kaydırıcı. Yukarı 0 (temiz), aşağı son kademe; sürüklerken en yakın kademeye oturur, ize dokunmak da o kademeye atlar. Topuz kademe adını ve **flap açısını** gösterir (A321neo: 0 / 1 = 10° / 2 = 15° / 3 = 20° / FULL = 40°; FA-90: UP / MVR = 9° / LAND = 18°). Kol her uçuşta **0'da** başlar. Klavyedeki **F** kademeleri sırayla gezer; kol onu da izler.
 - **☰ Menü (sol üst):** Duraklat, Kamera, Ses ve Işık düğmeleri bu çekmecede toplanır; dokununca yumuşak bir geçişle açılır, 7 s hareketsizlikte veya duraklatınca kendini kapatır. Ekranda sürekli yalnızca uçuş için gerekli kontroller kalır. Çekmece açıkken joystick alanı onun altından başlar, böylece uçuş girişi ile menü dokunuşları çakışmaz.
-- **Spoilers (yalnızca A321neo):** hız freni / yer spoyleri kolu. Klavyede **V**.
+- **Spoilers (A321neo ve FA-90):** hız freni / yer spoyleri. A321neo'da kanat üstü spoyler, FA-90'da sırt hava frenleri. Klavyede **V**.
 - **Kalkış durumu:** uçak piste **fren basılı DEĞİL**, gaz rölantide ve **flap 0** ile doğar. Yerinde durmasını fren değil, aşağıda anlatılan kopma sürtünmesi sağlar.
 - **Uçak ve kamera düğmeleri İngilizcedir:** `Flaps`, `Spoilers`, `Camera`, `Landing Gear`. Kamera modu adları da İngilizcedir (CHASE / COCKPIT / FREE / FLYBY / LEFT WING / RIGHT WING / LANDING GEAR).
 - **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır) → uçuş geçişi (sabit dış kamera, Doppler sesi) → sol kanat → sağ kanat → iniş takımı. Kanat ve takım görünümleri gövdeye sabittir ve her uçak için ayrı konumlanır. Tam HUD yalnızca kokpit görünümünde çizilir; tüm dış görünümlerde üst ortada kompakt bir şerit sürekli **IAS / ALT / VS / HDG** gösterir, A321neo'da ayrıca **THR / GEAR / FLAP / SPD BRK / WIND**; altında kısa uyarılar (STALL, İNİŞ TAKIMI) çıkar. Dar ekranda sığmayan alanlar sondan düşer.

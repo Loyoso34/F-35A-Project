@@ -40,7 +40,11 @@ export class Engine {
     const sigma = atm.rho / RHO0;
     let ram = 1 + D.ramA * mach + (D.ramB || 0) * mach * mach;
     if (D.thrustFloor !== undefined) ram = Math.max(D.thrustFloor, ram);
-    const lapse = Math.pow(Math.max(0.02, sigma), D.thrustRhoExp) * Math.max(0.05, ram);
+    // Yoğunluk sıfıra giderken itki de SIFIRA gitmelidir. Eskiden sigma için 0,02
+    // tabanı vardı; ~100 000 ft üzerinde sürükleme sıfıra yaklaşırken itki sabit
+    // kaldığı için uçak sınırsız hızlanabiliyordu (ölçümde M > 100). pow(0, 0.78)
+    // tanımlı ve sıfırdır, dolayısıyla sayısal bir tehlike yok.
+    const lapse = Math.pow(Math.max(0, sigma), D.thrustRhoExp) * Math.max(0.05, ram);
 
     const Tmil = D.thrustMil * lapse;
     let T = Tmil * (D.idleFrac + (1 - D.idleFrac) * this.n);
