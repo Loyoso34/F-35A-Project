@@ -194,16 +194,27 @@ export const FA90_AERO = {
   get AR() { return this.span * this.span / this.S; },   // 2.81
 
   // --- Kütle [F] ---
-  massEmpty: 12800,                  // kg
-  fuel: 9600,                        // kg
+  // ÖLÇÜM: 22,4 t'da kanat yükü 287 kg/m² çıkıyordu — modern hiçbir savaş uçağı
+  // bu kadar hafif yüklü değildir (F-16 ~430, F-22 ~375, Su-57 ~370, F-35 ~525).
+  // Stall hızı 82 kt'a iniyor, uçak süzülüyor ve yüksek AoA'da havada asılı
+  // kalabiliyordu. 19,6 m boyundaki bir uçak için 29 t doğru büyüklüktür
+  // (F-22: 19,0 m / ~29 t). Kanat yükü 372 kg/m² olur.
+  massEmpty: 17600,                  // kg
+  fuel: 11400,                       // kg
 
   // --- Atalet [F] — kütle merkezde yoğun bir taşıyan gövde varsayımı ---
-  Ixx: 58000, Iyy: 292000, Izz: 338000, Ixz: 4600,   // kg·m²
+  // Atalet kütleyle birlikte ölçeklendi (x1,45): açısal ivme düşer, uçak
+  // girdilere daha AĞIR ve yumuşak tepki verir.
+  Ixx: 84000, Iyy: 424000, Izz: 490000, Ixz: 6700,   // kg·m²
 
   // --- Taşıma: Polhamus ---
-  Kp: 3.40,                          // [F] πAR/(1+√(1+(AR/2)²)) + gövde katkısı
-  CLalpha: 3.40,
-  Kv: 3.40,                          // [F] CLmax ≈ 2.1 @ ~48° AoA
+  // CLmax 2,565 ölçülmüştü (F-35 2,206). Çineli taşıyan gövde yüksek CLmax
+  // üretir ama bu kadarı değil; 3,05 ile CLmax ~2,30'a iner.
+  // CLalpha = Kp olmak ZORUNDA (clVortex'in alpha=0'daki eğimi tam Kp'dir);
+  // FCS birim AoA başına g'yi buradan hesaplar.
+  Kp: 3.05,                          // [F] πAR/(1+√(1+(AR/2)²)) + gövde katkısı
+  CLalpha: 3.05,
+  Kv: 3.05,                          // [F] CLmax ≈ 2.30 @ ~44° AoA
   vortexBurst: 0.42, burstA0: 52 * DEG, burstA1: 88 * DEG,
   alphaPeak: 48 * DEG,
   CLref: 1.0, CLsupK: 1.02,
@@ -215,7 +226,9 @@ export const FA90_AERO = {
   hiA0: 46 * DEG, hiA1: 70 * DEG, CmHiAlpha: 0.11,
 
   // --- Sürükleme [F] ---
-  CD0: 0.0122,                       // çok temiz, tam gömülü silah yuvaları
+  // L/D max 12,92 ölçülmüştü (F-35 10,61). AR 2,8'lik süpersonik bir delta için
+  // ~11,4 daha doğru; uçak bu kadar kolay enerji kazanmamalı.
+  CD0: 0.0150,                       // temiz, tam gömülü silah yuvaları
   e: 0.84, eFlaps: 0.78,
   CDgear: 0.021,
   CDflaps: 0.016, CLflaps: 0.40,
@@ -249,7 +262,10 @@ export const FA90_AERO = {
   Cndr: -0.110,                      // tam hareketli eğik dikey yüzeyler
   Cnda: -0.006,
   rollAsym: 0.062,
-  ClpTotal: -0.355,
+  // ClpTotal = Clp + (-rollAsym * 1,28 * Kp) = -0,085 - 0,062*1,28*3,05
+  // Kp değiştiği için BU DA güncellenmek zorundadır, yoksa yatış sönümü kendi
+  // içinde tutarsız kalır ve yatış oranı ıraksayabilir.
+  ClpTotal: -0.327,
 
   // --- Motor: 2 x kurgusal uyarlanabilir çevrimli turbofan [F] ---
   thrustMil: 300000,                 // N (2 x 150 kN)
@@ -272,8 +288,11 @@ export const FA90_AERO = {
 
   // --- Limitler [F] ---
   gMax: 12.0, gMin: -5.0,
-  alphaLimit: 70 * DEG,
-  alphaSoft: 38 * DEG,
+  // 70°/38° gerçek bir FBW için aşırıydı: pilot uçağı sürekli aşırı AoA'da
+  // uçurabiliyordu. 52°/30° hâlâ yüksek yetki (F-16 ~25°) ama girdap taşımalı
+  // bu tasarım için savunulabilir ve "aşırı AoA'da normal uçma"yı bitirir.
+  alphaLimit: 52 * DEG,
+  alphaSoft: 30 * DEG,
   // 420°/s fazla çevikti; 320°/s hâlâ F-35'in ölçülen 274°/s'sinin belirgin
   // üstünde ama daha yönetilebilir. Bu bir FCS oran tavanıdır — aerodinamik
   // yatış yetkisi (Clda) değişmedi, uçak tavana biraz daha yumuşak oturur.

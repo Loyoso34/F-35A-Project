@@ -117,7 +117,7 @@ const FA90_CFG = {
   id: 'fa90',
   name: 'FA-90 Vesper',
   sub: 'Single-seat 7th-generation air-dominance fighter (fictional)',
-  specs: ['Length 19.6 m', 'Wingspan 14.8 m', 'Supercruise M 1.5'],
+  specs: ['Length 19.6 m', 'MTOW 29 t', 'Supercruise M 1.4'],
   accent: '#c07bff',
   build: (o) => new FA90Vesper(o),
   geom: {

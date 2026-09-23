@@ -194,7 +194,7 @@ Sharklet'in kök kesiti kanadın uç kesitiyle birebir aynıdır (aynı veter, k
 
 **Bu uçak gerçek değildir.** Hiçbir gerçek uçağın geometrisi, performans verisi ya da sistem davranışı kopyalanmamıştır; tüm sayılar bu proje için tasarlanmış tutarlı bir kurgudur. Tasarımı `js/fa90.js` (model) ve `js/aerodata.js` içindeki `FA90_AERO` (aerodinamik/itki) tanımlar.
 
-**Siluet.** Uzunluk 19,6 m, açıklık 14,8 m, yükseklik 4,54 m. Gövde açıklığın %45'i kadar geniştir ve taşıma üretir (lifting body). Kesit elmas biçimlidir: düz üst güverte, keskin **çine** kenarı, düz karın — hiçbir istasyonda dairesel kesit yoktur. 21 satırlık bir istasyon tablosu `smoothstep` ile ara değerlenir, böylece iki istasyon arasında kırık oluşmaz.
+**Siluet.** Uzunluk 19,6 m, açıklık 14,8 m, yükseklik 4,54 m, azami kalkış ağırlığı 29 t. Gövde açıklığın %45'i kadar geniştir ve taşıma üretir (lifting body). Kesit elmas biçimlidir: düz üst güverte, keskin **çine** kenarı, düz karın — hiçbir istasyonda dairesel kesit yoktur. 21 satırlık bir istasyon tablosu `smoothstep` ile ara değerlenir, böylece iki istasyon arasında kırık oluşmaz.
 
 **Kırık lambda hattı.** Çine burun ucundan başlar, gövdenin en geniş yerinde kırılır ve kanat hücum kenarı olarak 44°/38° ile devam eder. Firar kenarı **W biçimlidir** (iki çentik). Bu iki hat uçağın imzasıdır.
 
@@ -202,25 +202,30 @@ Sharklet'in kök kesiti kanadın uç kesitiyle birebir aynıdır (aynı veter, k
 
 **Hava alıkları.** Çinenin altında, gövdeye gömülü DSI mantığında iki alık. Kaporta ayrı bir levha değil KAPALI BİR HACİMDİR: her istasyonda kesit, dışta kaporta yayı ile içte gövde derisini izleyen yay arasındaki halkadır. Halka lofte edildiğinde nasel kendiliğinden su geçirmez olur ve yalnızca ön uçta açık kalır — ağız budur. Ağzın önünde sıkıştırma tümseği (rampa), içinde koyu kanal ve kapak vardır.
 
-**Lüleler.** Arka güverteye gömülü iki adet 2B dikdörtgen lüle, testere dişli çıkışlı. Art yakıcıda çıkış alanı **açılır** (gerçek yakınsak-ıraksak davranış) ve üç katmanlı alev uzar.
+**Motor bölümü ve lüleler.** Arka gövde iki motoru GERÇEKTEN saran kapalı bir yapıdır. Her motor üç parçadır ve sınır halkaları birebir ortaktır, dolayısıyla birleşim su geçirmezdir: (1) gövdenin içinden başlayıp çıkışta boat-tail yapan dış nasel kabuğu — arka gövdeye "motor omuzu" hacmini bu verir, (2) testere dişli dudak bandı; art yakıcıda çıkış alanı **açılır** (gerçek yakınsak-ıraksak davranış), (3) 2,4 m derinliğinde iç kanal + konik türbin yüzü + merkez gövde (plug), hepsi iki yüzlü koyu malzemeyle — egzozun içine bakıldığında dünya değil KARANLIK görünür. Üç katmanlı alev bunun üzerine biner.
+
+**Mesh bütünlüğü.** `loft()` yalnızca halkalar ARASINI örer; ilk ve son halka açık kalır. Bu yüzden `ringCap()` eklendi ve açıkta kalan her loft ucu (kanat ve kontrol yüzeyi uçları, dikey yüzey kökü/ucu, çine dudağı, sırt omurgası, nasel önü, türbin konisi tepesi) kapatılır; sarım yönü Newell normaliyle otomatik seçildiği için ters normal oluşmaz. Ayrıca sabit kanadın menteşe hattındaki kesik yüzü şeritle kapatılır ve karın kapakları tek yüzeyli levha yerine ince kapalı plakadır. Ölçüm: arka açılardan taranan ışınlarda tek parite (gövdeye girip çıkamayan ışın) oranı **%28 → %11**.
 
 **Performans — "10 kat güçlü" nasıl yorumlandı.** İstek, her fiziksel parametreyi onla çarpmak olarak DEĞİL, genel bir oyun hedefi olarak ele alındı. Uçak şunlara sahiptir:
 
 | | değer | not |
 |---|---|---|
-| İtki (art yakıcı) | 430 kN | tam yakıtta T/W ≈ 2,0, yarı yakıtta ≈ 2,5 |
-| Süperkruvaziyer | **M 1,5** | 36 000 ft, art yakıcı KAPALI |
-| Azami Mach | **M 2,0** | yapay tavan değil: itki-sürükleme dengesi |
+| Kütle (tam yakıt) | 29,0 t | kanat yükü 372 kg/m² (F-22 ~375, Su-57 ~370) |
+| İtki (art yakıcı) | 430 kN | tam yakıtta T/W ≈ 1,5 |
+| Süperkruvaziyer | **M 1,44** | 36 000 ft, art yakıcı KAPALI (ölçüm) |
+| Azami Mach | **M 1,93** | yapay tavan değil: itki-sürükleme dengesi (ölçüm) |
+| CLmax / L/D max | 2,30 / 11,7 | F-35: 2,21 / 10,6 |
+| Stall hızı | 99 kt | deniz seviyesi, temiz (F-35: 118 kt) |
 | Yapısal G | +12 / −5 | FCS tavanı; ölçülen tepe 12,1 g |
 | Yatış oranı | 320°/s | FCS oran tavanı; yüksek AoA'da ayrıca kısılır |
-| AoA yetkisi | 70° sınır, 38° yumuşak | çine girdapları 45°'ye kadar tutunur |
+| AoA yetkisi | 52° sınır, 30° yumuşak | girdap taşıması için yüksek ama sınırsız değil |
 
 Buna karşılık uçak **konumu ya da dönüşü doğrudan oynanan bir nesne DEĞİLDİR**. Aynı rijit cisim çözücüsünden geçer ve kütle, atalet (I_xz dahil), yer çekimi, taşıma, sürükleme ve açısal momentum yasalarına uyar:
 
 - **Anlık dönüş yok.** Tam yatış komutu verildiğinde oran sıfırdan tavana bir adımda çıkmaz: ölçümde kademeli yükselir (0,2 s aralıklarla örneklenmiştir). Eyleyici hızı 6,0 birim/s ile sınırlıdır (tam sapma ≈ 0,17 s).
 - **Sonsuz ivme yok.** 40 000 ft'te tam art yakıcıyla düz uçuşta hız M 2,0'da itki-sürükleme dengesine oturur ve orada kalır.
-- **Enerji korunumu.** 40 000 ft'te sürekli tam çubuk manevrasında hız 340 → 226 kt düşer.
-- **Departure koruması aerodinamiktir.** Yüksek AoA'da yatış oranı tavanı (26°'den itibaren kısılır) ve koordinasyon geri beslemesi vardır; 35° AoA'da tam yatışta kayma açısı 3,9°'de kalır.
+- **Enerji korunumu.** 40 000 ft'te sürekli tam çubuk manevrasında hız 337 → 308 kt düşer.
+- **Departure koruması aerodinamiktir.** Yüksek AoA'da yatış oranı tavanı (26°'den itibaren kısılır) ve koordinasyon geri beslemesi vardır; 35° AoA'da tam yatışta kayma açısı 10,7°'de kalır ve dümen darbesinden sonra 0,1°'ye toparlar.
 
 **Kontrol yüzeyi animasyonu sahte değildir.** Her yüzeyin açısı doğrudan pilot girdisinden türetilir ve dünya uzayında ölçülerek doğrulanır (`fa90surf` testi): elevator üç yüzeyi de simetrik hareket ettirir, aileron onları ayrıştırır, flap yalnızca iç flaperonları sarkıtır, dümen iki eğik yüzeyi de aynı yöne döndürür, spoiler girdisi sırt frenlerini orantılı açar. Sol ve sağ yüzeyler birbirinin tam aynasıdır (menteşe ekseninin hem y hem z bileşeni yan ile işaret değiştirir).
 

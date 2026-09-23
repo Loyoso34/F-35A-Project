@@ -203,6 +203,41 @@ export class FA90Vesper {
 
   sectionPoints(s) { return halfSection(sectAt(s)).map((q) => ({ x: q.x, y: q.y, z: st(s) })); }
 
+  // Kapalı bir loft halkasını üçgen yelpazeyle kapatır.
+  //
+  // NEDEN: loft() yalnızca halkalar ARASINI örer; ilk ve son halka AÇIK kalır.
+  // Mesh denetiminde gövdede 158 m açık kenar ve arka açılardan gelen ışınların
+  // %28'inde TEK parite (= ışın gövdeye girip çıkamıyor) bunun sonucuydu.
+  // Artık açıkta kalan her loft ucu buradan geçirilir.
+  //
+  // Sarım yönü Newell normali ile otomatik seçilir, böylece kapak her zaman
+  // DIŞA bakar ve ters normal / backface sorunu oluşmaz.
+  ringCap(ring, outward) {
+    const n = ring.length;
+    let cx = 0, cy = 0, cz = 0;
+    for (const q of ring) { cx += q.x / n; cy += q.y / n; cz += q.z / n; }
+    let nx = 0, ny = 0, nz = 0;
+    for (let i = 0; i < n; i++) {
+      const a = ring[i], b = ring[(i + 1) % n];
+      nx += (a.y - b.y) * (a.z + b.z);
+      ny += (a.z - b.z) * (a.x + b.x);
+      nz += (a.x - b.x) * (a.y + b.y);
+    }
+    const flip = (nx * outward.x + ny * outward.y + nz * outward.z) < 0;
+    const pos = [cx, cy, cz], idx = [];
+    for (const q of ring) pos.push(q.x, q.y, q.z);
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      if (flip) idx.push(0, i + 1, j + 1); else idx.push(0, j + 1, i + 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3 * 2), 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  }
+
   buildFuselage() {
     // İstasyon adımı burunda sık (eğrilik yoğun), gövde ortasında seyrek.
     const S = [];
@@ -254,6 +289,8 @@ export class FA90Vesper {
         ];
       });
       this.paintGeos.push(ensureOutward(loft(rows, { uScale: 2, vScale: 1, closeRing: true }), (v, o) => o.set(side * bodyChineX(v.z + FA90.cgStation) * 0.6, v.y, v.z)));
+      this.paintGeos.push(this.ringCap(rows[0], new THREE.Vector3(0, 0, -1)));
+      this.paintGeos.push(this.ringCap(rows[rows.length - 1], new THREE.Vector3(0, 0, 1)));
     }
   }
 
@@ -432,9 +469,14 @@ export class FA90Vesper {
         const a = Math.PI * (i / 8);
         ring.push({ x: Math.cos(a) * w, y: deck + h * Math.pow(Math.sin(a), 0.85), z: st(s) });
       }
+      // Halkayı güverte hattı boyunca geri kapat: yarım kemer açık kalırsa omurga
+      // tek yüzeyli bir kabuk olur ve yandan bakınca altı boş görünür.
+      for (let i = 7; i >= 1; i--) ring.push({ x: Math.cos(Math.PI * (i / 8)) * w, y: deck + 0.004, z: st(s) });
       spine.push(ring);
     }
-    this.paintGeos.push(ensureOutward(loft(spine, { uScale: 1.5, vScale: 1 }), (v, o) => o.set(0, bodyTop(v.z + FA90.cgStation), v.z)));
+    this.paintGeos.push(ensureOutward(loft(spine, { uScale: 1.5, vScale: 1, closeRing: true }), (v, o) => o.set(0, bodyTop(v.z + FA90.cgStation), v.z)));
+    this.paintGeos.push(this.ringCap(spine[0], new THREE.Vector3(0, 0, -1)));
+    this.paintGeos.push(this.ringCap(spine[spine.length - 1], new THREE.Vector3(0, 0, 1)));
     // Kokpit içi: koltuk, gösterge kaidesi, pilot
     const pilotParts = [];
     const inner = new THREE.Mesh(this.track(new THREE.BoxGeometry(0.88, 0.58, 2.9)), this.m.cockpit);
@@ -464,7 +506,27 @@ export class FA90Vesper {
       const le = wingLE(x), te = wingTE(x), chord = te - le, y = wingY(x);
       return airfoilPoints(K, chord, wingThick(x), cs(x), ce(x)).map((p) => ({ x: side * x, y: y + p.y, z: st(le + chord * p.c) }));
     });
-    return ensureOutward(loft(rows, { uScale: 2, vScale: 1 }));
+    // Profil kesiti kapalı bir döngüdür (NACA kalınlığı c=1'de tam sıfırdır), bu
+    // yüzden iki uç da yelpaze ile kapatılabilir. Kapatılmadığında kanat ucundan
+    // ve her kontrol yüzeyinin YANINDAN gövdenin içi görünüyordu.
+    const geos = [ensureOutward(loft(rows, { uScale: 2, vScale: 1 }))];
+    geos.push(this.ringCap(rows[0], new THREE.Vector3(-side, 0, 0)));
+    geos.push(this.ringCap(rows[rows.length - 1], new THREE.Vector3(side, 0, 0)));
+    // Kesit c = ce'de kalınlığı sıfır olmadan biterse profil AÇIK bir eğridir ve
+    // menteşe hattı boyunca yarık kalır. Üst ve alt uç noktalarını birleştiren
+    // şerit bu kesik yüzü (yüzeyin gövdeye bakan dik duvarı) kapatır.
+    const openAt = rows.map((r) => Math.hypot(r[0].y - r[r.length - 1].y, r[0].z - r[r.length - 1].z) > 1e-4);
+    let run = [];
+    const flushRun = () => {
+      if (run.length >= 2) geos.push(ensureOutward(loft(run, { uScale: 1, vScale: 1 }), (v, o) => o.set(v.x, v.y, v.z - 1)));
+      run = [];
+    };
+    for (let j = 0; j < rows.length; j++) {
+      if (openAt[j]) run.push([rows[j][0], rows[j][rows[j].length - 1]]);
+      else flushRun();
+    }
+    flushRun();
+    return mergeGeometries(geos.map((g) => (g.index ? g.toNonIndexed() : g)), false);
   }
 
   buildWings() {
@@ -496,7 +558,9 @@ export class FA90Vesper {
         const hz = hingeZ(sf.h, xm);
         const sxs = [];
         const n = Math.max(2, Math.round((sf.x1 - sf.x0) / 0.5));
-        for (let j = 0; j <= n; j++) sxs.push(sf.x0 + 0.012 + (sf.x1 - sf.x0 - 0.024) * (j / n));
+        // Yanal pay 12 mm iken menteşe hattında gökyüzü görünen yarıklar kalıyordu
+        // (magenta testinde kanatta ince magenta çizgiler). 4 mm'ye indirildi.
+        for (let j = 0; j <= n; j++) sxs.push(sf.x0 + 0.004 + (sf.x1 - sf.x0 - 0.008) * (j / n));
         const geo = this.wingPanel(side, sxs, (x) => cfrac(sf.h, x) - 0.004, one, 6);
         geo.translate(-side * xm, -wingY(xm), -st(hz));
         geo.computeVertexNormals();
@@ -550,7 +614,12 @@ export class FA90Vesper {
           return { x: q.x, y: q.y, z: st(le + chord * p.c) - st(hRoot) };
         }));
       }
-      const geo = ensureOutward(loft(rows, { uScale: 1.6, vScale: 1 }));
+      const upv = new THREE.Vector3().copy(up);
+      const geo = mergeGeometries([
+        ensureOutward(loft(rows, { uScale: 1.6, vScale: 1 })),
+        this.ringCap(rows[0], upv.clone().negate()),
+        this.ringCap(rows[rows.length - 1], upv.clone()),
+      ].map((g) => (g.index ? g.toNonIndexed() : g)), false);
       geo.translate(-side * F.x, -y0, 0);
       geo.computeVertexNormals();
       const mesh = new THREE.Mesh(this.track(geo), this.m.paint);
@@ -578,8 +647,12 @@ export class FA90Vesper {
         for (let i = Nx; i >= 0; i--) { const x = X0 + (X1 - X0) * (i / Nx); ring.push({ x: side * x, y: upperY(s, x) + 0.008, z: st(s) }); }
         rows.push(ring);
       }
-      const geo = ensureOutward(loft(rows, { uScale: 1.4, vScale: 1, closeRing: true }),
-        (v, o) => o.set(v.x, upperY(v.z + FA90.cgStation, v.x) + 0.024, v.z));
+      const geo = mergeGeometries([
+        ensureOutward(loft(rows, { uScale: 1.4, vScale: 1, closeRing: true }),
+          (v, o) => o.set(v.x, upperY(v.z + FA90.cgStation, v.x) + 0.024, v.z)),
+        this.ringCap(rows[0], new THREE.Vector3(0, 0, -1)),
+        this.ringCap(rows[rows.length - 1], new THREE.Vector3(0, 0, 1)),
+      ].map((g) => (g.index ? g.toNonIndexed() : g)), false);
       geo.translate(0, -hy, -st(S0));
       geo.computeVertexNormals();
       const pivot = new THREE.Group();
@@ -609,13 +682,19 @@ export class FA90Vesper {
       return out;
     };
     const NRING = 24, POW = 3.6;
-    const innerMat = this.track(new THREE.MeshStandardMaterial({ color: 0x1e2024, roughness: 0.78, metalness: 0.65, side: THREE.BackSide }));
+    // Kanal İKİ YÜZLÜ olmalı: BackSide iken uzak duvarın görünüp görünmemesi loft
+    // sarım yönüne bağlıydı ve arkadan/alttan bakınca lülenin içinden GÖKYÜZÜ
+    // görünüyordu (magenta arka plan testinde iki lüle de tamamen şeffaf çıktı).
+    // DoubleSide bu bağımlılığı tümden kaldırır.
+    const innerMat = this.track(new THREE.MeshStandardMaterial({ color: 0x1e2024, roughness: 0.78, metalness: 0.65, side: THREE.DoubleSide }));
     innerMat.emissive = new THREE.Color(0xff4a10);
     innerMat.emissiveIntensity = 0;
     this.matNozzleInner = innerMat;
     this.matGlow = this.track(new THREE.MeshBasicMaterial({ color: 0xff6a20, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
     const petalMat = this.track(this.m.metal.clone());
     petalMat.side = THREE.DoubleSide;
+    // Türbin yüzü içeriden görülür: tek malzeme, iki lüle paylaşır (ek çizim yok)
+    const darkBothMat = this.track(new THREE.MeshStandardMaterial({ color: 0x0a0b0d, roughness: 0.95, metalness: 0.3, side: THREE.DoubleSide }));
 
     // Alev malzemeleri iki lüle tarafından PAYLAŞILIR (tek uniform seti, tek çizim maliyeti)
     const noiseTex = this.track(makeFlameNoiseTexture(128));
@@ -680,53 +759,80 @@ export class FA90Vesper {
 
     for (const side of [-1, 1]) {
       const cx = side * NZ.x;
-      // Dış kaporta: güverteye gömülü yükselti — gövdeyle boşluksuz birleşir
-      const shroud = [];
-      for (let j = 0; j <= 6; j++) {
-        const t = j / 6, s = NZ.s0 - 1.1 + (NZ.s1 - (NZ.s0 - 1.1)) * t;
-        const g = Math.sin(Math.PI * Math.min(1, t * 1.15)) ** 0.6;
-        shroud.push(rr(cx, NZ.y, (NZ.w + 0.11) * (0.55 + 0.45 * g), (NZ.h + 0.10) * (0.55 + 0.45 * g), NRING, POW)
-          .map((q) => ({ x: q.x, y: q.y, z: st(s) })));
-      }
-      this.paintGeos.push(ensureOutward(loft(shroud, { uScale: 1.2, vScale: 1, closeRing: true }), (v, o) => o.set(cx, NZ.y, v.z)));
-      // İç kanal: hafifçe daralır (yakınsak), iç yüzey BackSide
-      const duct = [];
-      for (let j = 0; j <= 4; j++) {
-        const t = j / 4, s = NZ.s0 + (NZ.s1 - NZ.s0) * t;
-        const k = 1 - 0.13 * Math.sin(Math.PI * t) ** 1.4;
-        duct.push(rr(cx, NZ.y, NZ.w * k, NZ.h * k, NRING, POW).map((q) => ({ x: q.x, y: q.y, z: st(s) })));
-      }
-      this.group.add(new THREE.Mesh(this.track(loft(duct, { uScale: 1, vScale: 1, closeRing: true })), innerMat));
-      // Türbin diski ve parıltı
-      const disc = new THREE.CircleGeometry(NZ.w * 0.92, 20);
-      disc.scale(1, NZ.h / NZ.w, 1);
-      disc.translate(cx, NZ.y, st(NZ.s0 + 0.06));
-      this.group.add(new THREE.Mesh(this.track(disc), this.m.dark));
-      const glow = new THREE.CircleGeometry(NZ.w * 0.80, 18);
-      glow.scale(1, NZ.h / NZ.w, 1);
-      glow.translate(cx, NZ.y, st(NZ.s1 - 0.30));
-      this.group.add(new THREE.Mesh(this.track(glow), this.matGlow));
-      // Testere dişli çıkış yaprakları: art yakıcıda lüle alanı AÇILIR (gerçek etki)
-      const ring = rr(cx, NZ.y, NZ.w, NZ.h, NRING, POW);
-      const tris = [];
-      for (let i = 0; i < NRING; i++) {
-        const a = ring[i], b = ring[(i + 1) % NRING];
-        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-        const ex = cx + (mx - cx) * 1.03, ey = NZ.y + (my - NZ.y) * 1.03;
-        const g = new THREE.BufferGeometry();
-        g.setAttribute('position', new THREE.Float32BufferAttribute([
-          a.x - cx, a.y - NZ.y, 0, b.x - cx, b.y - NZ.y, 0,
-          ex - cx, ey - NZ.y, (i % 2 === 0 ? NZ.tooth : NZ.tooth * 0.45),
-        ], 3));
-        g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0.5, 1], 2));
-        g.setIndex([0, 1, 2]);
-        g.computeVertexNormals();
-        tris.push(g);
-      }
-      const petals = new THREE.Mesh(this.track(mergeGeometries(tris.map((g) => g.toNonIndexed()), false)), petalMat);
-      petals.position.set(cx, NZ.y, st(NZ.s1));
+      // ---- MOTOR GÖVDESİ ------------------------------------------------
+      // ESKİ YAPI HATASI: kaporta profili g = sin(pi*t)^0.6 ile İKİ UÇTA da
+      // 0,55'e kısılıyordu. Çıkışta kaporta iç kanaldan DAHA DAR kalıyor, lüle
+      // gövdeden ayrık çıplak bir boru gibi görünüyordu; önde de deriye karışmadığı
+      // için arada açıklık kalıyordu. Üstelik boru iki uçta da KAPAKSIZDI (loft
+      // yalnızca halkalar arasını örer), bu yüzden arkadan bakınca gövdenin içi
+      // ve gökyüzü görünüyordu.
+      //
+      // YENİ YAPI üç parçadır ve SINIR HALKALARI BİREBİR ORTAKTIR, birleşim
+      // su geçirmezdir:
+      //   1) dış nasel kabuğu (boya)        — gövde içinden başlar, çıkışta boat-tail
+      //   2) testere dişli dudak bandı      — art yakıcıda açılan hareketli parça
+      //   3) iç kanal + türbin yüzü (koyu)  — 2,4 m derinlik, BackSide
+      const OW = NZ.w + 0.20, OH = NZ.h + 0.17;
+      const ringAt = (sv, w, h) => rr(cx, NZ.y, w, h, NRING, POW).map((q) => ({ x: q.x, y: q.y, z: st(sv) }));
+      const nacRef = (v, o) => o.set(cx, NZ.y, v.z);
+      // 1) Nasel kabuğu: önde gövdeye gömülü küçük kesitten çıkıştaki tam kesite
+      //    büyür, sonra hafif boat-tail ile daralır. Bu hacim aynı zamanda arka
+      //    gövdeye "motor omuzu" dolgunluğunu verir.
+      const SHELL = [[14.90, 0.26], [15.80, 0.58], [16.70, 0.84], [17.60, 0.98],
+                     [18.40, 1.02], [19.10, 1.00], [19.62, 0.95]];
+      const shell = SHELL.map(([sv, k]) => ringAt(sv, OW * k, OH * k));
+      this.paintGeos.push(ensureOutward(loft(shell, { uScale: 1.4, vScale: 1, closeRing: true }), nacRef));
+      this.paintGeos.push(this.ringCap(shell[0], new THREE.Vector3(0, 0, -1)));
+      // 2) Dudak bandı: dış halka -> testere dişi ucu -> iç halka. YEREL koordinatta
+      //    kurulur, böylece art yakıcıda merkezden dışa ölçeklenebilir (alan açılması).
+      const PZ = st(NZ.s1);
+      const lring = (dz, w, h) => rr(0, 0, w, h, NRING, POW).map((q) => ({ x: q.x, y: q.y, z: dz }));
+      const pOut = lring(st(19.62) - PZ, OW * 0.95, OH * 0.95);
+      const pIn = lring(st(19.64) - PZ, NZ.w, NZ.h);
+      const pTip = pOut.map((q, i) => {
+        const r = pIn[i], k = (i % 2 === 0) ? NZ.tooth : NZ.tooth * 0.42;
+        return { x: q.x + (r.x - q.x) * 0.5, y: q.y + (r.y - q.y) * 0.5, z: st(19.63) - PZ + k };
+      });
+      const petals = new THREE.Mesh(
+        this.track(ensureOutward(loft([pOut, pTip, pIn], { uScale: 1, vScale: 1, closeRing: true }), (v, o) => o.set(0, 0, v.z))),
+        petalMat);
+      petals.position.set(cx, NZ.y, PZ);
+      petals.castShadow = true;
       this.group.add(petals);
       this.nozzlePetals.push(petals);
+      // 3) İç kanal: çıkıştan 2,4 m İLERİ çekilir. Derinlik şart — içeri bakıldığında
+      //    dünya ya da eksik poligon değil KARANLIK görünmeli.
+      const DS = [[19.64, 1.00], [19.30, 0.93], [18.80, 0.90], [18.20, 0.97], [17.60, 1.04], [17.24, 1.06]];
+      this.group.add(new THREE.Mesh(
+        this.track(loft(DS.map(([sv, k]) => ringAt(sv, NZ.w * k, NZ.h * k)), { uScale: 1, vScale: 1, closeRing: true })),
+        innerMat));
+      // Türbin / alev tutucu yüzü: düz disk değil, içe ve öne giden konik yüzey,
+      // böylece kanalın dibi "dipsiz" görünmez.
+      const turbRows = [
+        ringAt(17.24, NZ.w * 1.06, NZ.h * 1.06),
+        ringAt(17.20, NZ.w * 0.62, NZ.h * 0.62),
+        ringAt(16.96, NZ.w * 0.30, NZ.h * 0.30),
+        ringAt(16.86, NZ.w * 0.10, NZ.h * 0.10),
+      ];
+      this.group.add(new THREE.Mesh(this.track(mergeGeometries([
+        loft(turbRows, { uScale: 1, vScale: 1, closeRing: true }),
+        // Koninin TEPESİ de kapatılır, yoksa ortada iğne deliği kadar bir açıklık
+        // kalır ve tünel "dipsiz" görünür.
+        this.ringCap(turbRows[turbRows.length - 1], new THREE.Vector3(0, 0, -1)),
+      ].map((g) => (g.index ? g.toNonIndexed() : g)), false)), darkBothMat));
+      // Merkez gövde (plug): kanalın dibinde durur, tünele derinlik ve ölçek verir
+      const plug = new THREE.Mesh(this.track(loft([
+        ringAt(17.10, NZ.w * 0.34, NZ.h * 0.34),
+        ringAt(18.30, NZ.w * 0.30, NZ.h * 0.30),
+        ringAt(19.05, NZ.w * 0.16, NZ.h * 0.16),
+        ringAt(19.22, NZ.w * 0.03, NZ.h * 0.03),
+      ], { uScale: 1, vScale: 1, closeRing: true })), darkBothMat);
+      this.group.add(plug);
+      // Parıltı kanalın İÇİNE konur: art yakıcıda derinlikten gelen kızıl ışık
+      const glow = new THREE.CircleGeometry(NZ.w * 0.86, 18);
+      glow.scale(1, NZ.h / NZ.w, 1);
+      glow.translate(cx, NZ.y, st(18.55));
+      this.group.add(new THREE.Mesh(this.track(glow), this.matGlow));
       // Alev
       const fg = new THREE.Group();
       fg.position.set(cx, NZ.y, st(NZ.s1 + NZ.tooth - 0.03));
@@ -821,15 +927,23 @@ export class FA90Vesper {
   buildDetails() {
     const m = this.m;
     // Karın derisini izleyen ince kabuk (kapaklar, yuva ağızları)
+    // Karın kabuğu (kapak / yuva ağzı): TEK YÜZEYLİ levha değil, ince KAPALI plaka.
+    // Tek yüzey deriden birkaç milimetre dışarıda duruyor ve ışın paritesini bozuyordu
+    // (ışın gövdeden çıktıktan sonra bir kez daha levhayı kesiyordu) — denetimde
+    // 53 sızdıran ışının kaynağı buydu. Artık dış ve iç yüzü olan kapalı bir dilim.
     const bellyShell = (x0, x1, s0, s1, nx, ns, off) => {
       const rows = [];
       for (let j = 0; j <= ns; j++) {
         const sv = s0 + (s1 - s0) * (j / ns);
-        const row = [];
-        for (let i = 0; i <= nx; i++) { const x = x0 + (x1 - x0) * (i / nx); row.push({ x, y: lowerY(sv, x) - off, z: st(sv) }); }
-        rows.push(row);
+        const ring = [];
+        for (let i = 0; i <= nx; i++) { const x = x0 + (x1 - x0) * (i / nx); ring.push({ x, y: lowerY(sv, x) - off, z: st(sv) }); }
+        for (let i = nx; i >= 0; i--) { const x = x0 + (x1 - x0) * (i / nx); ring.push({ x, y: lowerY(sv, x) - off * 0.25, z: st(sv) }); }
+        rows.push(ring);
       }
-      return ensureOutward(loft(rows, { uScale: 1, vScale: 1 }), (v, o) => o.set(v.x, v.y + 0.3, v.z));
+      const g = ensureOutward(loft(rows, { uScale: 1, vScale: 1, closeRing: true }),
+        (v, o) => o.set(v.x, lowerY(v.z + FA90.cgStation, v.x) - off * 0.62, v.z));
+      return mergeGeometries([g, this.ringCap(rows[0], new THREE.Vector3(0, 0, -1)),
+        this.ringCap(rows[rows.length - 1], new THREE.Vector3(0, 0, 1))].map((q) => (q.index ? q.toNonIndexed() : q)), false);
     };
     // Burun altı çok yüzlü elektro-optik pencere
     const eo = new THREE.ConeGeometry(0.24, 0.30, 7, 1, false);
@@ -858,7 +972,7 @@ export class FA90Vesper {
     // İniş takımı yuva ağızları
     gapGeos.push(bellyShell(-0.36, 0.36, 3.85, 5.55, 3, 5, 0.005));
     for (const side of [-1, 1]) gapGeos.push(bellyShell(side * 1.55, side * 2.35, 10.30, 12.40, 3, 6, 0.005));
-    this.group.add(new THREE.Mesh(this.track(mergeGeometries(gapGeos.map((g) => g.toNonIndexed()), false)), gapMat));
+    this.group.add(new THREE.Mesh(this.track(mergeGeometries(gapGeos.map((g) => (g.index ? g.toNonIndexed() : g)), false)), gapMat));
     // Yakıt ikmal kapağı (sırt)
     const rec = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.55, 0.40)), this.track(new THREE.MeshStandardMaterial({ color: 0x5c6167, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -1 })));
     rec.position.set(0, bodyTop(11.2) + 0.012, st(11.2));
