@@ -137,7 +137,24 @@ const SURF = [
   { key: 'elevonMid', x0: 4.60, x1: 5.52, h: [[4.60, 15.500], [5.52, 15.914]] },
   { key: 'elevonOut', x0: 5.68, x1: 7.22, h: [[5.68, 16.106], [7.22, 14.865]] },
 ];
+// Eğik tam hareketli dikey yüzeyler (buildFins ve kuyruk işaretleri ortak kullanır).
+// travel: GÖRSEL en büyük sapma. Uçuş modeli dümeni birim girdiyle (Cndr) hesaplar;
+// bu açı yalnızca animasyondur. 22° iken kök firar kenarı arka gövdenin kenarını
+// (çine) aşıp altına sarkıyordu (ölçüm: 21°'de 19,5 cm); 20°'ye kadar taşma yok,
+// 18° güvenli paydır.
+const FIN = {
+  x: 2.35, s: 16.30, cant: 45 * DEG, height: 1.80, bury: 0.07,
+  leRoot: 14.20, teRoot: 18.20, leTip: 16.95, teTip: 18.35,
+  thickRoot: 0.058, thickTip: 0.042, pivotFrac: 0.26, travel: 18 * DEG,
+};
 const hingeZ = (tab, x) => tab[0][1] + (tab[1][1] - tab[0][1]) * (Math.abs(x) - tab[0][0]) / (tab[1][0] - tab[0][0]);
+// Menteşenin yerel veter kesri
+const cfrac = (tab, x) => {
+  const le = wingLE(x), te = wingTE(x);
+  return Math.min(0.96, Math.max(0.06, (hingeZ(tab, x) - le) / (te - le)));
+};
+// Sabit kanat panellerinin profil örnek sayısı (buildWings) — işaretler aynı çokgeni izler
+const WING_K = 13;
 
 // Gövde üst ve alt yüzeyinin verilen istasyon + x'teki yüksekliği. halfSection()
 // çıktısının dallarında doğrusal aranır (0..5 üst, 11..8 alt).
@@ -156,6 +173,72 @@ function branchY(s, x, upper) {
 }
 export const upperY = (s, x) => branchY(s, x, true);
 export const lowerY = (s, x) => branchY(s, x, false);
+// Kesitin yan dalı (çine -> karın köşesi) üzerinde u parametresi. Gövde loft'uyla
+// AYNI çoklu çizgidir (halfSection noktaları 5..8), yani yüzeyin kendisidir.
+function sideP(sec, u) {
+  const pts = halfSection(sec);
+  const b = [pts[5], pts[6], pts[7], pts[8]];
+  const t = Math.min(0.9999, Math.max(0, u)) * 3;
+  const i = Math.min(2, Math.floor(t)), f = t - i;
+  return { x: b[i].x + (b[i + 1].x - b[i].x) * f, y: b[i].y + (b[i + 1].y - b[i].y) * f };
+}
+function sideN(sec, u) {
+  const a = sideP(sec, Math.max(0, u - 0.02)), c = sideP(sec, Math.min(1, u + 0.02));
+  const tx = c.x - a.x, ty = c.y - a.y, L = Math.hypot(tx, ty) || 1;
+  return { x: -ty / L, y: tx / L };
+}
+// Gövde yan dalının GERÇEK yüzeyi: loft istasyonları arasında doğrusal ara değer
+// (sectAt'in yumuşak ara değeri istasyonlar arasında yüzeyden 1 cm'ye kadar sapar).
+function skinSide(sv, u) {
+  let j = 0;
+  while (j < FUS_S.length - 2 && FUS_S[j + 1] < sv) j++;
+  const a = FUS_S[j], b = FUS_S[j + 1], t = Math.min(1, Math.max(0, (sv - a) / (b - a)));
+  const pa = sideP(sectAt(a), u), pb = sideP(sectAt(b), u);
+  return { x: pa.x + (pb.x - pa.x) * t, y: pa.y + (pb.y - pa.y) * t };
+}
+// Kanat profilinin yarı kalınlığı (m): airfoilPoints ile AYNI NACA dağılımı
+// (tek noktalı çağrı, t = c).
+const halfThick = (c, thick, chord) => airfoilPoints(1, chord, thick, c, c)[0].y;
+
+// ---------------------------------------------------------------------------
+// Motor yerleşimi. Arka gövde (motor bölmesi), nasel kabuğu, dudak ve kanal
+// AYNI sayılardan türetilir; böylece parçaların sınır halkaları birebir çakışır.
+const ENG = { x: 0.90, y: 0.02, w: 0.42, h: 0.30, ow: 0.62, oh: 0.47, n: 24, pow: 3.6 };
+// Gövde -> motor bölmesi geçişi. Başlangıç dikey yüzey köklerinin firar kenarıyla
+// çakışır (s = 18,2): bu istasyondan önce gövde kesiti HİÇ değişmez, dolayısıyla
+// kanat ve dikey yüzey kökleri eskisi gibi gövdeye oturur. sj: ana gövde loft'unun
+// son (22 noktalı) halkası; sj..s0 arası çözünürlük uyarlama şerididir.
+const AFT = { sj: 18.00, s0: 18.20, s1: 19.10 };
+// Hava alığı: rampa S0..SM, kaporta SM..S1; rampa ve kaportanın yan flanşları deriden
+// eps kadar dışarıdadır (formasyon ışığı gibi deri üstü ayrıntılar bunun üstüne oturur).
+const INTAKE = { s0: 5.10, sm: 6.30, s1: 11.90, prot: 0.46, ramp: 0.34, eps: 0.006 };
+// Ana gövde loft istasyonları: burunda sık (eğrilik yoğun), ortada seyrek; AFT.sj'de
+// biter. (İşaretler de gövde yüzeyini bu istasyonlar arası DOĞRUSAL ara değerle izler.)
+const FUS_S = (() => {
+  const S = [];
+  for (let sv = 0; sv < 3.0; sv += 0.25) S.push(+sv.toFixed(2));
+  for (let sv = 3.0; sv < 8.0; sv += 0.5) S.push(+sv.toFixed(2));
+  for (let sv = 8.0; sv < 16.0; sv += 0.8) S.push(+sv.toFixed(2));
+  for (let sv = 16.0; sv < AFT.sj - 1e-6; sv += 0.4) S.push(+sv.toFixed(2));
+  S.push(AFT.sj);
+  return S;
+})();
+// Motor bölmesinden dışarı çıkan nasel kabuğu: [istasyon, ölçek]
+const NAC = [[AFT.s1, 1.00], [19.38, 0.985], [19.62, 0.95]];
+// Lüle çıkış alanı açılması (askeri güç + art yakıcı). Biçim hedefi en açık hâle
+// göre kurulur; update() ağırlığı buradan hesaplar.
+const NOZ_OPEN = { mil: 0.04, ab: 0.16 };
+const NOZ_OPEN_MAX = 1 + NOZ_OPEN.mil + NOZ_OPEN.ab;
+const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+// Yuvarlatılmış dikdörtgen (süperelips) halka
+function rrect(cx, cy, w, h, n = ENG.n, p = ENG.pow) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2, c = Math.cos(a), s2 = Math.sin(a);
+    out.push({ x: cx + w * Math.sign(c) * Math.pow(Math.abs(c), 2 / p), y: cy + h * Math.sign(s2) * Math.pow(Math.abs(s2), 2 / p) });
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 export class FA90Vesper {
@@ -169,6 +252,7 @@ export class FA90Vesper {
     this.m = forStatic ? getSharedMaterials() : this.liveryMaterials(getSharedMaterials(), this.livery);
     this.paintGeos = [];
     this.buildFuselage();
+    this.buildAftBody();
     this.buildChineEdge();
     this.buildIntakes();
     this.buildCanopy();
@@ -226,9 +310,14 @@ export class FA90Vesper {
     const flip = (nx * outward.x + ny * outward.y + nz * outward.z) < 0;
     const pos = [cx, cy, cz], idx = [];
     for (const q of ring) pos.push(q.x, q.y, q.z);
+    // (c, p_i, p_i+1) halkanın kendi yönünde döner ve normali N'dir (sağ el kuralı).
+    // ÖNCEKİ SÜRÜMDE DALLAR TERSTİ: her kapak istenen yönün tam tersine bakıyor,
+    // FrontSide malzemede dışarıdan ELENİYORDU (birim testle ölçüldü: dört vakanın
+    // dördü de ters). Işın paritesi testi tüm malzemeleri çift yüzlü yaptığı için
+    // bunu göremiyordu.
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
-      if (flip) idx.push(0, i + 1, j + 1); else idx.push(0, j + 1, i + 1);
+      if (flip) idx.push(0, j + 1, i + 1); else idx.push(0, i + 1, j + 1);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -238,40 +327,136 @@ export class FA90Vesper {
     return g;
   }
 
+  // Tam kesit halkası: sağ yarı + aynalanmış sol yarı (uç noktalar paylaşılır)
+  fullSection(sv) {
+    const r = this.sectionPoints(sv);
+    const out = r.slice();
+    for (let k = r.length - 2; k >= 1; k--) out.push({ x: -r[k].x, y: r[k].y, z: r[k].z });
+    return out;
+  }
+
   buildFuselage() {
-    // İstasyon adımı burunda sık (eğrilik yoğun), gövde ortasında seyrek.
-    const S = [];
-    for (let s = 0; s < 3.0; s += 0.25) S.push(+s.toFixed(2));
-    for (let s = 3.0; s < 8.0; s += 0.5) S.push(+s.toFixed(2));
-    for (let s = 8.0; s < 16.0; s += 0.8) S.push(+s.toFixed(2));
-    for (let s = 16.0; s <= 19.601; s += 0.4) S.push(+Math.min(19.6, s).toFixed(2));
-    const rows = S.map((s) => this.sectionPoints(s));
-    // Tam halka: sağ yarı + aynalanmış sol yarı (uç noktalar paylaşılır)
-    const full = rows.map((r) => {
-      const out = r.slice();
-      for (let k = r.length - 2; k >= 1; k--) out.push({ x: -r[k].x, y: r[k].y, z: r[k].z });
-      return out;
-    });
+    // Ana gövde AFT.sj'de (18,0) biter; sonrası buildAftBody()'nin uyarlama şeridi
+    // ve motor bölmesidir.
+    const full = FUS_S.map((sv) => this.fullSection(sv));
     this.paintGeos.push(ensureOutward(loft(full, { uScale: 2.4, vScale: 1.2, closeRing: true }), (v, o) => o.set(0, -0.1, v.z)));
-    // Burun ve kuyruk kapakları (halkalar kapalı ama uçlar açık kalır)
-    for (const [s, flip] of [[0.0, false], [19.6, true]]) {
-      const r = this.sectionPoints(s);
-      const pos = [], idx = [];
-      const cy = (r[0].y + r[r.length - 1].y) / 2;
-      pos.push(0, cy, r[0].z);
-      const ring = r.slice();
-      for (let k = r.length - 2; k >= 1; k--) ring.push({ x: -r[k].x, y: r[k].y, z: r[k].z });
-      for (const q of ring) pos.push(q.x, q.y, q.z);
+    // Burun kapağı. Eski el yazımı sarım TERSTİ (normal içe bakıyordu); ringCap
+    // ile dışa bakacak şekilde üretilir. Kuyruk kapağı artık YOK: yerini
+    // buildAftBody()'nin motor bölmesi ve arka perdesi aldı.
+    this.paintGeos.push(this.ringCap(full[0], new THREE.Vector3(0, 0, -1)));
+  }
+
+  // ---- MOTOR BÖLMESİ (arka gövde) ---------------------------------------
+  //
+  // KÖK NEDEN (ölçüldü): gövde loft'u s = 19,6'da düz bir kuyruk kapağıyla
+  // bitiyordu ve bu kapağın sarımı TERSTİ — normali ileri, uçağın İÇİNE
+  // bakıyordu. FrontSide malzemede arkadan bakıldığında kapak eleniyor, arka yüz
+  // tümden kayboluyordu; gövdenin iç yüzleri de (onlar da arka yüz olduğu için)
+  // elendiğinden, lüleler BOŞ bir kabuğun içinde asılı görünüyordu. Çift yüzlü
+  // kapsama maskesiyle piksel karşılaştırması: arka görünüm 6 387, yakın arka
+  // görünüm 33 311 "delik" pikseli.
+  //
+  // Yalnızca sarımı çevirmek YETMEZDİ: düz kapak kanalları s = 19,6'da keserek
+  // egzoz tünelini 4 cm derinliğe indirirdi (tam da istenmeyen "düz kapak").
+  // Bunun yerine gövde, 18,2 -> 19,1 arasında iki motoru saran bir MOTOR BÖLMESİ
+  // kesitine dönüşür ve 19,1'de motor delikleri olan kısa bir arka perdeyle
+  // kapanır. Naseller oradan dışarı çıkar.
+  buildAftBody() {
+    const S0 = AFT.s0, S1 = AFT.s1, CY = -0.01;       // CY: açısal örnekleme merkezi
+    // (1) Motor bölmesi kesiti: iki motor lobu, aralarında bel, dışta bıçak ağzına
+    //     incelen raf. A = gövdenin S1'deki çine yarı genişliği, yani PLAN
+    //     görünüşündeki gövde genişliği korunur (tasarım dili değişmez).
+    const A = bodyChineX(S1), B = 0.60, P = 4.0, WAIST = 0.32, SIG = 0.36;
+    const poly = [];
+    for (let i = 0; i < 720; i++) {
+      const t = (i / 720) * Math.PI * 2, c = Math.cos(t), sn = Math.sin(t);
+      const x = A * Math.sign(c) * Math.pow(Math.abs(c), 2 / P);
+      const waist = 1 - WAIST * Math.exp(-((x / SIG) ** 2));
+      const shelf = 1 - 0.88 * sstep(1.55, A, Math.abs(x));
+      poly.push({ x, y: ENG.y + B * waist * shelf * Math.sign(sn) * Math.pow(Math.abs(sn), 2 / P) });
+    }
+    // Merkezden açıyla ışın -> kesit sınırıyla EN UZAK kesişim
+    const hit = (cx, cy, th) => {
+      const dx = Math.cos(th), dy = Math.sin(th);
+      let best = null, bt = -1;
+      for (let i = 0; i < poly.length; i++) {
+        const pa = poly[i], pb = poly[(i + 1) % poly.length];
+        const ex = pb.x - pa.x, ey = pb.y - pa.y;
+        const den = dx * ey - dy * ex;
+        if (Math.abs(den) < 1e-12) continue;
+        const wx = pa.x - cx, wy = pa.y - cy;
+        const t = (wx * ey - wy * ex) / den, u = (wx * dy - wy * dx) / den;
+        if (t > 0 && u >= 0 && u <= 1 && t > bt) { bt = t; best = { x: cx + dx * t, y: cy + dy * t }; }
+      }
+      return best;
+    };
+    // (2) Gövdenin kendi halkası, kenarları 3'e bölünerek inceltilir (motor lobları
+    //     ve bel 22 noktayla temsil edilemeyecek kadar ayrıntılı).
+    const refine = (ring, m) => {
+      const o = [];
       for (let i = 0; i < ring.length; i++) {
-        const j = (i + 1) % ring.length;
-        if (flip) idx.push(0, i + 1, j + 1); else idx.push(0, j + 1, i + 1);
+        const qa = ring[i], qb = ring[(i + 1) % ring.length];
+        for (let k = 0; k < m; k++) { const t = k / m; o.push({ x: qa.x + (qb.x - qa.x) * t, y: qa.y + (qb.y - qa.y) * t, z: qa.z }); }
+      }
+      return o;
+    };
+    const base = refine(this.fullSection(S0), 3);
+    // (2b) UYARLAMA ŞERİDİ (AFT.sj -> S0). Eskiden 22 noktalı ana loft ile 66 noktalı
+    //      geçiş loft'u AYNI istasyonda buluşuyordu: kaba kenarın ortasındaki ince
+    //      noktalar T-kavşağı oluşturuyor, kayan nokta yuvarlaması kenar boyunca
+    //      piksel çatlakları açıyordu (arka açılardan gövdenin İÇİNDEN karın ve
+    //      burun iç yüzleri görünüyordu). Burada her kaba kenar dört üçgenle üç ince
+    //      kenara bağlanır; iki komşu loft'la paylaşılan tüm kenarlar BİREBİR aynıdır.
+    {
+      const coarse = this.fullSection(AFT.sj), nc = coarse.length, nf = base.length;
+      const pos = [], uv = [], idx = [];
+      coarse.forEach((q, k) => { pos.push(q.x, q.y, q.z); uv.push(0, (k / nc) * 1.2); });
+      base.forEach((q, k) => { pos.push(q.x, q.y, q.z); uv.push(0.03, (k / nf) * 1.2); });
+      for (let i = 0; i < nc; i++) {
+        const a0 = i, a1 = (i + 1) % nc, b = (k) => nc + ((3 * i + k) % nf);
+        idx.push(a0, b(0), b(1), a0, b(1), b(2), a0, b(2), a1, a1, b(2), b(3));
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3 * 2), 2));
-      g.setIndex(idx); g.computeVertexNormals();
-      this.paintGeos.push(g);
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      this.paintGeos.push(ensureOutward(g, (v, o) => o.set(0, CY, v.z)));
     }
+    const target = base.map((q) => hit(0, CY, Math.atan2(q.y - CY, q.x)));
+    // (3) Geçiş loft'u. smoothstep başta gövdeyle teğet sürekliliği, sonda eksene
+    //     paralel varışı sağlar (kırık çizgi oluşmaz).
+    const NJ = 7, rows = [];
+    for (let j = 0; j <= NJ; j++) {
+      const u = j / NJ, bl = u * u * (3 - 2 * u), sv = S0 + (S1 - S0) * u;
+      const fus = refine(this.fullSection(sv), 3);
+      rows.push(fus.map((q, k) => ({ x: q.x + (target[k].x - q.x) * bl, y: q.y + (target[k].y - q.y) * bl, z: st(sv) })));
+    }
+    this.paintGeos.push(ensureOutward(loft(rows, { uScale: 1.4, vScale: 1.2, closeRing: true }), (v, o) => o.set(0, CY, v.z)));
+    // (4) Arka perde: dış kontur = geçişin son halkası, delikler = naselin S1
+    //     halkası. Üçü de BİREBİR aynı noktalardır => birleşim su geçirmez.
+    const outer = rows[NJ];
+    const holes = [-1, 1].map((sd) => rrect(sd * ENG.x, ENG.y, ENG.ow * NAC[0][1], ENG.oh * NAC[0][1]));
+    const faces = THREE.ShapeUtils.triangulateShape(
+      outer.map((q) => new THREE.Vector2(q.x, q.y)),
+      holes.map((h) => h.map((q) => new THREE.Vector2(q.x, q.y))));
+    const zB = st(S1), pos = [], idx = [];
+    for (const q of outer) pos.push(q.x, q.y, zB);
+    for (const h of holes) for (const q of h) pos.push(q.x, q.y, zB);
+    let area = 0;
+    for (const f of faces) {
+      const [i0, i1, i2] = f;
+      area += (pos[i1 * 3] - pos[i0 * 3]) * (pos[i2 * 3 + 1] - pos[i0 * 3 + 1]) - (pos[i2 * 3] - pos[i0 * 3]) * (pos[i1 * 3 + 1] - pos[i0 * 3 + 1]);
+      idx.push(i0, i1, i2);
+    }
+    // Normal +z'ye (ARKAYA) bakmalı; earcut'ın çıktı yönü garanti değil, ölçülür.
+    if (area < 0) for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3 * 2), 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    this.paintGeos.push(g);
   }
 
   // Çine kenarı: burun ucundan kanat hücum kenarına kadar uzanan keskin,
@@ -296,29 +481,14 @@ export class FA90Vesper {
 
   // Çinenin altındaki gömülü hava alıkları (DSI mantığı).
   //
-  // Kaporta AYRI bir levha değil, KAPALI BİR HACİMDİR: her istasyonda kesit,
-  // dışta kaporta yayı ile içte gövde derisini izleyen yay arasındaki halkadır.
-  // Halka lofte edildiğinde nasel kendiliğinden su geçirmez olur (yan duvarlar
-  // dahil) ve yalnızca ÖN UÇTA açık kalır — ağız budur.
+  // Rampa da kaporta da AYRI levhalar değil, deriye oturan KAPALI HACİMLERDİR: her
+  // istasyonda kesit, dış yay ile gövde derisini izleyen taban yayı arasındaki
+  // halkadır. Uçlar kapaklıdır; tek açıklık ağızdır ve o da kanal cebiyle kapanır.
   //   - RAMPA (S0..SM): sıkıştırma tümseği, ağzın iç tabanını oluşturur.
-  //   - NASEL (SM..S1): dış kaporta; iç yüzü rampayı sürdürür, sonra deriye iner.
+  //   - NASEL (SM..S1): dış kaporta; motor hizasında şişer, sonra deriye iner.
   //   - KANAL : ağızdan geriye çekilen koyu tüp; koyu kapakla biter.
   buildIntakes() {
-    const S0 = 5.10, SM = 6.30, S1 = 11.90, PROT = 0.46, RAMP = 0.34;
-    const EPS = 0.006;
-    // Kesitin yan dalı (çine -> karın köşesi) üzerinde u parametresi
-    const sideP = (sec, u) => {
-      const pts = halfSection(sec);
-      const b = [pts[5], pts[6], pts[7], pts[8]];
-      const t = Math.min(0.9999, Math.max(0, u)) * 3;
-      const i = Math.min(2, Math.floor(t)), f = t - i;
-      return { x: b[i].x + (b[i + 1].x - b[i].x) * f, y: b[i].y + (b[i + 1].y - b[i].y) * f };
-    };
-    const sideN = (sec, u) => {
-      const a = sideP(sec, Math.max(0, u - 0.02)), c = sideP(sec, Math.min(1, u + 0.02));
-      const tx = c.x - a.x, ty = c.y - a.y, L = Math.hypot(tx, ty) || 1;
-      return { x: -ty / L, y: tx / L };
-    };
+    const { s0: S0, sm: SM, s1: S1, prot: PROT, ramp: RAMP, eps: EPS } = INTAKE;
     // Ağız bandı: DÜZ TEPELİ (kenarlarda kısa yuvarlatma) — net kenarlı dörtgen ağız.
     // Bandın dışında TAM SIFIR olduğu için halka orada kendiliğinden kapanır.
     const shp = (u) => {
@@ -329,12 +499,11 @@ export class FA90Vesper {
       if (t > 1 - e) return Math.pow(Math.sin(Math.PI * 0.5 * (1 - t) / e), 1.25);
       return 1;
     };
-    // Rampa: S0'da sıfır, SM'de tam tümsek; naselin İÇ yüzü olarak 8,60'a kadar sürer.
+    // Rampa: S0'da sıfır, SM'de (ağız) tam tümsek.
     const rampK = (s) => {
       if (s <= S0) return 0;
-      if (s <= SM) { const t = (s - S0) / (SM - S0); return RAMP * t * t * (3 - 2 * t); }
-      if (s >= 8.60) return 0;
-      const t = (8.60 - s) / (8.60 - SM);
+      if (s >= SM) return RAMP;
+      const t = (s - S0) / (SM - S0);
       return RAMP * t * t * (3 - 2 * t);
     };
     // Kaporta: ağızda 1, motor hizasında hafif şişer, sonra deriye karışır.
@@ -352,27 +521,72 @@ export class FA90Vesper {
     };
     const NU = 18;
     const NS = [SM, 6.55, 6.95, 7.45, 8.05, 8.60, 9.30, 10.10, 10.90, S1];
-    for (const side of [-1, 1]) {
-      // Rampa (sıkıştırma tümseği)
-      const rampRows = [];
-      for (const sv of [S0, S0 + 0.32, S0 + 0.68, SM - 0.22, SM]) {
-        const row = [];
-        for (let i = 0; i <= NU; i++) row.push(ptAt(side, sv, i / NU, rampK(sv)));
-        rampRows.push(row);
+    // Rampa ve nasel deriye oturan KAPALI katılardır: kesit = [dış yay] + [taban
+    // yayı]; taban deriden EPS*0,3 dışarıdadır. ESKİ HATA: rampa tek yüzlü açık bir
+    // levhaydı (kenarları deriden 6 mm açıkta) ve naselin iç yayı rampayı sürdüren,
+    // alta bakan bir yüzeydi. Alçak arka açılardan ışın 6 mm'lik yarıktan girip bu
+    // elenen yüzlerin arkasından gökyüzüne çıkıyordu (delik testi: s = 5,98).
+    const skinAt = (side, s, u) => {
+      const sec = sectAt(s), p = sideP(sec, u), n = sideN(sec, u), off = EPS * 0.3;
+      return { x: side * (p.x + n.x * off), y: p.y + n.y * off, z: st(s) };
+    };
+    const solidRing = (side, sv, k) => {
+      const out = [];
+      for (let i = 0; i <= NU; i++) out.push(ptAt(side, sv, i / NU, k));
+      for (let i = NU; i >= 0; i--) out.push(skinAt(side, sv, i / NU));
+      return out;
+    };
+    // İnce hilal kesitte ensureOutward'ın merkez sezgisi güvenilmez (alt ve üst yüzün
+    // katkıları birbirini götürür). Sarım kesitin dönüş yönünden KESİN seçilir: satırlar
+    // +z yönünde ilerlerken saat yönü tersine (arkadan bakınca) dönen halkada
+    // (teğet x +z) dış normaldir.
+    const solidLoft = (rows, opts) => {
+      const r = rows[Math.floor(rows.length / 2)];
+      let a2 = 0;
+      for (let i = 0; i < r.length; i++) { const p = r[i], q = r[(i + 1) % r.length]; a2 += p.x * q.y - q.x * p.y; }
+      return loft(rows, Object.assign({ closeRing: true, flip: a2 < 0 }, opts));
+    };
+    // Uç kapağı: dış yay ile taban yayı aynı u değerlerinde eşleşir ve kapak bu
+    // eşleşmeyle ŞERİT olarak üçgenlenir (hilal kesitte merkez yelpazesi kesitin
+    // dışına taşardı). Yön, toplam normal ile 'outward' karşılaştırılarak seçilir.
+    const stripCap = (ring, outward) => {
+      const m = NU + 1, pos = [], idx = [];
+      for (const q of ring) pos.push(q.x, q.y, q.z);
+      for (let i = 0; i < NU; i++) {
+        const o0 = i, o1 = i + 1, b0 = 2 * m - 1 - i, b1 = 2 * m - 2 - i;
+        idx.push(o0, o1, b0, o1, b1, b0);
       }
-      this.paintGeos.push(ensureOutward(loft(rampRows, { uScale: 1.2, vScale: 1 }), (v, o) => o.set(0, v.y, v.z)));
-      // Nasel: her istasyonda [kaporta yayı] + [iç yay ters] = KAPALI halka
-      const ring = (sv) => {
-        const out = [];
-        for (let i = 0; i <= NU; i++) out.push(ptAt(side, sv, i / NU, cowlK(sv)));
-        for (let i = NU - 1; i >= 1; i--) out.push(ptAt(side, sv, i / NU, rampK(sv)));
-        return out;
-      };
-      const rows = NS.map(ring);
-      this.paintGeos.push(ensureOutward(loft(rows, { uScale: 1.8, vScale: 1, closeRing: true }),
-        (v, o) => { const sec = sectAt(v.z + FA90.cgStation), p = sideP(sec, 0.5); o.set(side * p.x, p.y, v.z); }));
-      // Kanal: ağız halkasından geriye çekilir, koyu kapakla biter
-      const loop = rows[0];
+      let dn = 0;
+      for (let t = 0; t < idx.length; t += 3) {
+        const a = ring[idx[t]], b = ring[idx[t + 1]], c = ring[idx[t + 2]];
+        const ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z, vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
+        dn += (uy * vz - uz * vy) * outward.x + (uz * vx - ux * vz) * outward.y + (ux * vy - uy * vx) * outward.z;
+      }
+      if (dn < 0) for (let t = 0; t < idx.length; t += 3) { const tmp = idx[t + 1]; idx[t + 1] = idx[t + 2]; idx[t + 2] = tmp; }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3 * 2), 2));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      return g;
+    };
+    const fwd = new THREE.Vector3(0, 0, -1), aft = new THREE.Vector3(0, 0, 1);
+    for (const side of [-1, 1]) {
+      // Rampa (sıkıştırma tümseği): kapalı katı, iki ucu kapaklı
+      const rampRows = [S0, S0 + 0.32, S0 + 0.68, SM - 0.22, SM].map((sv) => solidRing(side, sv, rampK(sv)));
+      this.paintGeos.push(solidLoft(rampRows, { uScale: 1.2, vScale: 1 }));
+      this.paintGeos.push(stripCap(rampRows[0], fwd));
+      this.paintGeos.push(stripCap(rampRows[rampRows.length - 1], aft));
+      // Nasel: kapalı katı. Ön yüzü (SM) açıktır ama tamamen örtülüdür: kaporta ile
+      // rampa yayı arası AĞIZDIR (aşağıdaki kanal cebi kapatır), rampa yayı ile taban
+      // arası rampanın arka kapağıdır. Arka ucu şerit kapakla kapanır.
+      const rows = NS.map((sv) => solidRing(side, sv, cowlK(sv)));
+      this.paintGeos.push(solidLoft(rows, { uScale: 1.8, vScale: 1 }));
+      this.paintGeos.push(stripCap(rows[rows.length - 1], aft));
+      // Kanal: ağız halkasından (kaporta yayı + rampa yayı) geriye çekilir, koyu kapakla biter
+      const loop = [];
+      for (let i = 0; i <= NU; i++) loop.push(ptAt(side, SM, i / NU, cowlK(SM)));
+      for (let i = NU - 1; i >= 1; i--) loop.push(ptAt(side, SM, i / NU, rampK(SM)));
       const C = loop.reduce((o, q) => ({ x: o.x + q.x / loop.length, y: o.y + q.y / loop.length, z: o.z + q.z / loop.length }), { x: 0, y: 0, z: 0 });
       const nOut = sideN(sectAt(SM), 0.5);
       const DEPTH = 0.66;
@@ -531,28 +745,31 @@ export class FA90Vesper {
 
   buildWings() {
     const zero = () => 0, one = () => 1;
-    // Menteşenin yerel veter kesri
-    const cfrac = (tab, x) => {
-      const le = wingLE(x), te = wingTE(x);
-      return Math.min(0.96, Math.max(0.06, (hingeZ(tab, x) - le) / (te - le)));
+    // Sabit kanat: yüzey sınırlarında bölünmüş, her biri KAPALI bağımsız paneller.
+    // ESKİ YAPI HATASI (ölçüldü): tek loft, her sınırda 12 mm arayla çift istasyon.
+    // Veter basamağında (menteşe kesri -> 1) aynı indisli noktalar 0,3–0,7 m kayık
+    // bağlanıyor, 12 mm genişliğinde ama metrelerce uzun BURULMUŞ şerit üçgenler
+    // oluşuyordu; bir kısmının sarımı ters yüze dönüyordu. Arkadan/alttan bakınca
+    // x = 4,46 / 5,55 / 7,24'te bu üçgenler eleniyor, kanadın içinden gökyüzü
+    // görünüyordu. Şimdi her aralık kendi kesit tipiyle (tam veter ya da menteşede
+    // kesik) ayrı lofte edilir; uçlar kapaklı, menteşe yüzü şeritle kapalıdır.
+    // Komşu panellerin kapakları sınır düzleminde çakışır: iç kısımları görünmez,
+    // artan kısım veter basamağının GERÇEK duvarıdır.
+    const cuts = [WING.rootX];
+    for (const sf of SURF) cuts.push(sf.x0, sf.x1);
+    cuts.push(WING.tipX);
+    const stations = (a, b) => {
+      const n = Math.max(1, Math.ceil((b - a) / 0.28 - 1e-6)), xs = [];
+      for (let j = 0; j <= n; j++) xs.push(a + (b - a) * (j / n));
+      return xs;
     };
-    // Sabit kanadın firar sınırı: yüzeylerin bulunduğu aralıkta menteşe, dışında 1.
-    const ceAll = (x) => {
-      for (const sf of SURF) if (x >= sf.x0 - 1e-6 && x <= sf.x1 + 1e-6) return cfrac(sf.h, x);
-      return 1;
-    };
-    // Tek sürekli loft: her yüzey sınırında 12 mm aralıklı ÇİFT istasyon konur, böylece
-    // veter basamağı neredeyse dik bir duvar olur ve panel içinde açık delik kalmaz.
-    const raw = [];
-    for (let x = WING.rootX; x < WING.tipX - 1e-6; x += 0.28) raw.push(x);
-    raw.push(WING.tipX);
-    for (const sf of SURF) raw.push(sf.x0 - 0.006, sf.x0 + 0.006, sf.x1 - 0.006, sf.x1 + 0.006);
-    raw.sort((a, b) => a - b);
-    const XS = raw.filter((x, i) => i === 0 || x - raw[i - 1] > 0.004);
 
     this.parts.surf = { flaperon: {}, elevonMid: {}, elevonOut: {} };
     for (const side of [-1, 1]) {
-      this.paintGeos.push(this.wingPanel(side, XS, zero, ceAll, 13));
+      for (let k = 0; k < cuts.length - 1; k++) {
+        const sf = (k % 2 === 1) ? SURF[(k - 1) / 2] : null;      // tek indis = yüzey önü
+        this.paintGeos.push(this.wingPanel(side, stations(cuts[k], cuts[k + 1]), zero, sf ? (x) => cfrac(sf.h, x) : one, WING_K));
+      }
       for (const sf of SURF) {
         const xm = (sf.x0 + sf.x1) / 2;
         const hz = hingeZ(sf.h, xm);
@@ -587,11 +804,7 @@ export class FA90Vesper {
   buildFins() {
     // Hücum kenarı ok açısı atan(2,75/1,80) = 57°; uç veteri kök veterinin %35'i.
     // (Önceki 39° / %66 kombinasyonu yamuk bir levha gibi görünüyordu.)
-    const F = {
-      x: 2.35, s: 16.30, cant: 45 * DEG, height: 1.80, bury: 0.07,
-      leRoot: 14.20, teRoot: 18.20, leTip: 16.95, teTip: 18.35,
-      thickRoot: 0.058, thickTip: 0.042, pivotFrac: 0.26,
-    };
+    const F = FIN;
     this.parts.fins = {};
     const y0 = upperY(F.s, F.x);
     const hRoot = F.leRoot + (F.teRoot - F.leRoot) * F.pivotFrac;
@@ -614,6 +827,35 @@ export class FA90Vesper {
           return { x: q.x, y: q.y, z: st(le + chord * p.c) - st(hRoot) };
         }));
       }
+      // KÖK DOLGUSU. Kök satırı DÜZ bir çizgiydi, oysa arka gövde firar kenarına
+      // doğru alçalır. Ölçüm: s >= 17,7'de kök gövdenin ÜSTÜNDE kalıyordu, firar
+      // kenarında 18,4 cm boşluk vardı (dikey yüzey ile gövde arasında gökyüzü).
+      // Alt satırlar yüzeyin KENDİ düzleminde (-up yönünde) aşağı uzatılır: yüzey
+      // düz kalır, yalnızca kökü gövdenin içine kadar iner. Gerekli uzama, gövde
+      // yüzeyinin BURY kadar altına inecek şekilde her veter noktası için ayrı
+      // hesaplanır; etki yükseldikçe sönümlenir, gövde üstündeki biçim değişmez.
+      const BURY = 0.07, FBL = 0.45, fRoot = -F.bury;
+      const rootY = y0 + Math.cos(F.cant) * F.height * fRoot;
+      const rootAbsX = F.x + Math.sin(F.cant) * F.height * fRoot;
+      const gapAt = (sw) => Math.max(0, rootY - (upperY(sw, rootAbsX) - BURY));
+      for (let j = 0; j <= N; j++) {
+        const f = -F.bury + (1 + F.bury) * (j / N);
+        const wgt = Math.pow(Math.max(0, 1 - (f - fRoot) / (FBL - fRoot)), 2);
+        if (wgt <= 0) continue;
+        for (const q of rows[j]) {
+          const dd = gapAt(q.z + hRoot) / Math.cos(F.cant) * wgt;   // düzlem içi uzama
+          q.x -= up.x * dd; q.y -= up.y * dd;
+        }
+      }
+      // KÖK SALMASI. Yüzey tam hareketli ve 45° eğik; menteşe ekseni oklu olduğu için
+      // sapmada kök kirişi yüzey düzlemine DİK hareket eder ve bunun yarısı DÜŞEYDİR.
+      // Ölçüm: dinlenmede kök yalnızca 3,6 cm gömülüydü; 5° sapmada kök gövdeden
+      // 1,9 cm, tam sapmada (22°) 34 cm KALKIYOR, yüzey ile arka gövde arasında
+      // gökyüzü görünüyordu. Kök satırının altına, yüzeyin KENDİ düzleminde 0,65 m'lik
+      // bir salma eklenir: tamamen gövdenin içinde kalır (görünen biçim değişmez) ve
+      // en büyük sapmada (FIN.travel) bile kök gövdeden çıkmaz ne de altından taşar.
+      const keel = [0.65, 0.35].map((e) => rows[0].map((q) => ({ x: q.x - up.x * e, y: q.y - up.y * e, z: q.z })));
+      rows.unshift(...keel);
       const upv = new THREE.Vector3().copy(up);
       const geo = mergeGeometries([
         ensureOutward(loft(rows, { uScale: 1.6, vScale: 1 })),
@@ -627,6 +869,8 @@ export class FA90Vesper {
       mesh.castShadow = true;
       mesh.userData.axis = new THREE.Vector3().copy(up).multiplyScalar(F.height)
         .add(new THREE.Vector3(0, 0, st(hTip) - st(hRoot))).normalize();
+      // Kök halkası (yerel): sapmada kökün gövde içinde kaldığını doğrulamak için
+      mesh.userData.rootRing = rows[0].map((q) => new THREE.Vector3(q.x - side * F.x, q.y - y0, q.z));
       this.group.add(mesh);
       this.parts.fins[side < 0 ? 'left' : 'right'] = mesh;
     }
@@ -668,20 +912,10 @@ export class FA90Vesper {
   // İki adet gömülü 2B dikdörtgen lüle. Testere dişli çıkış, koyu iç kanal,
   // ısınan yaprak iç yüzeyi ve üç katmanlı art yakıcı alevi.
   buildNozzles() {
-    const NZ = { x: 0.90, y: 0.02, w: 0.42, h: 0.30, s0: 17.90, s1: 19.58, tooth: 0.19 };
+    const NZ = { x: ENG.x, y: ENG.y, w: ENG.w, h: ENG.h, s0: 17.90, s1: 19.58, tooth: 0.19 };
     // Yuvarlatılmış dikdörtgen (süperelips) halka
-    const rr = (cx, cy, w, h, n, p) => {
-      const out = [];
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2, c = Math.cos(a), s2 = Math.sin(a);
-        out.push({
-          x: cx + w * Math.sign(c) * Math.pow(Math.abs(c), 2 / p),
-          y: cy + h * Math.sign(s2) * Math.pow(Math.abs(s2), 2 / p),
-        });
-      }
-      return out;
-    };
-    const NRING = 24, POW = 3.6;
+    const rr = rrect;
+    const NRING = ENG.n, POW = ENG.pow;
     // Kanal İKİ YÜZLÜ olmalı: BackSide iken uzak duvarın görünüp görünmemesi loft
     // sarım yönüne bağlıydı ve arkadan/alttan bakınca lülenin içinden GÖKYÜZÜ
     // görünüyordu (magenta arka plan testinde iki lüle de tamamen şeffaf çıktı).
@@ -769,40 +1003,57 @@ export class FA90Vesper {
       //
       // YENİ YAPI üç parçadır ve SINIR HALKALARI BİREBİR ORTAKTIR, birleşim
       // su geçirmezdir:
-      //   1) dış nasel kabuğu (boya)        — gövde içinden başlar, çıkışta boat-tail
-      //   2) testere dişli dudak bandı      — art yakıcıda açılan hareketli parça
-      //   3) iç kanal + türbin yüzü (koyu)  — 2,4 m derinlik, BackSide
-      const OW = NZ.w + 0.20, OH = NZ.h + 0.17;
+      //   1) dış nasel kabuğu (boya)        — arka perdeden çıkar, çıkışta boat-tail
+      //   2) lüle çıkışı (metal + koyu)     — art yakıcıda açılan hareketli parça
+      //   3) iç kanal + türbin yüzü (koyu)  — 2,4 m derinlik, çift yüzlü
+      const OW = ENG.ow, OH = ENG.oh;
       const ringAt = (sv, w, h) => rr(cx, NZ.y, w, h, NRING, POW).map((q) => ({ x: q.x, y: q.y, z: st(sv) }));
       const nacRef = (v, o) => o.set(cx, NZ.y, v.z);
-      // 1) Nasel kabuğu: önde gövdeye gömülü küçük kesitten çıkıştaki tam kesite
-      //    büyür, sonra hafif boat-tail ile daralır. Bu hacim aynı zamanda arka
-      //    gövdeye "motor omuzu" dolgunluğunu verir.
-      const SHELL = [[14.90, 0.26], [15.80, 0.58], [16.70, 0.84], [17.60, 0.98],
-                     [18.40, 1.02], [19.10, 1.00], [19.62, 0.95]];
-      const shell = SHELL.map(([sv, k]) => ringAt(sv, OW * k, OH * k));
+      // 1) Nasel kabuğu: motor bölmesinin arka perdesinden (AFT.s1) başlar; perdedeki
+      //    delik TAM OLARAK bu kabuğun ilk halkasıdır. (Önceki sürümde kabuk
+      //    s = 14,9'dan başlıyordu ama 19,1'in önü tamamen gövde içinde kalıyordu.)
+      const shell = NAC.map(([sv, k]) => ringAt(sv, OW * k, OH * k));
       this.paintGeos.push(ensureOutward(loft(shell, { uScale: 1.4, vScale: 1, closeRing: true }), nacRef));
-      this.paintGeos.push(this.ringCap(shell[0], new THREE.Vector3(0, 0, -1)));
-      // 2) Dudak bandı: dış halka -> testere dişi ucu -> iç halka. YEREL koordinatta
-      //    kurulur, böylece art yakıcıda merkezden dışa ölçeklenebilir (alan açılması).
-      const PZ = st(NZ.s1);
-      const lring = (dz, w, h) => rr(0, 0, w, h, NRING, POW).map((q) => ({ x: q.x, y: q.y, z: dz }));
-      const pOut = lring(st(19.62) - PZ, OW * 0.95, OH * 0.95);
-      const pIn = lring(st(19.64) - PZ, NZ.w, NZ.h);
-      const pTip = pOut.map((q, i) => {
-        const r = pIn[i], k = (i % 2 === 0) ? NZ.tooth : NZ.tooth * 0.42;
-        return { x: q.x + (r.x - q.x) * 0.5, y: q.y + (r.y - q.y) * 0.5, z: st(19.63) - PZ + k };
-      });
-      const petals = new THREE.Mesh(
-        this.track(ensureOutward(loft([pOut, pTip, pIn], { uScale: 1, vScale: 1, closeRing: true }), (v, o) => o.set(0, 0, v.z))),
-        petalMat);
-      petals.position.set(cx, NZ.y, PZ);
+      // İç kanal halkaları [istasyon, ölçek] (3. adımda kullanılır; 2. adımın son
+      // halkası bunun ilk halkasıdır).
+      const DS = [[19.30, 0.93], [18.80, 0.90], [18.20, 0.97], [17.60, 1.04], [17.24, 1.06]];
+      // 2) LÜLE ÇIKIŞI = dudak bandı (metal: dış halka -> testere dişi -> dudak) +
+      //    ıraksak bölüm (koyu: dudak -> 19,47 -> 19,30). TEK mesh, iki malzeme grubu,
+      //    DÜNYA koordinatında. Dış halka nasel kabuğunun son halkasıyla, son halka
+      //    kanalın ilk halkasıyla BİREBİR aynı noktalardır.
+      //    ESKİ HATA (ölçüldü): bant, merkezine göre (open, open, 1) ile ölçekleniyordu.
+      //    Askeri güç ve art yakıcıda dış halka kabuktan, iç halka kanaldan ayrılıyor,
+      //    açılan iki halka biçimli yarıktan gövdenin BOŞ içi görünüyordu (tam gazda
+      //    arka görünümlerde 7 500+ delik pikseli; ışınlar burnun iç yüzüne kadar
+      //    gidiyordu). Şimdi alan açılması bir BİÇİM HEDEFİDİR (morph target): dış
+      //    halka ve 19,30 halkası sabit kalır, yalnızca dişler, dudak ve ıraksak
+      //    bölüm açılır — parça hiçbir açıklıkta komşularından ayrılmaz.
+      const [sE, kE] = NAC[NAC.length - 1];
+      const exitGeo = (open) => {
+        const pOut = ringAt(sE, OW * kE, OH * kE);
+        const pIn = ringAt(19.64, NZ.w * open, NZ.h * open);
+        const pTip = pOut.map((q, i) => {
+          const r = pIn[i], k = (i % 2 === 0) ? NZ.tooth : NZ.tooth * 0.42;
+          return { x: q.x + (r.x - q.x) * 0.5, y: q.y + (r.y - q.y) * 0.5, z: st(19.63) + k };
+        });
+        const kd = 0.965 * (1 + (open - 1) * 0.5);
+        const div = [pIn, ringAt(19.47, NZ.w * kd, NZ.h * kd), ringAt(DS[0][0], NZ.w * DS[0][1], NZ.h * DS[0][1])];
+        return mergeGeometries([
+          ensureOutward(loft([pOut, pTip, pIn], { uScale: 1, vScale: 1, closeRing: true }), nacRef),
+          loft(div, { uScale: 1, vScale: 1, closeRing: true }),
+        ], true);
+      };
+      const exitG = exitGeo(1), openG = exitGeo(NOZ_OPEN_MAX);
+      openG.setIndex(exitG.index.clone());          // aynı üçgenler, aynı sarım
+      openG.computeVertexNormals();
+      exitG.morphAttributes.position = [openG.attributes.position];
+      exitG.morphAttributes.normal = [openG.attributes.normal];
+      const petals = new THREE.Mesh(this.track(exitG), [petalMat, innerMat]);
       petals.castShadow = true;
       this.group.add(petals);
       this.nozzlePetals.push(petals);
-      // 3) İç kanal: çıkıştan 2,4 m İLERİ çekilir. Derinlik şart — içeri bakıldığında
+      // 3) İç kanal: 19,30'dan 2 m İLERİ çekilir. Derinlik şart — içeri bakıldığında
       //    dünya ya da eksik poligon değil KARANLIK görünmeli.
-      const DS = [[19.64, 1.00], [19.30, 0.93], [18.80, 0.90], [18.20, 0.97], [17.60, 1.04], [17.24, 1.06]];
       this.group.add(new THREE.Mesh(
         this.track(loft(DS.map(([sv, k]) => ringAt(sv, NZ.w * k, NZ.h * k)), { uScale: 1, vScale: 1, closeRing: true })),
         innerMat));
@@ -978,10 +1229,15 @@ export class FA90Vesper {
     rec.position.set(0, bodyTop(11.2) + 0.012, st(11.2));
     rec.rotation.x = -Math.PI / 2;
     this.group.add(rec);
-    // Formasyon ışık şeritleri: çine hattı boyunca (uçağın imza kenarı)
+    // Formasyon ışık şeritleri: çine hattı boyunca (uçağın imza kenarı). Şerit çine
+    // dudağının altında, gövdeden hafif açıkta duran ince bir ışık panelidir; tek
+    // yüzlüyken önden-alttan bakınca arkası eleniyor, şerit kayboluyordu. FA-90'a
+    // özel çift yüzlü kopya kullanılır (paylaşılan malzeme değişmez).
+    const formLight2 = this.track(m.formLight.clone());
+    formLight2.side = THREE.DoubleSide;
     for (const side of [-1, 1]) {
       for (const [s, len] of [[6.0, 1.6], [12.8, 2.2]]) {
-        const fl = new THREE.Mesh(this.track(new THREE.PlaneGeometry(len, 0.075)), m.formLight);
+        const fl = new THREE.Mesh(this.track(new THREE.PlaneGeometry(len, 0.075)), formLight2);
         fl.position.set(side * (bodyChineX(s) + 0.015), bodyChineY(s) - 0.05, st(s));
         fl.rotation.y = side * Math.PI / 2;
         this.group.add(fl);
@@ -992,15 +1248,23 @@ export class FA90Vesper {
       this.group.add(fd);
     }
     // Hava verisi: gömülü (flush) basınç portları — düşük gözlenebilirlik için
-    // çıkıntılı pitot borusu YOKTUR. Burun yanlarında iki küçük koyu plaka.
+    // çıkıntılı pitot borusu YOKTUR. Burun yanlarında iki küçük koyu plaka, yan dalın
+    // köşesinde (u = 1/3) deriye oturur. (Eskiden dikey düz levhaydı; içe eğimli yan
+    // yüzeyden açıkta kalıyor, önden-alttan tek yüzlü arkası görünüyordu.)
     const portMat = this.track(new THREE.MeshStandardMaterial({ color: 0x24282c, roughness: 0.6, metalness: 0.5, polygonOffset: true, polygonOffsetFactor: -1 }));
     for (const side of [-1, 1]) {
       for (const sv of [1.45, 2.05]) {
-        const pt = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.22, 0.10)), portMat);
-        const sec = sectAt(sv), pts = halfSection(sec);
-        pt.position.set(side * (pts[6].x + 0.008), pts[6].y, st(sv));
-        pt.rotation.y = side * Math.PI / 2;
-        this.group.add(pt);
+        const pts = halfSection(sectAt(sv));
+        const du1 = 0.05 / (3 * Math.hypot(pts[6].x - pts[5].x, pts[6].y - pts[5].y));
+        const du2 = 0.05 / (3 * Math.hypot(pts[7].x - pts[6].x, pts[7].y - pts[6].y));
+        const us = [1 / 3 - du1, 1 / 3, 1 / 3 + du2];
+        const n0 = sideN(sectAt(sv), 1 / 3);
+        const g = this.decalGrid(4, 2, (i, j) => {
+          const sw = sv - 0.11 + 0.22 * (i / 4), u = us[j];
+          const p = skinSide(sw, u), n = sideN(sectAt(sw), u);
+          return { x: side * (p.x + n.x * 0.004), y: p.y + n.y * 0.004, z: st(sw), u: i / 4, v: 1 - j / 2 };
+        }, new THREE.Vector3(side * n0.x, n0.y, 0));
+        this.group.add(this.decalMesh(g, portMat));
       }
     }
     const ant = new THREE.BoxGeometry(0.035, 0.16, 0.42); ant.translate(0.42, bodyBottom(7.6) - 0.08, st(7.6));
@@ -1010,45 +1274,143 @@ export class FA90Vesper {
     this.buildMarkings();
   }
 
+  // Yüzeyi izleyen çıkartma ızgarası. at(i, j) -> { x, y, z, u, v } (ebeveyn
+  // koordinatında). Sarım, toplam normal 'outward' yönüne bakacak şekilde seçilir.
+  decalGrid(ni, nj, at, outward) {
+    const P = [], UV = [], I = [];
+    for (let j = 0; j <= nj; j++) for (let i = 0; i <= ni; i++) { const q = at(i, j); P.push(q.x, q.y, q.z); UV.push(q.u, q.v); }
+    for (let j = 0; j < nj; j++) for (let i = 0; i < ni; i++) {
+      const a = j * (ni + 1) + i, b = a + 1, c = a + ni + 1, d = c + 1;
+      I.push(a, b, d, a, d, c);
+    }
+    let dn = 0;
+    const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3();
+    for (let t = 0; t < I.length; t += 3) {
+      va.fromArray(P, I[t] * 3); vb.fromArray(P, I[t + 1] * 3); vc.fromArray(P, I[t + 2] * 3);
+      dn += vb.sub(va).cross(vc.sub(va)).dot(outward);
+    }
+    if (dn < 0) for (let t = 0; t < I.length; t += 3) { const tmp = I[t + 1]; I[t + 1] = I[t + 2]; I[t + 2] = tmp; }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2));
+    g.setIndex(I);
+    g.computeVertexNormals();
+    return this.track(g);
+  }
+
+  // Çıkartma meshi: yapısal yüzey değil, boya katmanıdır (userData.decal).
+  decalMesh(g, material) {
+    const mesh = new THREE.Mesh(g, material);
+    mesh.userData.decal = true;
+    return mesh;
+  }
+
+  // İŞARETLER yüzeyi izleyen ızgaralardır (yüzeyden birkaç mm dışarıda).
+  // ESKİ HATA: hepsi düz levhaydı. Kanat profili ve gövde yanı eğri olduğu için
+  // levha bir uçta yüzeye GÖMÜLÜYOR, diğer uçta havada kalıyordu (kanat yıldızı kök
+  // tarafında 8 cm kanadın içinde, uç tarafında 12 cm havada; gövde yanı yıldızının
+  // üst 18 cm'si kanadın İÇİNDE, alt kenarı içe eğimli yan yüzeyden 20 cm açıkta).
+  // Alçak/arka açılardan levhanın arkası görünüyor ve tek yüzlü olduğu için
+  // eleniyordu. Kuyruk işaretleri de this.group'taydı: tam hareketli yüzey
+  // döndüğünde yerinde kalıp havada asılı görünüyordu — artık yüzeyin çocuğudur.
   buildMarkings() {
     const L = this.livery || {};
     const insig = this.track(makeMilInsigniaTexture(L.insignia || 'starbar', 256));
     const mat = this.track(new THREE.MeshStandardMaterial({ map: insig, transparent: true, roughness: 0.7, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -1 }));
-    const size = 1.35;
-    const insigW = L.insigniaSquare ? size : size * 1.9;
-    const x = 4.9;
-    const le = wingLE(x), te = wingTE(x), chord = te - le;
-    const sMid = le + chord * 0.40;
-    const half = 0.5 * wingThick(x) * chord * 1.05;
-    for (const [side, up] of [[-1, 1], [1, -1]]) {
-      const mesh = new THREE.Mesh(this.track(new THREE.PlaneGeometry(insigW, size)), mat);
-      mesh.position.set(side * x, wingY(x) + up * (half + 0.02), st(sMid));
-      mesh.rotation.x = up > 0 ? -Math.PI / 2 : Math.PI / 2;
-      mesh.rotation.z = up > 0 ? 0 : Math.PI;
-      this.group.add(mesh);
+    const OFF = 0.005;
+    // Kanat: sol üst ve sağ alt yüzey, x = 4,9, veterin %40'ı merkez. Yükseklik analitik
+    // NACA eğrisinden değil, panelin KENDİ örnek çokgeninden (WING_K nokta, menteşe
+    // kesrine kadar) alınır: hücum kenarı yakınında çokgen eğrinin 1–2 cm altındadır.
+    {
+      const H = 1.35, W = L.insigniaSquare ? H : H * 1.9, xc = 4.9;
+      const sMid = wingLE(xc) + (wingTE(xc) - wingLE(xc)) * 0.40;
+      const panelCe = (ax) => { for (const sf of SURF) if (ax > sf.x0 && ax < sf.x1) return cfrac(sf.h, ax); return 1; };
+      const facetHalf = (ax, c) => {
+        const le = wingLE(ax), chord = wingTE(ax) - le, th = wingThick(ax), ce = panelCe(ax);
+        const f = Math.min(WING_K, Math.max(0, (1 - Math.min(c, ce) / ce) * WING_K));
+        const i = Math.min(WING_K - 1, Math.floor(f)), w = f - i;
+        return halfThick(ce * (1 - i / WING_K), th, chord) * (1 - w) + halfThick(ce * (1 - (i + 1) / WING_K), th, chord) * w;
+      };
+      for (const [side, up] of [[-1, 1], [1, -1]]) {
+        const g = this.decalGrid(12, 8, (i, j) => {
+          const u = i / 12, v = j / 8;
+          const ax = xc - (u - 0.5) * W, sv = sMid - (v - 0.5) * H;     // u: içe, v: ileri
+          const le = wingLE(ax), chord = wingTE(ax) - le;
+          const c = Math.min(1, Math.max(0, (sv - le) / chord));
+          return { x: side * ax, y: wingY(ax) + up * (facetHalf(ax, c) + OFF), z: st(sv), u, v };
+        }, new THREE.Vector3(0, up, 0));
+        this.group.add(this.decalMesh(g, mat));
+      }
     }
-    // Gövde yanı: çinenin hemen altındaki düz yüzeye
-    for (const side of [-1, 1]) {
-      const mesh = new THREE.Mesh(this.track(new THREE.PlaneGeometry(L.insigniaSquare ? 0.58 : 1.08, 0.58)), mat);
-      mesh.position.set(side * (bodyChineX(12.0) * 0.985 + 0.02), bodyChineY(12.0) - 0.34, st(12.0));
-      mesh.rotation.y = side * Math.PI / 2;
-      this.group.add(mesh);
+    // Gövde yanı: kanadın ALTINDA kalan yan yüzey. Merkez s = 12,5 (nasel kuyruğu
+    // 11,9'da biter, eski merkez 12,0 kuyruğa biniyordu). Üst kenar, kanat alt
+    // yüzeyinin 5 cm altından başlar; yükseklik yüzey boyunca yay uzunluğudur.
+    {
+      const sC = 12.50, Wd = L.insigniaSquare ? 0.58 : 1.08, Hd = 0.58, OFFS = 0.005;
+      const s0 = sC - Wd / 2, s1 = sC + Wd / 2;
+      const skin = skinSide;
+      const wingLow = (x, sv) => {
+        const ax = Math.abs(x), le = wingLE(ax), chord = wingTE(ax) - le;
+        const c = Math.min(1, Math.max(0, (sv - le) / chord));
+        return wingY(ax) - halfThick(c, wingThick(ax), chord);
+      };
+      let uTop = 0;
+      for (let u = 0; u <= 0.6; u += 0.0025) {
+        let ok = true;
+        for (let k = 0; k <= 8 && ok; k++) { const sv = s0 + (s1 - s0) * k / 8, p = skin(sv, u); ok = p.y < wingLow(p.x, sv) - 0.05; }
+        if (ok) { uTop = u; break; }
+      }
+      const secC = sectAt(sC), arc = [0];
+      for (let k = 1; k <= 400; k++) { const a = sideP(secC, (k - 1) / 400), b = sideP(secC, k / 400); arc.push(arc[k - 1] + Math.hypot(b.x - a.x, b.y - a.y)); }
+      const arcAt = (u) => { const t = Math.min(400, Math.max(0, u * 400)), k = Math.min(399, Math.floor(t)); return arc[k] + (arc[k + 1] - arc[k]) * (t - k); };
+      const aTop = arcAt(uTop);
+      let uBot = uTop;
+      while (uBot < 1 && arcAt(uBot) - aTop < Hd) uBot += 0.0005;
+      // Satırlar sabit u'dadır; yan dalın köşeleri (u = 1/3, 2/3) satır olarak eklenir,
+      // böylece çıkartma üçgeni köşeyi kesip yüzeyin altına inmez.
+      const us = [];
+      for (let k = 0; k <= 16; k++) us.push(uTop + (uBot - uTop) * k / 16);
+      for (const uk of [1 / 3, 2 / 3]) if (uk > uTop && uk < uBot) us.push(uk);
+      us.sort((a, b) => a - b);
+      for (const side of [-1, 1]) {
+        const g = this.decalGrid(10, us.length - 1, (i, j) => {
+          const sv = s0 + (s1 - s0) * (i / 10), u = us[j];
+          const p = skin(sv, u), n = sideN(sectAt(sv), u);
+          return {
+            x: side * (p.x + n.x * OFFS), y: p.y + n.y * OFFS, z: st(sv),
+            u: side > 0 ? 1 - i / 10 : i / 10,                 // sağda doku ileri, solda geri okunur
+            v: 1 - (arcAt(u) - aTop) / Hd,
+          };
+        }, new THREE.Vector3(side, 0, 0));
+        this.group.add(this.decalMesh(g, mat));
+      }
     }
-    // Kanatçık kodu ve seri: eğik kuyruk yüzeylerinin dış yanı
-    const cant = 45 * DEG;
+    // Kuyruk kodu ve seri: eğik yüzeylerin dış-alt yüzü. Yüzeyin (FIN) profiline
+    // oturur ve yüzey meshinin ÇOCUĞUDUR, yani sapmada yüzeyle birlikte döner.
     const txtMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeTextTexture(L.tailCode || 'VX', { w: 256, h: 128, font: 'bold 96px Arial', color: L.markColor || '#9aa0a8' })), transparent: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -1 }));
     const serialMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeTextTexture(L.serial || 'FA-90 001', { w: 512, h: 128, font: 'bold 70px Arial', color: L.markColor || '#9aa0a8' })), transparent: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -1 }));
-    const y0 = upperY(16.30, 2.35);
+    const F = FIN, y0 = upperY(F.s, F.x);
+    const hRoot = F.leRoot + (F.teRoot - F.leRoot) * F.pivotFrac;
     for (const side of [-1, 1]) {
-      const up = new THREE.Vector3(side * Math.sin(cant), Math.cos(cant), 0);
-      const nrm = new THREE.Vector3(side * Math.cos(cant), -Math.sin(cant), 0);
-      const place = (mesh, hFrac, s, out) => {
-        mesh.position.copy(new THREE.Vector3(side * 2.35, y0, st(s)).addScaledVector(up, 1.70 * hFrac).addScaledVector(nrm, out));
-        mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -side), up, nrm));
-        this.group.add(mesh);
+      const fin = this.parts.fins[side < 0 ? 'left' : 'right'];
+      const up = new THREE.Vector3(side * Math.sin(F.cant), Math.cos(F.cant), 0);
+      const nrm = new THREE.Vector3(side * Math.cos(F.cant), -Math.sin(F.cant), 0);
+      const origin = new THREE.Vector3(side * F.x, y0, st(hRoot));     // yüzey meshinin konumu
+      const place = (material, W, H, hFrac, sc) => {
+        const g = this.decalGrid(8, 3, (i, j) => {
+          const u = i / 8, v = j / 3;
+          const h = 1.70 * hFrac + (v - 0.5) * H, f = h / F.height;
+          const sv = sc - side * (u - 0.5) * W;                        // doku ekseni (0, 0, -side)
+          const le = F.leRoot + (F.leTip - F.leRoot) * f, chord = F.teRoot + (F.teTip - F.teRoot) * f - le;
+          const th = (F.thickRoot + (F.thickTip - F.thickRoot) * f) * (1 - 0.82 * Math.max(0, (f - 0.90) / 0.10));
+          const c = Math.min(1, Math.max(0, (sv - le) / chord));
+          const q = new THREE.Vector3(side * F.x, y0, st(sv)).addScaledVector(up, h).addScaledVector(nrm, halfThick(c, th, chord) + OFF).sub(origin);
+          return { x: q.x, y: q.y, z: q.z, u, v };
+        }, nrm);
+        fin.add(this.decalMesh(g, material));
       };
-      place(new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.50, 0.26)), txtMat), 0.62, 17.15, 0.040);
-      place(new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.92, 0.22)), serialMat), 0.26, 16.70, 0.045);
+      place(txtMat, 0.50, 0.26, 0.62, 17.15);
+      place(serialMat, 0.92, 0.22, 0.26, 16.70);
     }
   }
 
@@ -1073,7 +1435,9 @@ export class FA90Vesper {
     this.lights = {
       navLeft: mkLight(0xff2a2a, -lensX, ly, st(leTip + 0.22), 0.17),
       navRight: mkLight(0x2aff5a, lensX, ly, st(leTip + 0.22), 0.17),
-      tail: mkLight(0xffffff, 0, bodyTop(19.2) + 0.03, st(19.2), 0.15),
+      // Arka perdenin ortasında (motorlar arası bel). Eskiden bodyTop(19,2)'deydi —
+      // o istasyonda artık gövde yok, ışık havada kalırdı.
+      tail: mkLight(0xffffff, 0, ENG.y + 0.26, st(AFT.s1) + 0.02, 0.15),
       strobeLeft: mkLight(0xffffff, -lensX, ly, st(teTip - 0.28), 0.32),
       strobeRight: mkLight(0xffffff, lensX, ly, st(teTip - 0.28), 0.32),
       beaconTop: mkLight(0xff3020, 0, bodyTop(9.0) + 0.03, st(9.0), 0.26),
@@ -1145,7 +1509,7 @@ export class FA90Vesper {
     setHinge(S.elevonOut.right, elev * 0.85 - ail * 1.00);
     setHinge(S.elevonOut.left, elev * 0.85 + ail * 1.00);
     // Eğik tam hareketli yüzeyler: sapma için İKİSİ DE aynı yöne döner
-    const rud = -rudder * 22 * DEG;
+    const rud = -rudder * FIN.travel;
     setHinge(p.fins.right, rud);
     setHinge(p.fins.left, rud);
     // Sırt hava frenleri: ön kenardan menteşeli, arka kenar yukarı kalkar
@@ -1173,8 +1537,8 @@ export class FA90Vesper {
     this.matGlow.color.setRGB(1.0, 0.45 + 0.45 * afterburner, 0.15 + 0.7 * afterburner);
     this.matNozzleInner.emissiveIntensity = mil * 0.35 + afterburner * 1.7 + flash;
     // Yakınsak-ıraksak lüle: art yakıcıda çıkış alanı büyür (gerçek fiziksel davranış)
-    const open = 1 + 0.16 * afterburner + 0.04 * mil;
-    for (const pt of this.nozzlePetals) pt.scale.set(open, open, 1);
+    const open = 1 + NOZ_OPEN.ab * afterburner + NOZ_OPEN.mil * mil;
+    for (const pt of this.nozzlePetals) pt.morphTargetInfluences[0] = (open - 1) / (NOZ_OPEN_MAX - 1);
     const intensity = mil * 0.14 + afterburner;
     if (intensity > 0.02) {
       this.parts.flame.visible = true;
