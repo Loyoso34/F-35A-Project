@@ -1,7 +1,7 @@
 {
   "name": "FFS — Flight Simulator",
   "short_name": "FFS",
-  "description": "FFS — a flight simulator featuring the F-35A Lightning II and Airbus A321neo",
+  "description": "FFS — a flight simulator featuring the F-35A Lightning II, Airbus A321neo and the fictional FA-90 Vesper",
   "lang": "en",
   "start_url": "./",
   "scope": "./",

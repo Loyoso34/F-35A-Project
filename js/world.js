@@ -86,7 +86,7 @@ export const AIRPORT_BY_ID = Object.fromEntries(AIRPORTS.map((a) => [a.id, a]));
 // Kalkış noktaları: pist başında, pist yönüne dönük. Seçim ekranı bu listeden beslenir.
 export const SPAWNS = [
   { id: 'base', airport: 'base', name: 'Anadolu Air Base', sub: 'Military base · Runway 09/27 · 3000 m', lx: -1400, lz: 0, hdg: 90 },
-  { id: 'civil', airport: 'civil', name: 'Yesilova Airport', sub: 'Civil · Runway 12/30 · 3400 m · elev 185 m', lx: -1600, lz: 0, hdg: 120 },
+  { id: 'civil', airport: 'civil', name: 'Yesilova Airport', sub: 'Civil airport · Runway 12/30 · 3400 m · Elevation 185 m', lx: -1600, lz: 0, hdg: 120 },
 ];
 for (const a of AIRPORTS) { const r = a.hdg * Math.PI / 180; a.cos = Math.cos(r); a.sin = Math.sin(r); }
 // Dünya -> havaalanı yerel koordinatı. hdg=90 için birim dönüşüm (lx = x, lz = z).
@@ -370,7 +370,10 @@ export const QUALITY_PRESETS = {
 };
 
 export class World {
-  constructor(scene, renderer, qualityKey) {
+  // defer: true ise kurucu yalnızca alanları hazırlar; dünya build() ile parça parça
+  // kurulur (yükleme ekranı ilerlemesi ve döndürmeye tepki için). Varsayılan
+  // davranış değişmedi: kurucu dünyayı tek seferde kurar.
+  constructor(scene, renderer, qualityKey, { defer = false } = {}) {
     this.scene = scene;
     this.renderer = renderer;
     this.qualityKey = qualityKey;
@@ -383,20 +386,59 @@ export class World {
     this.buildingBoxes = buildingBoxes();
     this.townBoxes = [];
     this.sunDir = new THREE.Vector3(0.45, 0.62, -0.35).normalize();
-    this.buildSky();
-    this.buildLights();
-    this.buildTerrain();
-    this.buildWater();
-    this.buildTrees();
-    this.buildRoads();
-    this.buildTown();
-    this.buildAirbase();
-    this.buildBaseDetails();
-    this.buildCivilAirport();
-    this.buildCity();
-    this.buildAirportSurroundings();
-    this.buildClouds();
-    this.buildCollisionGrid();   // tüm yapılar eklendikten sonra kurulur
+    if (!defer) {
+      for (const step of this.buildPlan()) {
+        const r = step.run();
+        if (r && typeof r.next === 'function') while (!r.next().done) { /* parça parça */ }
+      }
+    }
+  }
+
+  // Kurulum planı. SIRA DEĞİŞMEZ: senkron kurucu da zaman dilimli build() de bu
+  // listeyi aynı sırayla çalıştırır, dolayısıyla üretilen dünya birebir aynıdır.
+  // Üreteç döndüren adım (arazi) iş ilerledikçe 0..1 kesir verir.
+  buildPlan() {
+    return [
+      { id: 'sky', run: () => this.buildSky() },
+      { id: 'lights', run: () => this.buildLights() },
+      { id: 'terrain', run: () => this.buildTerrainSteps() },
+      { id: 'water', run: () => this.buildWater() },
+      { id: 'trees', run: () => this.buildTreesSteps() },
+      { id: 'roads', run: () => this.buildRoads() },
+      { id: 'town', run: () => this.buildTown() },
+      { id: 'airbase', run: () => this.buildAirbase() },
+      { id: 'baseDetails', run: () => this.buildBaseDetails() },
+      { id: 'civil', run: () => this.buildCivilAirport() },
+      { id: 'city', run: () => this.buildCity() },
+      { id: 'surroundings', run: () => this.buildAirportSurroundings() },
+      { id: 'clouds', run: () => this.buildClouds() },
+      { id: 'collision', run: () => this.buildCollisionGrid() },   // tüm yapılar eklendikten sonra
+    ];
+  }
+
+  /**
+   * Zaman dilimli kurulum. report(id, kesir) her adım ve arazi parçası bittiğinde
+   * çağrılır; iş kesintisiz sliceMs'yi aşınca pause() beklenir (tarayıcı bir kare
+   * çizer, döndürme/yeniden boyutlandırma olaylarını işler).
+   */
+  async build(report, pause, sliceMs = 70) {
+    let t = performance.now();
+    const breathe = async () => {
+      if (performance.now() - t < sliceMs) return;
+      await pause();
+      t = performance.now();
+    };
+    for (const step of this.buildPlan()) {
+      report(step.id, 0);
+      // Uzun bir işten sonra, sıradaki iş başlamadan bir kare çizilsin: ekrandaki
+      // durum metni o an yapılan işi gösterir
+      if (performance.now() - t > 16) { await pause(); t = performance.now(); }
+      const r = step.run();
+      if (r && typeof r.next === 'function') {
+        for (let x = r.next(); !x.done; x = r.next()) { report(step.id, x.value); await breathe(); }
+      }
+      report(step.id, 1);
+    }
   }
 
   track(obj) { this.disposables.push(obj); return obj; }
@@ -482,7 +524,12 @@ export class World {
   }
 
   // ---- Arazi: 12x12 parça, her biri 3 LOD (etekli) ----
-  buildTerrain() {
+  buildTerrain() { const it = this.buildTerrainSteps(); while (!it.next().done) { /* tek seferde */ } }
+
+  // Arazi üreteci: her parça bitince tamamlanan örnek sayısının oranını verir
+  // (ayrıntılı parçalar 4 kat örnek içerir; ilerleme gerçek işle orantılıdır).
+  // Üretim mantığı ve sırası buildTerrain'in eski hâliyle aynıdır.
+  *buildTerrainSteps() {
     const q = this.quality;
     // 18x18 parça = 4 km'lik hücreler. Çözünürlük üç kademelidir: havaalanı/su çevresi 2x,
     // iç bölge normal, dış dağ kuşağı yarı çözünürlük. Böylece harita 3,2 kat büyürken
@@ -526,13 +573,22 @@ export class World {
     };
     // Dış dağ kuşağı: yakından hiç uçulmayan bölge, yarı çözünürlükte örneklenir
     const isCoarseChunk = (cxm, czm) => Math.max(Math.abs(cxm), Math.abs(czm)) > MTN_IN - chunkSize * 0.5;
+    // Parça çözünürlükleri önceden belirlenir: ilerleme kesri örnek sayısıyla ağırlıklanır
+    const segOf = [];
+    let samplesTotal = 0, samplesDone = 0;
+    for (let cz = 0; cz < chunksPerSide; cz++) {
+      for (let cx = 0; cx < chunksPerSide; cx++) {
+        const cxm = -MAP_SIZE / 2 + cx * chunkSize + chunkSize / 2, czm = -MAP_SIZE / 2 + cz * chunkSize + chunkSize / 2;
+        const sc = isDetailChunk(cxm, czm) ? segHi * 2 : isCoarseChunk(cxm, czm) ? Math.max(8, segHi >> 1) : segHi;
+        segOf.push(sc);
+        samplesTotal += (sc + 3) * (sc + 3);
+      }
+    }
     for (let cz = 0; cz < chunksPerSide; cz++) {
       for (let cx = 0; cx < chunksPerSide; cx++) {
         const x0 = -MAP_SIZE / 2 + cx * chunkSize;
         const z0 = -MAP_SIZE / 2 + cz * chunkSize;
-        const cxm = x0 + chunkSize / 2, czm = z0 + chunkSize / 2;
-        const detail = isDetailChunk(cxm, czm);
-        const segC = detail ? segHi * 2 : isCoarseChunk(cxm, czm) ? Math.max(8, segHi >> 1) : segHi;
+        const segC = segOf[cz * chunksPerSide + cx];
         const n = segC + 1;
         const nb = n + 2; // kenarlıklı ızgara (normal hesabı için)
         const step = chunkSize / segC;
@@ -634,6 +690,8 @@ export class World {
           meshes.push(mesh);
         }
         this.terrainChunks.push({ meshes, center, lod: 1 });
+        samplesDone += (segC + 3) * (segC + 3);
+        if (samplesDone < samplesTotal) yield samplesDone / samplesTotal;
       }
     }
     this.group.add(terrainGroup);
@@ -797,7 +855,11 @@ export class World {
     this.seaMeshes = this.waterMeshes.slice(-2);
   }
 
-  buildTrees() {
+  buildTrees() { const it = this.buildTreesSteps(); while (!it.next().done) { /* tek seferde */ } }
+
+  // Ağaç üreteci: yerleştirme ilerledikçe 0..1 kesir verir. Rastgele sayı sırası ve
+  // yerleştirme mantığı değişmedi; yalnızca döngü aralarında duraklama noktaları var.
+  *buildTreesSteps() {
     const q = this.quality;
     const rand = mulberry32(9001);
     // Parça boyutu arazi ile aynı (4 km): 12 km'lik parçalarda tek bir parça açılınca
@@ -835,6 +897,7 @@ export class World {
     };
     while (placed < q.trees && tries < q.trees * 3) {
       tries++;
+      if ((tries & 255) === 0) yield 0.85 * Math.min(1, Math.max(placed / q.trees, tries / (q.trees * 3)));
       const x0 = (rand() - 0.5) * MAP_SIZE * 0.98;
       const z0 = (rand() - 0.5) * MAP_SIZE * 0.98;
       if (rand() > activity(x0, z0)) continue;
@@ -879,6 +942,7 @@ export class World {
     const up = new THREE.Vector3(0, 1, 0);
     const tint = new THREE.Color();
     for (let i = 0; i < perChunk.length; i++) {
+      if ((i & 31) === 0) yield 0.85 + 0.15 * (i / perChunk.length);
       const cx = i % chunks, cz = Math.floor(i / chunks);
       const center = new THREE.Vector3(-MAP_SIZE / 2 + (cx + 0.5) * chunkSize, 0, -MAP_SIZE / 2 + (cz + 0.5) * chunkSize);
       for (const [key, geo] of [['conifer', coniferGeo], ['leafy', leafyGeo]]) {

@@ -7,9 +7,100 @@ import { FLEET, FLEET_ORDER, getAircraftConfig } from './fleet.js';
 import { Controls } from './controls.js';
 import { HUD } from './hud.js';
 import { AudioEngine } from './audio.js';
-import { CameraRig, CAMERA_NAMES } from './cameras.js';
+import { CameraRig, CAMERA_NAMES, CAMERA_LABELS } from './cameras.js';
 import { liveriesFor, defaultLiveryId } from './liveries.js';
 import { UI, isStandalone, isIOS, loadSettings, saveSettings } from './ui.js';
+
+// ---------------------------------------------------------------------------
+// Yükleme ilerlemesi. Yüzde ZAMANA bağlı değildir: yalnızca bir iş (ya da arazi
+// parçası) BİTTİĞİNDE ilerler. Her işin payı, o işin süresine göre ağırlıklanır:
+//   - ilk açılışta geliştirme makinesinde ölçülen süreler (orta kalite, ms),
+//   - sonraki açılışlarda BU cihazda bir önceki yüklemede ölçülen süreler
+//     (kalite ayarına göre ayrı ayrı saklanır).
+// Böylece çubuk, işin gerçek dağılımına yakın ve eşit hızda ilerler.
+// ---------------------------------------------------------------------------
+const LOAD_COST_MS = {
+  gfx: 60, sky: 3, lights: 1, terrain: 5800, water: 430, trees: 1000, roads: 52, town: 80,
+  airbase: 250, baseDetails: 100, civil: 120, city: 285, surroundings: 15, clouds: 45, collision: 2,
+  env: 40, systems: 10, previews: 1500, shaders: 120,
+};
+const LOAD_LABEL = {
+  gfx: 'Starting graphics…',
+  sky: 'Setting up sky and lighting…', lights: 'Setting up sky and lighting…',
+  terrain: 'Building terrain…',
+  water: 'Adding lakes, rivers and the sea…',
+  trees: 'Planting forests…',
+  roads: 'Laying roads…', town: 'Building towns…',
+  airbase: 'Building Anadolu Air Base…', baseDetails: 'Building Anadolu Air Base…',
+  civil: 'Building Yesilova Airport…',
+  city: 'Building the city…',
+  surroundings: 'Finishing airport surroundings…', clouds: 'Forming clouds…', collision: 'Finishing scenery…',
+  env: 'Preparing reflections…',
+  systems: 'Setting up flight systems…',
+  previews: 'Rendering aircraft previews…',
+  shaders: 'Compiling shaders…',
+};
+const PROFILE_KEY = 'ffs.loadProfile';
+
+class LoadTracker {
+  constructor(stages, profileKey, onUpdate) {
+    this.stages = stages;
+    this.profileKey = profileKey;
+    this.onUpdate = onUpdate;
+    let saved = {};
+    try { saved = (JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}') || {})[profileKey] || {}; } catch (e) { saved = {}; }
+    this.weight = {};
+    for (const id of stages) {
+      const w = Number(saved[id]);
+      this.weight[id] = w > 0 && w < 600000 ? w : (LOAD_COST_MS[id] || 50);
+    }
+    this.total = stages.reduce((a, id) => a + this.weight[id], 0) || 1;
+    this.doneW = 0;       // tamamlanan aşamaların toplam ağırlığı
+    this.cur = null; this.curFrac = 0; this.t0 = 0;
+    this.measured = {};
+    this.value = 0;
+  }
+  /** Aşamayı başlat (ya da içinde ilerle). frac: aşamanın tamamlanan kesri. */
+  step(id, frac = 0, label) {
+    if (this.cur !== id) {
+      if (this.cur) this.end(this.cur);
+      this.cur = id; this.curFrac = 0; this.t0 = performance.now();
+    }
+    if (frac > this.curFrac) this.curFrac = Math.min(1, frac);
+    this.emit(label || LOAD_LABEL[id]);
+  }
+  end(id) {
+    if (this.cur !== id) return;
+    this.measured[id] = (this.measured[id] || 0) + (performance.now() - this.t0);
+    this.doneW += this.weight[id] || 0;
+    this.cur = null; this.curFrac = 0;
+    this.emit();
+  }
+  emit(label) {
+    const cw = this.cur ? (this.weight[this.cur] || 0) * this.curFrac : 0;
+    const v = Math.min(1, (this.doneW + cw) / this.total);
+    if (v > this.value) this.value = v;
+    this.onUpdate(this.value, label);
+  }
+  finish(label) { if (this.cur) this.end(this.cur); this.value = 1; this.onUpdate(1, label); }
+  /** Bu cihazda ölçülen süreleri bir sonraki yükleme için sakla (yumuşatılmış). */
+  save() {
+    try {
+      const all = JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}') || {};
+      const prev = all[this.profileKey] || {};
+      const next = {};
+      for (const id of this.stages) {
+        const m = this.measured[id];
+        if (!(m > 0)) { if (prev[id] > 0) next[id] = prev[id]; continue; }
+        next[id] = Math.round(prev[id] > 0 ? prev[id] * 0.4 + m * 0.6 : m);
+      }
+      all[this.profileKey] = next;
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(all));
+    } catch (e) { /* özel mod: kalibrasyon yok */ }
+  }
+}
+
+const WORLD_STAGES = ['sky', 'lights', 'terrain', 'water', 'trees', 'roads', 'town', 'airbase', 'baseDetails', 'civil', 'city', 'surroundings', 'clouds', 'collision'];
 
 class App {
   constructor() {
@@ -28,33 +119,47 @@ class App {
     this.slowTime = 0; this.goodTime = 0;
     this.safe = { top: 0, right: 0, bottom: 0, left: 0 };
     this.ui.el.version.textContent = APP_VERSION;
+    if (this.ui.el.loadingVer) this.ui.el.loadingVer.textContent = 'v' + APP_VERSION;
     this.canvas = document.getElementById('gl');
     this.hudCanvas = document.getElementById('hud');
     this.contextLost = false;
+    // Görüntü alanı (js/viewport.js) tek kaynaktır. Yükleme BAŞLAMADAN abone olunur:
+    // yükleme sırasında döndürülen telefonda tuval ve arayüz de hemen yeniden boyutlanır.
+    this.vp = window.ffsViewport || {
+      get w() { return window.innerWidth; }, get h() { return window.innerHeight; },
+      get landscape() { return window.innerWidth >= window.innerHeight; }, measure() { return false; }, onChange() {},
+    };
+    this.vp.onChange(() => this.onResize());
     this.init().catch((err) => {
       console.error(err);
-      this.ui.setLoading('Hata: ' + (err && err.message ? err.message : err), 0);
+      this.ui.loadingError('Something went wrong while loading: ' + (err && err.message ? err.message : err));
     });
   }
 
   async init() {
     const ui = this.ui;
-    ui.setLoading('Starting graphics…', 0.05);
-    await this.nextFrame();
+    const stages = ['gfx', ...WORLD_STAGES, 'env', 'systems', 'previews', 'shaders'];
+    const prog = new LoadTracker(stages, 'boot-' + this.settings.quality, (v, label) => ui.setProgress(v, label));
+    ui.resetProgress(LOAD_LABEL.gfx);
+    prog.step('gfx');
+    await this.breathe();
     this.setupRenderer();
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.5, 60000);
     this.camera.layers.enable(LAYER_TREES);
     this.scene.add(this.camera);
+    this.onResize();
+    prog.end('gfx');
 
-    ui.setLoading('Building terrain and airports…', 0.2);
-    await this.nextFrame();
-    this.world = new World(this.scene, this.renderer, this.settings.quality);
+    this.world = await this.createWorld(this.settings.quality, prog);
 
+    prog.step('env');
+    await this.breathe();
     this.buildEnvironment();
+    prog.end('env');
 
-    ui.setLoading('Fizik ve kontroller…', 0.6);
-    await this.nextFrame();
+    prog.step('systems');
+    await this.breathe();
     this.aircraft = null; this.physics = null; this.aircraftId = null;
     this.hud = new HUD(this.hudCanvas);
     this.audio = new AudioEngine();
@@ -80,19 +185,29 @@ class App {
     this.bindSystem();
     this.onResize();
     this.applySettingsToUI();
+    prog.end('systems');
 
-    ui.setLoading('Preparing aircraft previews…', 0.85);
-    await this.nextFrame();
-    await this.buildThumbnails();
+    prog.step('previews');
+    await this.breathe();
+    await this.buildThumbnails(null, (k, n) => prog.step('previews', k / n, `Rendering aircraft previews (${Math.min(n, Math.floor(k) + 1)}/${n})…`));
+    prog.end('previews');
+
+    prog.step('shaders');
+    await this.breathe();
     this.updateSelectCamera(0);
     this.world.update(0, this.camera, this.camera.position);
+    await this.precompile(this.scene);
+    prog.end('shaders');
 
-    ui.setLoading('Ready', 1);
-    await this.nextFrame();
+    prog.finish('Ready');
+    await ui.progressSettled();
+    prog.save();
+    this.loaded = true;
+    ui.el.loading.setAttribute('aria-busy', 'false');
     ui.hide('loading');
     this.buildSelectGrid();
     this.showSelect();
-    if (isIOS() && !isStandalone()) ui.el.selHint.textContent = 'iPhone: use Share → Add to Home Screen to play full screen.';
+    if (isIOS() && !isStandalone()) ui.el.selHint.textContent = 'On iPhone, tap Share → Add to Home Screen to play full screen.';
     this.registerSW();
     this.checkOrientation();
     this.lastTime = performance.now();
@@ -100,6 +215,41 @@ class App {
   }
 
   nextFrame() { return new Promise((r) => requestAnimationFrame(() => r())); }
+
+  // Tarayıcıya nefes aldırır: bir kare çizilir (ilerleme çubuğu), bekleyen olaylar
+  // (döndürme, yeniden boyutlandırma) işlenir. rAF sonrası zamanlayıcı kullanılır ki
+  // sıradaki iş o karenin ÇİZİMİNDEN sonra başlasın. Sayfa arka plandaysa rAF durur:
+  // o durumda yalnızca zamanlayıcı.
+  breathe() {
+    return new Promise((res) => {
+      let done = false;
+      const go = () => { if (!done) { done = true; setTimeout(res, 0); } };
+      if (!document.hidden) requestAnimationFrame(go);
+      setTimeout(go, document.hidden ? 0 : 120);
+    });
+  }
+
+  /** Dünyayı zaman dilimli kurar; ilerlemeyi aşama aşama bildirir. */
+  async createWorld(quality, prog) {
+    const world = new World(this.scene, this.renderer, quality, { defer: true });
+    await world.build((id, frac) => prog.step(id, frac), () => this.breathe());
+    return world;
+  }
+
+  /**
+   * Gölgelendiricileri yükleme ekranı açıkken derle. Aksi hâlde ilk kare (yükleme
+   * ekranı kapandıktan SONRA) derleme için donuyordu. compileAsync paralel derlemeyi
+   * destekleyen cihazlarda ana iş parçacığını bekletmez.
+   */
+  async precompile(target) {
+    try {
+      // Paralel derleme uzantısı yoksa compileAsync de eşzamanlı derler (ve konsola
+      // uyarı yazar): o durumda doğrudan compile kullanılır.
+      const parallel = this.renderer.extensions && this.renderer.extensions.has('KHR_parallel_shader_compile');
+      if (parallel && this.renderer.compileAsync) await this.renderer.compileAsync(target, this.camera, this.scene);
+      else this.renderer.compile(target, this.camera, this.scene);
+    } catch (e) { console.warn('Shader precompilation skipped', e); }
+  }
 
   setupRenderer() {
     const q = QUALITY_PRESETS[this.settings.quality] || QUALITY_PRESETS.medium;
@@ -156,7 +306,7 @@ class App {
     ui.bindSeg(el.tiltSeg, 't', async (v) => {
       const on = v === '1';
       const ok = await this.controls.setTiltEnabled(on);
-      if (on && !ok) { ui.setSeg(el.tiltSeg, 't', 0); ui.message('Tilt permission denied'); this.settings.tilt = 0; }
+      if (on && !ok) { ui.setSeg(el.tiltSeg, 't', 0); ui.message('Motion access denied — tilt steering is off'); this.settings.tilt = 0; }
       else this.settings.tilt = on ? 1 : 0;
       saveSettings(this.settings);
     });
@@ -181,10 +331,8 @@ class App {
   }
 
   bindSystem() {
-    window.addEventListener('resize', () => this.onResize());
-    if (window.visualViewport) window.visualViewport.addEventListener('resize', () => this.onResize());
-    const mq = window.matchMedia('(orientation: portrait)');
-    (mq.addEventListener ? mq.addEventListener('change', () => this.checkOrientation()) : mq.addListener(() => this.checkOrientation()));
+    // Yeniden boyutlandırma / döndürme olayları js/viewport.js'de toplanır ve
+    // ölçülen boyut DEĞİŞTİĞİNDE onResize çağrılır (kurucuda abone olundu).
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         if (this.state === 'running') this.pause();
@@ -207,17 +355,24 @@ class App {
     const pr = this.basePixelRatio() * this.renderScale;
     if (Math.abs(this.renderer.getPixelRatio() - pr) < 0.001) return;
     this.renderer.setPixelRatio(pr);
-    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    this.renderer.setSize(this.vp.w, this.vp.h, false);
     this.needsRender = true;
   }
 
+  // Boyut her zaman görüntü alanı modülünden gelir (window.innerWidth/innerHeight
+  // iOS'ta döndürmeden hemen sonra eski yönelimin değerlerini verebiliyor).
+  // Yükleme sırasında da çağrılır: henüz kurulmamış parçalar atlanır.
   onResize() {
-    const w = window.innerWidth, h = window.innerHeight;
-    this.renderer.setPixelRatio(this.basePixelRatio() * this.renderScale);
-    this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
-    this.hud.resize(w, h, Math.min(window.devicePixelRatio || 1, 2));
+    const w = this.vp.w, h = this.vp.h;
+    if (this.renderer) {
+      this.renderer.setPixelRatio(this.basePixelRatio() * this.renderScale);
+      this.renderer.setSize(w, h, false);
+    }
+    if (this.camera) {
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+    }
+    if (this.hud) this.hud.resize(w, h, Math.min(window.devicePixelRatio || 1, 2));
     // Güvenli alan değerlerini bir sonda elemanın hesaplanmış padding'inden oku (env() doğrudan okunamaz)
     if (!this.safeProbe) {
       const probe = document.createElement('div');
@@ -235,7 +390,10 @@ class App {
 
   checkOrientation() {
     const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-    const portrait = window.innerHeight > window.innerWidth && (coarse || window.innerWidth < 600);
+    const portrait = this.vp.h > this.vp.w && (coarse || this.vp.w < 600);
+    // Yükleme sürerken uyarı kaplaması açılmaz: yükleme kartı dikeyde de düzgün
+    // yerleşir ve kendi "yataya çevirin" ipucunu gösterir.
+    if (!this.loaded) return;
     if (portrait) {
       this.ui.show('orient');
       if (this.state === 'running') { this.pause(); this.pausedByOrientation = true; }
@@ -369,7 +527,7 @@ class App {
   }
 
   // Kart önizlemeleri: gerçek modeller bir kez render hedefine çizilir (dış görsel bağımlılığı yok)
-  async buildThumbnails(only = null) {
+  async buildThumbnails(only = null, onProgress = null) {
     const W = 512, H = 288;
     const rt = new THREE.WebGLRenderTarget(W, H);
     const scene = new THREE.Scene();
@@ -382,7 +540,10 @@ class App {
     const prevAlpha = this.renderer.getClearAlpha();
     this.renderer.setClearAlpha(0);
     if (!only) this.thumbData = {};
-    for (const id of (only ? [only] : FLEET_ORDER)) {
+    const list = only ? [only] : FLEET_ORDER;
+    for (let k = 0; k < list.length; k++) {
+      const id = list[k];
+      if (onProgress) onProgress(k, list.length);
       const cfg = FLEET[id];
       let ac = null;
       try {
@@ -390,6 +551,9 @@ class App {
         if (this.envMap && ac.setEnvironment) ac.setEnvironment(this.envMap);
         ac.update({ gear: 1, flaps: 0, slats: 0, spoilers: 0, throttle: 0.2, engine: 0.2, time: 0.35, dt: 0.016 });
         scene.add(ac.group);
+        // Model kurulumu ile ilk çizim (gölgelendirici derlemesi) ayrı dilimlerde:
+        // arada tarayıcı bir kare çizer, döndürmeye tepki verir
+        if (onProgress) { onProgress(k + 0.5, list.length); await this.breathe(); }
         cam.fov = cfg.thumb.fov;
         cam.position.fromArray(cfg.thumb.pos);
         cam.lookAt(cfg.thumb.look[0], cfg.thumb.look[1], cfg.thumb.look[2]);
@@ -413,7 +577,7 @@ class App {
       } finally {
         if (ac) { scene.remove(ac.group); ac.dispose(); }
       }
-      await this.nextFrame();
+      await this.breathe();
     }
     this.renderer.setClearAlpha(prevAlpha);
     this.renderer.setRenderTarget(null);
@@ -476,10 +640,19 @@ class App {
       const cfg = getAircraftConfig(id);
       this.ui.hide('select');
       if (this.aircraftId !== id || !this.aircraft) {
-        this.ui.setLoading(cfg.name + ' loading…', 0.35);
+        const label = 'Loading ' + cfg.name + '…';
+        const prog = new LoadTracker(['model', 'flight', 'shaders'], 'aircraft-' + id, (v, l) => this.ui.setProgress(v, l));
+        this.ui.resetProgress(label);
         this.ui.show('loading');
-        await this.nextFrame(); await this.nextFrame();
-        this.installAircraft(id);
+        prog.step('model', 0, label);
+        await this.breathe();
+        this.installAircraft(id, () => prog.step('flight', 0, label));
+        prog.step('shaders', 0, 'Compiling shaders…');
+        await this.breathe();
+        await this.precompile(this.aircraft.group);
+        prog.finish('Ready');
+        await this.ui.progressSettled();
+        prog.save();
         this.ui.hide('loading');
       } else {
         this.physics.reset(spawnPose(this.settings.spawn));
@@ -494,7 +667,8 @@ class App {
   }
 
   // Uçağı kur: eski model, fizik ve ses profili tamamen bırakılır (artık dinleyici/nesne kalmaz)
-  installAircraft(id) {
+  // onModelBuilt: model kurulduktan, uçuş sistemleri kurulmadan önce (yükleme göstergesi için)
+  installAircraft(id, onModelBuilt) {
     const cfg = getAircraftConfig(id);
     if (this.aircraft) {
       this.scene.remove(this.aircraft.group);
@@ -505,6 +679,7 @@ class App {
     this.aircraft = cfg.build({ quality: this.settings.quality, livery: this.liveryId(this.aircraftId) });
     this.scene.add(this.aircraft.group);
     if (this.envMap && this.aircraft.setEnvironment) this.aircraft.setEnvironment(this.envMap);
+    if (onModelBuilt) onModelBuilt();
     this.physics = new FlightModel(this.world, cfg);
     this.physics.reset(spawnPose(this.settings.spawn));
     this.cameraRig.setAircraft(this.aircraft, cfg);
@@ -577,7 +752,8 @@ class App {
   }
   resume() {
     if (this.state !== 'paused') return;
-    if (this.pausedByOrientation && window.innerHeight > window.innerWidth) return;
+    if (this.pausedByOrientation && this.vp.h > this.vp.w) return;
+    if (!this.world || this.ui.isOpen('loading')) return;   // kalite değişimi sürüyor
     this.ui.hide('pause');
     this.ui.hide('settings');
     this.state = 'running';
@@ -602,12 +778,15 @@ class App {
     this.lastTime = performance.now();
     this.accumulator = 0;
     this.syncAircraft(0);
-    this.ui.message('Runway 09 threshold — brakes off, engines at idle, flaps 0');
+    const sp = SPAWNS.find((s) => s.id === this.settings.spawn) || SPAWNS[0];
+    const rwy = String(Math.round(sp.hdg / 10) % 36 || 36).padStart(2, '0');
+    const flaps0 = (getAircraftConfig(this.aircraftId).systems.flapNames || ['UP'])[0];
+    this.ui.message(`Runway ${rwy} threshold — brakes released, throttle idle, flaps ${flaps0}`);
   }
   toggleGear() {
     if (this.state !== 'running') return;
     if (!this.physics.toggleGear()) {
-      this.ui.message('Landing gear locked on ground (weight on wheels)', 1800);
+      this.ui.message('Gear can’t retract on the ground (weight on wheels)', 1800);
       return;
     }
     this.updateToggleButtons();
@@ -654,7 +833,7 @@ class App {
   }
   cycleCamera() {
     this.cameraRig.next();
-    this.ui.message('Camera: ' + CAMERA_NAMES[this.cameraRig.mode], 1200);
+    this.ui.message('Camera: ' + (CAMERA_LABELS[this.cameraRig.mode] || CAMERA_NAMES[this.cameraRig.mode]), 1200);
   }
   toggleSound() {
     this.settings.sound = this.settings.sound ? 0 : 1;
@@ -670,20 +849,32 @@ class App {
     const wasRunning = this.state === 'running';
     if (wasRunning) this.pause();
     this.ui.hide('settings'); this.ui.hide('pause');
-    this.ui.setLoading('Applying quality setting…', 0.3);
+    const prog = new LoadTracker([...WORLD_STAGES, 'env', 'shaders'], 'quality-' + q, (v, l) => this.ui.setProgress(v, l));
+    this.ui.resetProgress('Applying graphics quality…');
     this.ui.show('loading');
-    await this.nextFrame(); await this.nextFrame();
+    await this.breathe();
     const preset = QUALITY_PRESETS[q];
+    // Kurulum süresince döngü dünyaya dokunmaz (eski dünya bırakıldı, yenisi hazır değil)
     this.world.dispose();
-    this.world = new World(this.scene, this.renderer, q);
-    this.physics.world = this.world;
-    this.cameraRig.world = this.world;
+    this.world = null;
+    const world = await this.createWorld(q, prog);
+    this.world = world;
+    this.physics.world = world;
+    this.cameraRig.world = world;
     this.renderScale = 1; this.slowTime = 0; this.goodTime = 0;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, preset.pixelRatio));
     this.renderer.shadowMap.enabled = preset.shadows;
     this.scene.traverse((o) => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach((m) => { m.needsUpdate = true; }); } });
+    prog.step('env');
+    await this.breathe();
     this.buildEnvironment();
     this.onResize();
+    prog.step('shaders');
+    await this.breathe();
+    await this.precompile(this.scene);
+    prog.finish('Ready');
+    await this.ui.progressSettled();
+    prog.save();
     this.ui.hide('loading');
     if (this.state === 'paused') this.ui.show('pause');
     this.needsRender = true;
@@ -797,11 +988,10 @@ class App {
     requestAnimationFrame((t) => this.loop(t));
     if (this.contextLost) return;
     if (!this.framePacer(now)) return;   // 60 fps kilidi
-    // Bazı tarayıcılar döndürmede resize olayını geç/eksik gönderir: boyutu her karede doğrula
-    if (window.innerWidth !== this._lastW || window.innerHeight !== this._lastH) {
-      this._lastW = window.innerWidth; this._lastH = window.innerHeight;
-      this.onResize();
-    }
+    // Bazı tarayıcılar döndürmede resize olayını geç/eksik gönderir: boyutu her karede
+    // doğrula (değiştiyse görüntü alanı modülü onResize'ı çağırır)
+    this.vp.measure();
+    if (!this.world) { this.lastTime = now; return; }   // kalite değişimi: dünya yeniden kuruluyor
     let dt = (now - this.lastTime) / 1000;
     this.lastTime = now;
     if (!(dt > 0)) dt = 0;

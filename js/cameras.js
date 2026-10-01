@@ -19,6 +19,11 @@ export const CAMERA_NAMES = {
   orbit: 'FREE CAMERA', cockpit: 'COCKPIT', chase: 'CHASE', flyby: 'FLYBY',
   wingL: 'LEFT WING', wingR: 'RIGHT WING', gear: 'LANDING GEAR',
 };
+// Bildirim satırı için cümle düzeninde adlar (HUD büyük harfli adları kullanır)
+export const CAMERA_LABELS = {
+  orbit: 'Free', cockpit: 'Cockpit', chase: 'Chase', flyby: 'Flyby',
+  wingL: 'Left wing', wingR: 'Right wing', gear: 'Landing gear',
+};
 
 const DEG = Math.PI / 180;
 // Kokpit serbest bakış sınırları: boyun hareketi kadar, daha fazlası değil.

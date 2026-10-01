@@ -8,11 +8,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FFS">
   <meta name="theme-color" content="#0b1016">
-  <meta name="description" content="FFS — Flight Simulator: F-35A Lightning II and Airbus A321neo (PWA)">
+  <meta name="description" content="FFS Flight Simulator: fly the F-35A Lightning II, Airbus A321neo and the fictional FA-90 Vesper. Installable web app for phones and desktop.">
   <title>FFS — Flight Simulator</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+  <!-- Görüntü alanı ölçümü: sayfa çizilmeden önce çalışır (bkz. js/viewport.js) -->
+  <script src="./js/viewport.js"></script>
   <script type="importmap">
   {
     "imports": {
@@ -23,6 +25,17 @@
   </script>
   <style>
     :root {
+      /* Uygulamanın gerçek boyutu js/viewport.js tarafından ölçülüp buraya yazılır.
+         100vh/100dvh/inset:0 iOS'ta döndürmeden sonra eski ya da kısa kalabiliyordu.
+         Buradaki değerler yalnızca betik çalışmazsa kullanılan yedektir. */
+      --app-w: 100vw;
+      --app-h: 100vh;
+      --vw: calc(var(--app-w) / 100);
+      --vh: calc(var(--app-h) / 100);
+      /* Arayüz geçişleri: tek ölçü seti (ui.js aynı süreleri kullanır) */
+      --t-fast: 150ms;
+      --t-med: 200ms;
+      --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
       --sat: env(safe-area-inset-top, 0px);
       --sar: env(safe-area-inset-right, 0px);
       --sab: env(safe-area-inset-bottom, 0px);
@@ -31,11 +44,11 @@
          Üç denetimin konumu TEK bir ölçü setinden türetilir; hiçbiri elle yazılmış
          koordinat kullanmaz. Bu yüzden ekran daraldıkça clamp() ölçüleri küçültür
          ve denetimler üst üste binmek yerine orantılı olarak sıkışır. */
-      --ctl-gap: clamp(9px, 1.5vw, 18px);
-      --rud-w: clamp(130px, 22vw, 200px);
+      --ctl-gap: clamp(9px, calc(1.5 * var(--vw)), 18px);
+      --rud-w: clamp(130px, calc(22 * var(--vw)), 200px);
       --rud-h: 42px;
-      --stk-d: clamp(82px, 13vw, 108px);
-      --flp-w: clamp(52px, 7.6vw, 64px);
+      --stk-d: clamp(82px, calc(13 * var(--vw)), 108px);
+      --flp-w: clamp(52px, calc(7.6 * var(--vw)), 64px);
       --ctl-l: calc(var(--sal) + 10px);
       --flp-l: var(--ctl-l);
       --stk-l: calc(var(--flp-l) + var(--flp-w) + var(--ctl-gap));
@@ -56,16 +69,20 @@
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
-      margin: 0; padding: 0; width: 100%; height: 100%; height: 100dvh;
-      overflow: hidden; background: #0b1016; color: #e8eef5;
+      margin: 0; padding: 0; position: fixed; left: 0; top: 0; width: var(--app-w); height: var(--app-h);
+      overflow: hidden; background: #070b11; color: #e8eef5;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
-      overscroll-behavior: none; position: fixed; inset: 0;
+      overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
     }
+    /* Uygulama kabı: her katman bunun İÇİNDE mutlak konumludur. Böylece sağ/alt
+       kenara göre konumlanan öğeler de tarayıcının (döndürmede eskiyebilen)
+       yerleşim alanına değil, ölçülen gerçek boyuta göre yerleşir. */
+    #app { position: fixed; left: 0; top: 0; width: var(--app-w); height: var(--app-h); overflow: hidden; }
     canvas { display: block; }
-    #gl { position: fixed; inset: 0; width: 100%; height: 100%; }
-    #hud { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-    #touch { position: fixed; inset: 0; pointer-events: none; }
+    #gl { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+    #hud { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+    #touch { position: absolute; inset: 0; pointer-events: none; }
     #touch .zone { position: absolute; pointer-events: auto; }
     /* Joystick bölgesi kümenin ORTA sütunudur: solunda dümen, sağında flap kolu
        kalır, hiçbirinin üstüne binmez. İşaretçi yakalandığı için (setPointerCapture)
@@ -116,7 +133,7 @@
        çizilir, topuz kademe adını ve açısını taşır. Belirsiz bir düğme değildir. */
     #flaps {
       position: absolute; left: var(--flp-l); bottom: var(--ctl-b);
-      width: var(--flp-w); height: min(190px, 50vh); pointer-events: auto; touch-action: none;
+      width: var(--flp-w); height: min(190px, calc(50 * var(--vh))); pointer-events: auto; touch-action: none;
     }
     #flaps-cap {
       position: absolute; left: 0; right: 0; top: 0; height: 14px; line-height: 14px; text-align: center;
@@ -142,7 +159,7 @@
     #flaps.moving #flaps-knob { border-color: rgba(255,200,90,0.95); }
     /* Kısa ekranlarda kol kısalır; kademeler orantılı kaldığı için okunurluk bozulmaz */
     @media (max-height: 400px) {
-      #flaps { height: min(160px, 54vh); }
+      #flaps { height: min(160px, calc(54 * var(--vh))); }
       #flaps-knob { height: 32px; margin-top: -16px; }
       #flaps-knob b { font-size: 12px; }
     }
@@ -152,7 +169,11 @@
       font-size: 11px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
       display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
       text-align: center; line-height: 1.1; text-shadow: 0 1px 2px rgba(0,0,0,0.7); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+      cursor: pointer; font-family: inherit;
+      transition: background-color var(--t-fast) ease, border-color var(--t-fast) ease, color var(--t-fast) ease, transform 90ms ease;
     }
+    /* Basış geri bildirimi anında başlar (90 ms); bırakınca geri döner */
+    .btn:active { transform: scale(0.96); }
     /* [hidden] tarayıcı varsayılanı display:block'tur; display:flex onu ezer, bu yüzden açıkça geçersiz kılınır */
     .btn[hidden], #throttle-ab[hidden] { display: none !important; }
     .btn .i { font-size: 16px; line-height: 1; }
@@ -170,7 +191,7 @@
       transition: opacity 0.18s ease, transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1), visibility 0s linear 0.24s;
     }
     #drawer.open { opacity: 1; transform: none; pointer-events: auto; visibility: visible; transition-delay: 0s, 0s, 0s; }
-    #drawer .btn { width: 52px; transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1), background 0.15s; }
+    #drawer .btn { width: 52px; transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1), background-color var(--t-fast) ease, border-color var(--t-fast) ease, color var(--t-fast) ease; }
     #drawer .btn .l { font-size: 8.5px; letter-spacing: 0.2px; }
     #drawer:not(.open) .btn { pointer-events: none; }
     #drawer .btn:nth-child(2) { transition-delay: 0.03s; } #drawer .btn:nth-child(3) { transition-delay: 0.06s; } #drawer .btn:nth-child(4) { transition-delay: 0.09s; }
@@ -197,8 +218,8 @@
     #right-col .btn .l { line-height: 1.05; }
     /* ---- Uçak seçim ekranı ---- */
     #select { background: linear-gradient(160deg, rgba(6,10,16,0.82), rgba(6,10,16,0.94)); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: 24; }
-    .sel-wrap { width: min(1100px, 96vw); max-height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 10px; }
-    .sel-title { margin: 0; font-size: clamp(17px, 2.6vh, 26px); letter-spacing: 2.5px; text-transform: uppercase; color: #dbe6f2; font-weight: 800; text-align: center; }
+    .sel-wrap { width: min(1100px, 100%); max-height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 10px; }
+    .sel-title { margin: 0; font-size: clamp(17px, calc(2.6 * var(--vh)), 26px); letter-spacing: 2.5px; text-transform: uppercase; color: #dbe6f2; font-weight: 800; text-align: center; }
     .sel-title small { display: block; font-size: 11px; letter-spacing: 1.4px; font-weight: 600; color: rgba(190,205,222,0.62); margin-top: 3px; text-transform: none; }
     /* auto-fit: kart sayısı arttıkça sütunlar kendiliğinden ayarlanır. Sabit
        repeat(2, 1fr) üç uçakla iki satır yapıyor ve kısa yatay ekranlarda alttaki
@@ -216,7 +237,7 @@
     .ac-card:hover::after, .ac-card.sel-active::after { box-shadow: inset 0 0 26px -6px var(--ac); }
     .ac-thumb { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: radial-gradient(120% 90% at 50% 18%, rgba(120,160,210,0.20), rgba(10,16,24,0) 70%); }
     .ac-info { padding: 9px 13px 12px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(6,10,15,0.55); }
-    .ac-name { display: block; font-size: clamp(14px, 2.1vh, 19px); font-weight: 800; letter-spacing: 0.5px; }
+    .ac-name { display: block; font-size: clamp(14px, calc(2.1 * var(--vh)), 19px); font-weight: 800; letter-spacing: 0.5px; }
     .ac-sub { display: block; font-size: 11.5px; color: rgba(200,214,228,0.7); margin-top: 2px; }
     .ac-specs { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
     .ac-specs span { font-size: 10px; letter-spacing: 0.4px; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: #cfdcea; }
@@ -229,7 +250,9 @@
     .sel-ap-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
     .ap-chip { min-height: 44px; padding: 6px 14px; border-radius: 9px; cursor: pointer; text-align: left;
       background: rgba(16,24,34,0.72); border: 1px solid rgba(255,255,255,0.16); color: #cfdcea;
-      display: flex; flex-direction: column; justify-content: center; gap: 1px; font: inherit; }
+      display: flex; flex-direction: column; justify-content: center; gap: 1px; font: inherit;
+      transition: background-color var(--t-fast) ease, border-color var(--t-fast) ease, transform 90ms ease; }
+    .ap-chip:active, .lv-chip:active, .seg button:active, .ac-card:active { transform: scale(0.97); }
     .ap-chip b { font-size: 12.5px; font-weight: 700; color: #e8f0f8; }
     .ap-chip span { font-size: 10px; color: rgba(185,200,216,0.62); }
     .ap-chip.on { border-color: rgba(120,190,255,0.85); background: rgba(38,74,112,0.6); }
@@ -240,17 +263,20 @@
     .sel-lv-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
     .lv-chip { min-height: 40px; padding: 5px 12px; border-radius: 9px; cursor: pointer; text-align: left;
       display: flex; flex-direction: column; justify-content: center; gap: 1px;
-      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14); }
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14); color: inherit; font: inherit;
+      transition: background-color var(--t-fast) ease, border-color var(--t-fast) ease, transform 90ms ease; }
     .lv-chip b { font-size: 12px; font-weight: 700; color: #e8f0f8; }
     .lv-chip span { font-size: 9.5px; color: rgba(185,200,216,0.58); }
     .lv-chip.on { border-color: rgba(120,190,255,0.85); background: rgba(38,74,112,0.6); }
     /* Alçak ekranlarda (telefon yatay) kartlar kısalır: kalkış seçici ve ipucu taşmasın */
     @media (max-height: 460px) {
       .sel-wrap { gap: 6px; }
+      /* Telefon yatay: üç uçak tek satırda (kaydırmadan) görünsün */
+      .sel-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
       .sel-title { font-size: 15px; letter-spacing: 1.8px; }
       .sel-title small { font-size: 9.5px; margin-top: 1px; }
       .sel-grid { gap: 9px; }
-      .ac-thumb { aspect-ratio: auto; height: 26vh; object-fit: cover; }
+      .ac-thumb { aspect-ratio: auto; height: calc(26 * var(--vh)); object-fit: cover; }
       .ac-info { padding: 5px 10px 7px; }
       .ac-sub { display: none; }
       .ac-name { font-size: 14px; }
@@ -264,19 +290,23 @@
       .sel-hint { font-size: 10px; }
     }
     @media (max-height: 380px) {
-      .ac-specs { display: none; } .sel-hint { display: none; } .ac-thumb { height: 24vh; }
+      .ac-specs { display: none; } .sel-hint { display: none; } .ac-thumb { height: calc(24 * var(--vh)); }
       .sel-wrap { gap: 5px; } .sel-lv-host { gap: 3px; margin-top: 0; } .sel-lv { gap: 8px; } .sel-lv-row { gap: 6px; }
     }
-    @media (max-width: 620px) { .sel-grid { grid-template-columns: 1fr; } .sel-wrap { overflow-y: auto; -webkit-overflow-scrolling: touch; } }
+    /* Dar ve UZUN pencere (masaüstünde dar pencere): tek sütun. Alçak yatay telefon
+       ekranları yukarıdaki üç sütunlu düzeni korur. */
+    @media (max-width: 620px) and (min-height: 461px) { .sel-grid { grid-template-columns: 1fr; } .sel-wrap { overflow-y: auto; -webkit-overflow-scrolling: touch; } }
     .overlay {
-      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
       background: rgba(4, 8, 14, 0.78); z-index: 20; padding: calc(var(--sat) + 12px) calc(var(--sar) + 12px) calc(var(--sab) + 12px) calc(var(--sal) + 12px);
       pointer-events: auto;
     }
     .overlay[hidden] { display: none; }
+    /* Kapanmakta olan katman dokunuşu artık yakalamaz (alttaki ekran anında kullanılabilir) */
+    .ui-closing, .ui-closing * { pointer-events: none !important; }
     .panel {
       background: var(--panel); border: 1px solid rgba(255,255,255,0.15); border-radius: 16px; padding: 18px 22px;
-      max-width: min(92vw, 560px); max-height: 92dvh; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y;
+      max-width: min(100%, 560px); max-height: 100%; overflow: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y;
       box-shadow: 0 10px 40px rgba(0,0,0,0.5);
     }
     .panel h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: 1px; }
@@ -290,7 +320,8 @@
     .panel .row .btn { flex: 1; min-height: 48px; font-size: 15px; }
     .panel .opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0; font-size: 15px; }
     .seg { display: flex; border: 1px solid rgba(255,255,255,0.3); border-radius: 10px; overflow: hidden; }
-    .seg button { min-width: 64px; min-height: 44px; border: none; background: transparent; color: #fff; font-size: 14px; padding: 0 12px; }
+    .seg button { min-width: 64px; min-height: 44px; border: none; background: transparent; color: #fff; font-size: 14px; padding: 0 12px; font-family: inherit; cursor: pointer;
+      transition: background-color var(--t-fast) ease, color var(--t-fast) ease, transform 90ms ease; }
     .seg button.on { background: var(--btn-on); color: var(--hud); }
     .small { font-size: 12px; color: #9fb0c2; }
     #guide ul { margin: 6px 0 0 18px; padding: 0; font-size: 14px; line-height: 1.5; color: #cfd8e3; }
@@ -302,12 +333,13 @@
       #guide ul { font-size: 11.5px; line-height: 1.34; margin-left: 15px; }
       #guide li { margin-bottom: 1px; }
     }
-    #guide { position: fixed; left: 50%; top: calc(var(--sat) + 10px); transform: translateX(-50%); z-index: 15; width: min(94vw, 620px); }
+    /* Ortalama transform ile değil kenar boşluklarıyla yapılır: transform geçiş animasyonuna kalır */
+    #guide { position: absolute; left: 0; right: 0; margin: 0 auto; top: calc(var(--sat) + 10px); z-index: 15; width: min(calc(100% - 24px), 620px); max-height: calc(100% - var(--sat) - var(--sab) - 20px); display: flex; }
     /* Panelin genel max-width'i 560px; #guide kutusu ise 620px. Kapatma düğmesi
        #guide'a göre konumlandığı için panel dar kalınca düğme panelin DIŞINDA,
        gökyüzünün üstünde kalıyordu ve "X yok" gibi görünüyordu. Panel artık kutuyu
        tamamen doldurur, böylece düğme her zaman panelin içindedir. */
-    #guide .panel { padding: 12px 16px; max-width: none; width: 100%; box-sizing: border-box; }
+    #guide .panel { padding: 12px 16px; max-width: none; width: 100%; box-sizing: border-box; position: relative; }
     /* Başlık ve ilk satırlar ✕ düğmesinin altına girmesin */
     #guide h2 { padding-right: 52px; }
     #guide[hidden] { display: none; }
@@ -316,52 +348,119 @@
       background: rgba(16,22,30,0.92); border: 1px solid rgba(255,255,255,0.45); color: #fff; font-size: 20px;
       line-height: 1; display: flex; align-items: center; justify-content: center; z-index: 2; }
     #guide .close:active { background: rgba(60,72,88,0.95); }
+    /* Bildirimler üstte, HUD şeridinin altında durur: alttaki uçuş kumandalarını
+       (joystick, iniş takımı, fren) asla örtmez. Uçuş ekranının parçasıdır: menü
+       katmanlarının (z-index 20+) ALTINDA kalır, açık bir menü panelini örtmez. */
     .toast {
-      position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--sab) + 80px); z-index: 30;
+      position: absolute; left: 0; right: 0; margin: 0 auto; width: max-content; top: calc(var(--sat) + 46px); z-index: 19;
       background: var(--panel); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; padding: 10px 14px;
-      display: flex; align-items: center; gap: 12px; font-size: 14px; pointer-events: auto; max-width: 92vw;
+      display: flex; align-items: center; gap: 12px; font-size: 14px; pointer-events: auto; max-width: calc(100% - 24px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
     }
     .toast[hidden] { display: none; }
     .toast .btn { min-height: 40px; }
-    #orient-overlay { z-index: 40; background: #0b1016; flex-direction: column; text-align: center; }
-    #orient-overlay .phone { width: 46px; height: 84px; border: 3px solid #fff; border-radius: 8px; margin-bottom: 18px; animation: rot 1.6s ease-in-out infinite alternate; }
-    @keyframes rot { from { transform: rotate(0deg); } to { transform: rotate(-90deg); } }
-    #loading { z-index: 35; flex-direction: column; }
-    #loading .bar { width: 240px; height: 6px; background: rgba(255,255,255,0.15); border-radius: 3px; overflow: hidden; margin-top: 12px; }
-    #loading .bar div { height: 100%; width: 0%; background: var(--hud); transition: width 0.2s; }
+    #orient-overlay { z-index: 40; background: radial-gradient(120% 90% at 50% 35%, #122031 0%, #0a121b 55%, #060a10 100%); flex-direction: column; text-align: center; gap: 4px; }
+    #orient-overlay h2 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: 0.2px; }
+    #orient-overlay p { margin: 4px 0 0; }
+    #orient-overlay .phone { width: 42px; height: 76px; border: 2.5px solid rgba(232,240,248,0.9); border-radius: 9px; margin-bottom: 22px; position: relative;
+      animation: rot 1.8s cubic-bezier(0.45, 0, 0.25, 1) infinite alternate; }
+    #orient-overlay .phone::after { content: ""; position: absolute; left: 50%; bottom: 5px; width: 12px; height: 2px; margin-left: -6px; border-radius: 2px; background: rgba(232,240,248,0.6); }
+    @keyframes rot { 0%, 20% { transform: rotate(0deg); } 80%, 100% { transform: rotate(-90deg); } }
+
+    /* ---- Yükleme ekranı ----
+       Sade, koyu, havacılık temalı. Kart hem dikey hem yatay ekranda ortalanır ve
+       güvenli alanların (çentik / Dynamic Island / ev çubuğu) içinde kalır.
+       Çubuk ve yüzde AYNI değerden çizilir (ui.js), sürekli animasyon yalnızca
+       transform ile yapılır: ana iş parçacığı meşgulken bile akıcı kalır. */
+    #loading { z-index: 35; background: radial-gradient(120% 95% at 50% 38%, #13233a 0%, #0b1420 48%, #060a10 100%); }
+    #loading .ld-sky { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    /* Ufuk çizgisi: ortada parlayan, kenarlara doğru sönen ince bir hat */
+    #loading .ld-sky::before { content: ""; position: absolute; left: 0; right: 0; top: 64%; height: 1px;
+      background: linear-gradient(90deg, rgba(120,190,255,0) 0%, rgba(120,190,255,0.38) 50%, rgba(120,190,255,0) 100%); }
+    #loading .ld-sky::after { content: ""; position: absolute; left: 0; right: 0; top: 64%; bottom: 0;
+      background: linear-gradient(180deg, rgba(40,80,120,0.07), rgba(6,10,16,0) 55%); }
+    .ld-card {
+      position: relative; width: min(400px, 100%); padding: 26px 28px 18px; border-radius: 20px; text-align: center;
+      background: linear-gradient(180deg, rgba(22,33,47,0.78), rgba(10,16,24,0.86));
+      border: 1px solid rgba(160,200,240,0.13);
+      box-shadow: 0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    }
+    .ld-mark { display: block; width: 44px; height: 44px; margin: 0 auto 12px; }
+    /* Harf aralığı sağa da boşluk ekler; padding-left ile görsel olarak ortalanır */
+    .ld-title { margin: 0; font-size: 32px; line-height: 1; font-weight: 800; letter-spacing: 0.3em; padding-left: 0.3em; color: #f2f6fb; }
+    .ld-sub { margin: 9px 0 0; font-size: 11px; font-weight: 600; letter-spacing: 0.34em; padding-left: 0.34em; text-transform: uppercase; color: rgba(186,204,224,0.66); }
+    .ld-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 26px; }
+    .ld-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-size: 13.5px; color: #c9d6e3; }
+    .ld-pct { flex: none; font-size: 13.5px; font-weight: 700; color: #8de8b4; font-variant-numeric: tabular-nums; min-width: 3.2em; text-align: right; }
+    .ld-bar { position: relative; height: 4px; margin-top: 10px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; }
+    .ld-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; border-radius: inherit;
+      background: linear-gradient(90deg, #3fa3f0, #3fd492); box-shadow: 0 0 10px rgba(63,212,146,0.35); overflow: hidden; }
+    /* İnce parıltı: yalnızca transform, bileştiricide çalışır */
+    .ld-fill::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 60px;
+      background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.45), rgba(255,255,255,0));
+      transform: translateX(-60px); animation: ld-sheen 1.8s ease-in-out infinite; }
+    @keyframes ld-sheen { 0% { transform: translateX(-60px); } 70%, 100% { transform: translateX(420px); } }
+    .ld-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; min-height: 14px;
+      font-size: 10.5px; letter-spacing: 0.4px; color: rgba(170,188,208,0.5); }
+    .ld-hint { display: none; color: rgba(200,216,232,0.72); }
+    .ld-hint::before { content: "⟲ "; }
+    .is-portrait .ld-hint { display: inline; }
+    .ld-ver { margin-left: auto; font-variant-numeric: tabular-nums; }
+    .ld-error { display: none; margin-top: 16px; }
+    #loading.failed .ld-error { display: block; }
+    #loading.failed .ld-pct { color: #ff9b8a; }
+    #loading.failed .ld-fill { background: #ff8a7a; box-shadow: none; }
+    #loading.failed .ld-fill::after { display: none; }
+    .ld-error .btn { width: 100%; min-height: 46px; font-size: 13px; }
+    /* Alçak yatay ekranlar (küçük iPhone'lar): kart sıkışır ama aynı düzeni korur */
+    @media (max-height: 360px) {
+      .ld-card { padding: 18px 22px 12px; }
+      .ld-mark { width: 34px; height: 34px; margin-bottom: 8px; }
+      .ld-title { font-size: 26px; }
+      .ld-row { margin-top: 18px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .ld-fill::after, #orient-overlay .phone { animation: none; }
+      .btn, .seg button, .ap-chip, .lv-chip, .ac-card, #drawer, #drawer .btn, #msg { transition: none !important; }
+    }
     #crash .panel { border-color: #ff5b5b; }
     #crash h2 { color: #ff7a7a; }
-    #msg { position: fixed; left: 50%; top: calc(var(--sat) + 60px); transform: translateX(-50%); color: #ffd35a; font-weight: 700; font-size: 16px; text-shadow: 0 1px 4px #000; pointer-events: none; z-index: 12; }
-    #msg:empty { display: none; }
-    #fps { position: fixed; right: calc(var(--sar) + 84px); top: calc(var(--sat) + 8px); font-size: 11px; color: rgba(255,255,255,0.5); pointer-events: none; }
+    /* Bildirim satırı: yumuşak belirip kaybolur (ui.message) */
+    #msg { position: absolute; left: 0; right: 0; margin: 0 auto; width: max-content; max-width: calc(100% - 32px); text-align: center;
+      top: calc(var(--sat) + 60px); color: #ffd35a; font-weight: 700; font-size: 16px; text-shadow: 0 1px 4px #000; pointer-events: none; z-index: 12;
+      opacity: 0; transform: translateY(-4px); transition: opacity var(--t-med) ease, transform var(--t-med) var(--ease-out); }
+    #msg.show { opacity: 1; transform: none; }
+    #fps { position: absolute; right: calc(var(--sar) + 84px); top: calc(var(--sat) + 8px); font-size: 11px; color: rgba(255,255,255,0.5); pointer-events: none; }
     /* Geliştirici fizik paneli — Shift+D ile açılır/kapanır. Oyunda varsayılan olarak kapalıdır. */
     #physdbg {
-      position: fixed; left: calc(var(--sal) + 8px); top: calc(var(--sat) + 8px);
+      position: absolute; left: calc(var(--sal) + 8px); top: calc(var(--sat) + 8px);
       font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       color: #b9f7c8; background: rgba(6,12,10,0.74); border: 1px solid rgba(80,220,140,0.28);
       border-radius: 6px; padding: 7px 10px; pointer-events: none; z-index: 30;
-      white-space: pre; max-height: 88vh; overflow: hidden; letter-spacing: 0.2px;
+      white-space: pre; max-height: calc(88 * var(--vh)); overflow: hidden; letter-spacing: 0.2px;
     }
     #physdbg[hidden] { display: none; }
     #physdbg b { color: #ffd479; font-weight: 600; }
   </style>
 </head>
 <body>
+<div id="app">
   <canvas id="gl"></canvas>
   <canvas id="hud"></canvas>
   <div id="msg"></div>
   <div id="fps"></div>
   <div id="physdbg" hidden></div>
 
-  <div id="touch" hidden>
+  <div id="touch" data-anim="fade" hidden>
     <div class="zone" id="view-zone"></div>
     <div id="top-left">
       <button class="btn" id="btn-menu" aria-label="Menu" aria-expanded="false" aria-controls="drawer"><span class="i">☰</span><span class="l">Menu</span></button>
       <div id="drawer" aria-hidden="true">
         <button class="btn" id="btn-pause" aria-label="Pause"><span class="i">⏸</span><span class="l">Pause</span></button>
-        <button class="btn" id="btn-camera" aria-label="Camera"><span class="i">🎥</span><span class="l" lang="en">Camera</span></button>
-        <button class="btn" id="btn-sound" aria-label="Sound"><span class="i">🔊</span><span class="l">Sound</span></button>
-        <button class="btn warn" id="btn-lights" aria-label="Landing Lights"><span class="i">💡</span><span class="l">Lights</span></button>
+        <button class="btn" id="btn-camera" aria-label="Camera"><span class="i">🎥</span><span class="l">Camera</span></button>
+        <button class="btn" id="btn-sound" aria-label="Sound on or off"><span class="i">🔊</span><span class="l">Sound</span></button>
+        <button class="btn warn" id="btn-lights" aria-label="Landing lights"><span class="i">💡</span><span class="l">Lights</span></button>
       </div>
     </div>
     <div class="zone" id="stick-zone">
@@ -374,9 +473,9 @@
     </div>
     <div id="rudder"><div id="rudder-track"></div><div id="rudder-knob"></div></div>
     <div id="right-col">
-      <button class="btn on" id="btn-gear" aria-label="Landing Gear"><span class="i">🛬</span><span class="l" lang="en">Landing Gear</span></button>
-      <button class="btn on" id="btn-brake"><span class="i">🛑</span><span class="l">Brakes</span></button>
-      <button class="btn" id="btn-spoiler" hidden aria-label="Spoilers"><span class="i">🪶</span><span class="l" lang="en">Spoilers</span></button>
+      <button class="btn on" id="btn-gear" aria-label="Landing gear"><span class="i">🛬</span><span class="l">Landing Gear</span></button>
+      <button class="btn on" id="btn-brake" aria-label="Wheel brakes"><span class="i">🛑</span><span class="l">Brakes</span></button>
+      <button class="btn" id="btn-spoiler" hidden aria-label="Spoilers"><span class="i">🪶</span><span class="l">Spoilers</span></button>
     </div>
     <div class="zone" id="throttle">
       <div id="throttle-track"><div id="throttle-ab"></div><div id="throttle-fill"></div></div>
@@ -390,44 +489,61 @@
       <div class="sel-grid" id="sel-grid"></div>
       <div class="sel-ap" id="sel-ap"><span class="sel-ap-lbl">Departure</span><div class="sel-ap-row" id="sel-ap-row"></div></div>
       <div class="sel-lv-host" id="sel-livery"></div>
-      <p class="sel-hint" id="sel-hint">You can change aircraft later from Pause → Change Aircraft.</p>
+      <p class="sel-hint" id="sel-hint">You can switch aircraft later from Pause → Change Aircraft.</p>
     </div>
   </div>
 
-  <div id="guide" hidden>
+  <div id="guide" data-anim="drop" hidden>
     <div class="panel">
       <button class="close" id="guide-close" aria-label="Close">✕</button>
       <h2>Controls</h2>
       <ul>
-        <li><b>Left stick:</b> pitch and roll</li>
-        <li><b>Right slider:</b> throttle — afterburner (AB) at the top</li>
-        <li><b>Bottom, left to right:</b> flap lever &rarr; stick &rarr; rudder slider (centre)</li>
-        <li><b>Rudder slider:</b> drag it; it springs back to centre. On the ground it steers the nosewheel</li>
-        <li><b>Flap lever:</b> slide it down to extend, up to retract. It snaps to each detent and shows the setting with its flap angle</li>
-        <li><b>Landing Gear / Brakes:</b> toggle on and off. <b>Spoilers</b> on the A321neo and the FA-90</li>
-        <li><b>Take-off:</b> you start with the brakes off and flaps 0 — just open the throttle and rotate at about 140 kt</li>
-        <li><b>☰ Menu:</b> Pause, <b>Camera</b> (free camera → cockpit → chase → flyby → left wing → right wing → landing gear), Sound and Landing Lights are in this drawer</li>
-        <li><b>Keyboard:</b> WASD/arrows, Q/E rudder, Shift/Ctrl throttle, G gear, F flaps, V spoilers, B brakes, L lights, C camera, P pause</li>
-        <li><b>A321neo:</b> flap detents are 0 / 1 (10&deg;) / 2 (15&deg;) / 3 (20&deg;) / FULL (40&deg;); on the ground the brake also engages reverse thrust</li>
-        <li><b>FA-90 Vesper:</b> a fictional tailless design &mdash; pitch and roll both come from the trailing-edge elevons, and the <b>Spoilers</b> button opens the dorsal air brakes. Flap detents are UP / MVR (9&deg;) / LAND (18&deg;)</li>
-        <li><b>Two airports:</b> Anadolu Air Base and Yesilova Airport. Pick your departure point on the selection screen</li>
+        <li><b>Stick (left):</b> pitch and roll</li>
+        <li><b>Right slider:</b> throttle &mdash; afterburner (AB) at the top</li>
+        <li><b>Bottom row, left to right:</b> flap lever &rarr; stick &rarr; rudder slider (center)</li>
+        <li><b>Rudder slider:</b> drag to yaw; it springs back to center. On the ground it also steers the nosewheel</li>
+        <li><b>Flap lever:</b> slide down to extend, up to retract. It snaps to each detent and shows the setting and flap angle</li>
+        <li><b>Landing Gear / Brakes:</b> tap to toggle. The A321neo and FA-90 also have a <b>Spoilers</b> button</li>
+        <li><b>Takeoff:</b> you start with the brakes released and flaps up &mdash; open the throttle and rotate at about 140 kt</li>
+        <li><b>☰ Menu:</b> Pause, <b>Camera</b> (free &rarr; cockpit &rarr; chase &rarr; flyby &rarr; left wing &rarr; right wing &rarr; landing gear), Sound and Lights</li>
+        <li><b>Keyboard:</b> WASD/arrows pitch and roll, Q/E rudder, Shift/Ctrl throttle, G gear, F flaps, V spoilers, B brakes, L lights, C camera, P pause</li>
+        <li><b>A321neo:</b> flap settings are 0 / 1 (10&deg;) / 2 (15&deg;) / 3 (20&deg;) / FULL (40&deg;). On the ground, the brake also deploys the thrust reversers</li>
+        <li><b>FA-90 Vesper:</b> a fictional tailless design &mdash; the trailing-edge elevons control both pitch and roll, and the <b>Spoilers</b> button opens the dorsal air brakes. Flap settings are UP / MVR (9&deg;) / LAND (18&deg;)</li>
+        <li><b>Two airports:</b> Anadolu Air Base and Yesilova Airport. Choose your departure airport on the selection screen</li>
       </ul>
     </div>
   </div>
 
-  <div class="overlay" id="loading">
-    <div class="panel" style="text-align:center">
-      <h1>FFS</h1>
-      <p class="small">Flight Simulator</p>
-      <p id="loading-text">Loading…</p>
-      <div class="bar"><div id="loading-bar"></div></div>
+  <div class="overlay" id="loading" role="status" aria-live="polite" aria-busy="true">
+    <div class="ld-sky" aria-hidden="true"></div>
+    <div class="ld-card">
+      <!-- Yapay ufuk: gökyüzü, yer, ufuk çizgisi ve uçak sembolü -->
+      <svg class="ld-mark" viewBox="0 0 48 48" aria-hidden="true">
+        <defs><clipPath id="ld-clip"><circle cx="24" cy="24" r="17.5"/></clipPath></defs>
+        <g clip-path="url(#ld-clip)">
+          <rect x="0" y="0" width="48" height="26" fill="#2a6fb0" opacity="0.55"/>
+          <rect x="0" y="26" width="48" height="22" fill="#6b4f33" opacity="0.45"/>
+          <line x1="0" y1="26" x2="48" y2="26" stroke="#e8f0f8" stroke-width="1.1" opacity="0.85"/>
+          <line x1="19" y1="19.5" x2="29" y2="19.5" stroke="#e8f0f8" stroke-width="0.9" opacity="0.5"/>
+          <line x1="20.5" y1="32.5" x2="27.5" y2="32.5" stroke="#e8f0f8" stroke-width="0.9" opacity="0.5"/>
+        </g>
+        <circle cx="24" cy="24" r="21" fill="none" stroke="#8de8b4" stroke-opacity="0.55" stroke-width="1.4"/>
+        <path d="M10 25h8.5l2 2.6M38 25h-8.5l-2 2.6" fill="none" stroke="#8de8b4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="24" cy="25" r="1.9" fill="#8de8b4"/>
+      </svg>
+      <h1 class="ld-title">FFS</h1>
+      <p class="ld-sub">Flight Simulator</p>
+      <div class="ld-row"><span class="ld-status" id="loading-text">Loading…</span><span class="ld-pct" id="loading-pct">0%</span></div>
+      <div class="ld-bar" id="loading-progress" role="progressbar" aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="ld-fill" id="loading-bar"></div></div>
+      <div class="ld-foot"><span class="ld-hint">Rotate to landscape to fly</span><span class="ld-ver" id="loading-ver"></span></div>
+      <div class="ld-error"><button class="btn" id="btn-load-retry">Reload</button></div>
     </div>
   </div>
 
   <div class="overlay" id="start-screen" hidden>
     <div class="panel" style="text-align:center">
       <h1>FFS</h1>
-      <p>Flight Simulator — F-35A Lightning II &amp; Airbus A321neo</p>
+      <p>Flight Simulator &mdash; F-35A Lightning II, Airbus A321neo and FA-90 Vesper</p>
       <button class="big" id="btn-start">Start</button>
       <p class="small" id="start-hint"></p>
     </div>
@@ -455,26 +571,26 @@
           <button data-q="high">High</button>
         </div>
       </div>
-      <div class="opt"><span>Tilt control (tilt the phone)</span>
+      <div class="opt"><span>Tilt to steer</span>
         <div class="seg" id="tilt-seg">
           <button data-t="0" class="on">Off</button>
           <button data-t="1">On</button>
         </div>
       </div>
       <div class="opt"><span>Tilt calibration</span><button class="btn" id="btn-calibrate">Calibrate</button></div>
-      <div class="opt"><span>Ses</span>
+      <div class="opt"><span>Sound</span>
         <div class="seg" id="sound-seg">
           <button data-s="1" class="on">On</button>
           <button data-s="0">Off</button>
         </div>
       </div>
-      <div class="opt"><span>Performance counter</span>
+      <div class="opt"><span>FPS counter</span>
         <div class="seg" id="fps-seg">
           <button data-f="0" class="on">Off</button>
           <button data-f="1">On</button>
         </div>
       </div>
-      <p class="small">Version: <span id="version"></span> · Changing quality reloads the scene.</p>
+      <p class="small">Version <span id="version"></span> · Changing the quality rebuilds the scenery.</p>
       <div class="row"><button class="btn" id="btn-settings-close">Close</button></div>
     </div>
   </div>
@@ -490,26 +606,27 @@
   <div class="overlay" id="orient-overlay" hidden>
     <div class="phone"></div>
     <h2>Rotate your phone to landscape</h2>
-    <p class="small">The simulator runs in landscape orientation.</p>
+    <p class="small">The simulator is designed for landscape.</p>
   </div>
 
   <div class="overlay" id="context-lost" hidden>
     <div class="panel" style="text-align:center">
       <h2>Graphics context lost</h2>
-      <p>Restoring… reload the page if needed.</p>
+      <p>Trying to restore it… If the screen stays blank, reload the page.</p>
       <button class="big" id="btn-reload">Reload</button>
     </div>
   </div>
 
-  <div class="toast" id="standalone-hint" hidden>
-    <span>For full screen: Share → Add to Home Screen</span>
+  <div class="toast" id="standalone-hint" data-anim="drop" hidden>
+    <span>For full screen, tap Share → Add to Home Screen</span>
     <button class="btn" id="standalone-hint-close">OK</button>
   </div>
-  <div class="toast" id="update-toast" hidden>
-    <span>A new version is ready</span>
+  <div class="toast" id="update-toast" data-anim="drop" hidden>
+    <span>A new version is available</span>
     <button class="btn" id="btn-update">Reload</button>
   </div>
 
+</div>
   <script type="module" src="./js/main.js"></script>
 </body>
 </html>

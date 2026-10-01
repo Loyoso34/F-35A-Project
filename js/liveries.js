@@ -43,7 +43,7 @@ export const LIVERIES = {
     {
       id: 'navy',
       name: 'Navy Style',
-      sub: 'Matte naval gray, low-visibility',
+      sub: 'Matte Navy gray, low-visibility markings',
       // Donanma şemaları USAF grisinden biraz daha koyu ve hafif mavi-nötr.
       // Tuzlu hava için daha mat bir kaplama: roughness yüksek, metalness düşük.
       paint: 0xb9c0c7, paintDark: 0x767e86,
@@ -55,7 +55,7 @@ export const LIVERIES = {
     {
       id: 'luftwaffe',
       name: 'Luftwaffe Style',
-      sub: 'Modern German air force gray, restrained markings',
+      sub: 'Modern Luftwaffe gray, subdued markings',
       // Modern Luftwaffe şemaları soğuk, hafif yeşile çalan bir gri kullanır;
       // işaretler düşük kontrastlı gri demir haçtır.
       paint: 0xc4c8c6, paintDark: 0x7b807e,
@@ -93,7 +93,7 @@ export const LIVERIES = {
     {
       id: 'midnight',
       name: 'Midnight Blue',
-      sub: 'Near-black blue night-intercept scheme',
+      sub: 'Blue-black night-intercept scheme',
       paint: 0x2b3340, paintDark: 0x1b212b,
       roughness: 0.90, metalness: 0.10,
       metalTint: 0x4a5058,

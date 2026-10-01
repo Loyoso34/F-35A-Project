@@ -303,14 +303,14 @@ export class FlightModel {
       const vy = vel.y;
       if (!this.wasOnGround) {
         if (surface === 'water') return this.crash('Crashed into the water');
-        if (this.gearPos < 0.98) return this.crash('Landing gear was not down');
+        if (this.gearPos < 0.98) return this.crash('Landed with the gear up');
         if (vy < LIM.hardLandVs) return this.crash('Hard landing (' + Math.abs(vy * 196.85).toFixed(0) + ' ft/min)');
-        if (Math.abs(roll) > LIM.landRoll) return this.crash('Landed banked — wingtip struck the ground');
-        if (pitch < LIM.landPitch[0] || pitch > LIM.landPitch[1]) return this.crash(pitch > 0 ? 'Tail strike' : 'Nose gear collapsed');
+        if (Math.abs(roll) > LIM.landRoll) return this.crash('Wingtip strike on landing — too much bank');
+        if (pitch < LIM.landPitch[0] || pitch > LIM.landPitch[1]) return this.crash(pitch > 0 ? 'Tail strike' : 'Nose gear collapsed — landed nose-first');
         if (!paved && V > LIM.offRunwayV[0]) return this.crash('Landed off the runway at high speed');
       } else {
-        if (surface === 'water') return this.crash('Entered the water');
-        if (this.gearPos < 0.98) return this.crash('Belly scrape');
+        if (surface === 'water') return this.crash('Rolled into the water');
+        if (this.gearPos < 0.98) return this.crash('Belly landing — gear not fully down');
         if (Math.abs(roll) > LIM.groundRoll) return this.crash('Wingtip struck the ground');
         if (!paved && V > LIM.offRunwayV[1]) return this.crash('Lost control off the runway');
         if (agl < clearance - 1.5) return this.crash('Crashed into the ground');

@@ -10,7 +10,8 @@ Açılışta **uçak seçim ekranı** gelir: **F-35A Lightning II** (savaş uça
 index.html              Sayfa iskeleti, CSS, arayüz, import map
 manifest.webmanifest    PWA bildirimi
 sw.js                   Service worker (önbellek, çevrimdışı, güncelleme)
-js/main.js              Uygulama girişi, oyun döngüsü, menüler
+js/viewport.js          Görüntü alanı ölçümü (döndürme, iOS PWA, güvenli alan) — <head>'de, modül değil
+js/main.js              Uygulama girişi, yükleme hattı ve ilerleme, oyun döngüsü, menüler
 js/world.js             Arazi, gökyüzü, deniz/göller, ormanlar, iki havaalanı, kasabalar, yollar, köprü
 js/city.js              Şehir üreteci: bölgeleme, yol ağı, bina yerleşimi, yeşil alan, detay, trafik, LOD
 js/aircraft.js          Prosedürel F-35A modeli (fasetli alt gövde, silah yuvası kapakları, düz kokpit güvertesi)
@@ -30,7 +31,7 @@ js/controls.js          Dokunmatik / klavye / eğim girişleri
 js/hud.js               Yeşil HUD
 js/audio.js             Prosedürel ses
 js/cameras.js           Takip, kokpit, serbest kamera
-js/ui.js                Menü yardımcıları
+js/ui.js                Menüler, katman geçişleri (açılış/kapanış animasyonları), yükleme göstergesi
 js/textures.js          Canvas ile üretilen dokular
 js/noise.js             Gürültü fonksiyonları
 js/version.js           Uygulama sürümü
@@ -125,16 +126,30 @@ katsayılar, kuvvetler, momentler (jiroskopik dahil), itki, yüzey komutları ve
 1. Siteyi **Safari** ile açın (Chrome veya uygulama içi tarayıcılar "Ana Ekrana Ekle"yi desteklemez).
 2. Alt çubuktaki **Paylaş** düğmesine (kare içinden çıkan ok) dokunun.
 3. Listeden **Ana Ekrana Ekle** seçin ve **Ekle**'ye dokunun.
-4. Ana ekrandaki **F-35A** simgesi uygulamayı tam ekran, adres çubuğu olmadan açar. Telefonu yatay tutun; dikey tutulduğunda oyun duraklar ve "Telefonu yatay çevirin" uyarısı görünür.
-5. İlk açılışta **Başla**'ya dokunun: ses ve (ayarlardan açılmışsa) eğim kontrolü izni bu dokunuşla etkinleşir.
+4. Ana ekrandaki **FFS** simgesi uygulamayı tam ekran, adres çubuğu olmadan açar. Telefonu yatay tutun; uçuş sırasında dikey tutulduğunda oyun duraklar ve "Rotate your phone to landscape" uyarısı görünür.
+5. İlk açılışta **Start**'a dokunun: ses ve (ayarlardan açılmışsa) eğim kontrolü izni bu dokunuşla etkinleşir.
 
 Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı yükle** seçeneği aynı işi görür.
 
+## Ekran yönü, yükleme ekranı ve arayüz geçişleri (v2.8.0)
+
+**Ekran yönü / görüntü alanı.** Eskiden katmanlar `100vw/100vh`, `inset: 0` ve `window.innerWidth/innerHeight` ile boyutlanıyordu. iPhone'da (Safari ve ana ekran PWA'sı) bu üç sorun çıkarıyordu: (1) döndürmeden hemen sonra tarayıcı ESKİ yönelimin boyutlarını bildiriyor, (2) tam ekran PWA dikey açılıp yataya çevrilince yerleşim alanı durum çubuğu kadar kısa kalıyor (altta açık renkli şerit), (3) dünya kurulurken ana iş parçacığı saniyelerce meşgul olduğu için döndürme yerleşime hiç yansımıyordu (yükleme kartı ilk açılıştaki 924×924 alanda sol altta takılı kalıyordu). Şimdi:
+- `js/viewport.js` `<head>`'de, sayfa çizilmeden çalışır; görünen alanı `visualViewport`'tan ölçer (iOS tam ekran PWA'da ekran boyutuna oturtur, iPad Split View gibi gerçekten küçük pencerelere dokunmaz) ve `--app-w / --app-h` CSS değişkenlerine yazar. Döndürme, `resize`, `visualViewport`, `screen.orientation`, `matchMedia` ve `pageshow` olaylarının hepsini dinler; tarayıcının son boyutu ne zaman bildireceği belli olmadığından olaydan sonra ~1,2 s boyunca her karede yeniden ölçer. Hızlı art arda döndürmeler tek bir ölçüm döngüsünde birleşir.
+- Tüm arayüz tek bir `#app` kabının içindedir; kap ve içindeki her katman (3B tuval, HUD, kontroller, menüler, yükleme ekranı) bu ölçülen boyutu kullanır. `100vh`, `100vw` ve `vw/vh` birimleri kalmadı (yerlerine `--vw/--vh`).
+- 3B tuval ve WebGL görüntü alanı, HUD tuvali ve kamera en-boy oranı ölçülen boyut DEĞİŞTİĞİ anda yeniden ayarlanır (yükleme sırasında da). Çentik / Dynamic Island / ana ekran çubuğu için `safe-area-inset` değerleri her katmanda uygulanır.
+- Dünya artık parça parça (zaman dilimli) kurulur: iş ~70 ms'lik dilimlere bölünür ve her dilimden sonra tarayıcı bir kare çizip döndürmeye tepki verir. Eskiden dünya tek parça, saniyelerce süren bir işti ve bu sürede ekran donuk kalıyordu.
+
+**Yükleme ekranı.** Koyu, sade bir kart: yapay ufuk simgesi, FFS / Flight Simulator, o anda yapılan iş (ör. "Building terrain…", "Planting forests…", "Compiling shaders…"), **yüzde** ve ince ilerleme çubuğu. Dikey ve yatayda ortalanır, kısa yatay ekranlarda sıkışır; dikeyde "Rotate to landscape to fly" ipucu görünür. Hata olursa mesaj ve **Reload** düğmesi çıkar.
+
+**Yüzde GERÇEK ilerlemedir, zamana bağlı değildir.** Yükleme aşamalara bölünür (grafik, gökyüzü, arazi, su, ormanlar, yollar, kasabalar, üs, havalimanı, şehir, bulutlar, yansımalar, sistemler, uçak önizlemeleri, gölgelendirici derlemesi). En uzun iş olan arazi her arazi parçası (chunk) bittiğinde, ormanlar yerleştirilen ağaç sayısıyla, önizlemeler uçak uçak ilerler. Her aşamanın payı süresiyle ağırlıklanır: ilk açılışta ölçülmüş varsayılan süreler, sonraki açılışlarda BU cihazda bir önceki yüklemede ölçülen süreler kullanılır (`localStorage`, kalite ayarına göre ayrı). Çubuk ve yüzde aynı değerden çizilir; çizilen değer gerçek ilerlemeye kısa bir yumuşatmayla yaklaşır ama onu asla geçmez. %100 yalnızca her şey (gölgelendiriciler dahil) hazır olunca görünür. Uçak değiştirirken ve kalite değişiminde de aynı gösterge kullanılır. Dünya üretimi değişmedi: yeni (dilimli) kurulumun ürettiği geometri, örnekler ve çarpışma/yükseklik sorguları önceki sürümle bayt bayt aynıdır (üç kalite ayarında da doğrulandı).
+
+**Geçişler.** Her menü, panel ve katman (duraklat, ayarlar, kaza, uçak seçimi, kontroller, yükleme, yön uyarısı, bildirimler) aynı kurallarla açılır/kapanır: açılış 200 ms (saydamlık + hafif ölçek/kayma, yavaşlayarak), kapanış 150 ms (hızlanarak). Web Animations API kullanılır: yarıda kesilen geçiş o anki görünümden devam eder, hızlı art arda basışlarda sıçrama ya da takılı kalan katman olmaz. Kapanan katman dokunuşu hemen bırakır; açılan katmanın düğmeleri animasyon sürerken de çalışır. Animasyon herhangi bir nedenle başlamazsa (kare üretilmezse) katman yine de son hâline geçer. Düğmeler basıldığında anında hafifçe küçülür. Sistemde "Hareketi azalt" açıksa geçişler kapanır.
+
 ## Uçak seçimi
 
-- Oyun açılınca **UÇAK SEÇ** ekranı gelir. Kartlar yan yana durur (dar ekranda alt alta); her kartta uçağın **oyun içi modelinden anlık üretilmiş** önizlemesi, adı ve teknik bilgileri vardır. Önizlemeler dışarıdan indirilmez; `WebGLRenderTarget` ile o anda render edilir.
+- Oyun açılınca **Select Aircraft** ekranı gelir. Kartlar yan yana durur (dar ekranda alt alta); her kartta uçağın **oyun içi modelinden anlık üretilmiş** önizlemesi, adı ve teknik bilgileri vardır. Önizlemeler dışarıdan indirilmez; `WebGLRenderTarget` ile o anda render edilir.
 - Karta dokunulduğunda yalnızca seçilen uçak sahneye kurulur: modeli, fiziği, kokpiti, sesi, HUD biçimi, arayüz düğmeleri ve kamera konumları birlikte değişir. Birden fazla uçak aynı anda sahnede bulunmaz; önceki model ve tüm kaynakları (`dispose`) serbest bırakılır.
-- Uçuş sırasında **☰ Menü → Duraklat → Uçak Değiştir** ile seçim ekranına dönülür.
+- Uçuş sırasında **☰ Menu → Pause → Change Aircraft** ile seçim ekranına dönülür.
 - Yeni uçak eklemek için `js/fleet.js` içine bir yapılandırma nesnesi eklemek yeterlidir; kodun geri kalanında uçağa özel dallanma yoktur.
 
 ## Airbus A321neo
