@@ -508,6 +508,7 @@ export class World {
       sun.castShadow = true;
       sun.shadow.mapSize.set(this.quality.shadowMap, this.quality.shadowMap);
       const s = 70;
+      this.shadowHalf = s;
       sun.shadow.camera.left = -s; sun.shadow.camera.right = s;
       sun.shadow.camera.top = s; sun.shadow.camera.bottom = -s;
       sun.shadow.camera.near = 50; sun.shadow.camera.far = 1400;
@@ -1196,6 +1197,25 @@ export class World {
     bill.renderOrder = 3; flat.renderOrder = 2;
     this.group.add(flat); this.group.add(bill);
     this.clouds = [bill, flat];
+    // Örnekler rastgele dağıtıldığından sayıyı kısmak bulutları DÜZGÜN seyreltir
+    // (uyarlanabilir kalite için; malzeme ve program değişmez)
+    this.cloudCounts = [bill.count, flat.count];
+  }
+
+  /**
+   * Uyarlanabilir kalite ayarları. Hiçbiri gölgelendirici programını değiştirmez.
+   * @param {{shadow:number, clouds:number, detail:number, effects:number}} o  çarpanlar (1 = tam)
+   */
+  setPerf(o) {
+    this.perf = o;
+    if (this.sun && this.sun.castShadow && this.shadowHalf) {
+      const s = this.shadowHalf * o.shadow, cam = this.sun.shadow.camera;
+      if (cam.right !== s) { cam.left = -s; cam.right = s; cam.top = s; cam.bottom = -s; cam.updateProjectionMatrix(); }
+    }
+    if (this.clouds && this.cloudCounts) {
+      for (let i = 0; i < this.clouds.length; i++) this.clouds[i].count = Math.max(1, Math.round(this.cloudCounts[i] * o.clouds));
+    }
+    if (this.city) this.city.distScale = o.effects;
   }
 
   // ---- Sivil havalimanı --------------------------------------------------
@@ -2104,13 +2124,14 @@ export class World {
     // Görünürse eşik + bant'a kadar açık kalır, gizliyse ancak eşik - bant'ta açılır.
     const band = (visible, x, t, b) => (visible ? x < t + b : x < t - b);
     // Ağaç parçaları
-    const td = this.quality.treeDistance;
+    const detail = this.perf ? this.perf.detail : 1;
+    const td = this.quality.treeDistance * detail;
     for (const c of this.treeChunks) {
       const d = Math.hypot(c.center.x - cx, c.center.z - cz) - c.radius;
       c.mesh.visible = band(c.mesh.visible, d, td, 250);
     }
     // Arazi LOD (histerezisli: sınırda ileri geri geçiş yok)
-    const [l1] = this.quality.lod;
+    const l1 = this.quality.lod[0] * detail;
     const half = (this.terrainChunkSize || MAP_SIZE / 18) * 0.71;   // parça yarı köşegeni
     const lodBand = l1 * 0.07;
     for (const ch of this.terrainChunks) {
@@ -2121,12 +2142,13 @@ export class World {
     this.waterUniforms.time.value = this.time;
     // Üs ışıkları ve tel örgü: uzakta piksel altı kalıp parıldadıkları için 3B mesafeye göre kapatılır
     const baseDist = Math.hypot(cx, cy, cz);
-    if (this.runwayLights) this.runwayLights.visible = band(this.runwayLights.visible, baseDist, 4500, 300);
-    if (this.fenceMeshes) { const v = band(this.fenceMeshes[0].visible, baseDist, 2600, 200); for (const m of this.fenceMeshes) m.visible = v; }
+    const fx = this.perf ? this.perf.effects : 1;
+    if (this.runwayLights) this.runwayLights.visible = band(this.runwayLights.visible, baseDist, 4500 * fx, 300);
+    if (this.fenceMeshes) { const v = band(this.fenceMeshes[0].visible, baseDist, 2600 * fx, 200); for (const m of this.fenceMeshes) m.visible = v; }
     if (this.city) this.city.update(dt, camera.position);
     if (this.civilLights) {
       const d = Math.hypot(cx - this.civilCenter.x, cy - this.civilCenter.y, cz - this.civilCenter.z);
-      this.civilLights.visible = band(this.civilLights.visible, d, 4500, 300);
+      this.civilLights.visible = band(this.civilLights.visible, d, 4500 * fx, 300);
     }
   }
 

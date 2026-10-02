@@ -3,6 +3,12 @@ import * as THREE from 'three';
 
 const GREEN = '#39ff6a';
 const DIM = 'rgba(57,255,106,0.55)';
+const DASH = [6, 4], SOLID = [];
+// Binlik ayraçlı tamsayı (toLocaleString her karede pahalı ve tahsis yapıyor)
+const thousands = (n) => { const s = String(Math.abs(n)); let o = ''; for (let i = 0; i < s.length; i++) { if (i && (s.length - i) % 3 === 0) o += ','; o += s[i]; } return n < 0 ? '-' + o : o; };
+// Dış görünüm bilgi şeridi en fazla bu sıklıkta yeniden çizilir (s). Okunabilir
+// sayısal göstergeler için 15 Hz yeterlidir; değişmeyen karede HİÇ çizilmez.
+const EXT_INTERVAL = 1 / 15;
 
 export class HUD {
   constructor(canvas) {
@@ -20,6 +26,7 @@ export class HUD {
     this.canvas.height = Math.round(h * dpr);
     this.canvas.style.width = w + 'px';
     this.canvas.style.height = h + 'px';
+    this.mode = 'clear'; this.extKey = '';   // boyut atamak tuvali zaten temizler
   }
 
   project(worldPos, camera) {
@@ -34,7 +41,7 @@ export class HUD {
     const vs = Math.round(T.vsFpm / 50) * 50;
     const items = [
       ['IAS', String(Math.round(T.kias)), 'KT'],
-      ['ALT', Math.round(T.altFt).toLocaleString('en-US'), 'FT'],
+      ['ALT', thousands(Math.round(T.altFt)), 'FT'],
       ['VS', (vs > 0 ? '+' : '') + vs, 'FPM'],
       ['HDG', String(Math.round(T.heading) % 360).padStart(3, '0'), ''],
     ];
@@ -74,10 +81,8 @@ export class HUD {
   }
 
   // Dış kameralarda yalnızca küçük, yeşil olmayan uyarılar (stall / takım)
-  drawExternalWarnings(T, opts) {
+  drawExternalWarnings(T, opts, on) {
     const ctx = this.ctx; const { w } = this;
-    this.blink += opts.dt || 0.016;
-    const on = Math.floor(this.blink * 4) % 2 === 0;
     ctx.save();
     ctx.font = 'bold 13px -apple-system, "Segoe UI", Roboto, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -89,23 +94,55 @@ export class HUD {
     ctx.restore();
   }
 
-  clear() { const ctx = this.ctx; ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.clearRect(0, 0, this.w, this.h); }
+  clear() {
+    if (this.mode === 'clear') return;      // seçim ekranında her karede çağrılır: boşsa dokunma
+    const ctx = this.ctx; ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.clearRect(0, 0, this.w, this.h);
+    this.mode = 'clear'; this.extKey = '';
+  }
+
+  // Dış görünüm: bilgi şeridi + uyarılar. Yalnızca gösterilen bir değer (ya da uyarı
+  // yanıp sönme fazı) değiştiğinde ve en fazla 15 Hz ile yeniden çizilir; yalnızca
+  // üst bant temizlenir. Değişmeyen karede tuval dokunulmaz, tarayıcı da onu yeniden
+  // bileştirmek zorunda kalmaz.
+  drawExternal(T, opts) {
+    const ctx = this.ctx;
+    this.blink += opts.dt || 0.016;
+    this.extAge = (this.extAge || 0) + (opts.dt || 0.016);
+    const on = Math.floor(this.blink * 4) % 2 === 0;
+    const warnStall = T.stall ? 2 : T.stallWarn ? 1 : 0;
+    const warnGear = !T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0;
+    const key = Math.round(T.kias) + '|' + Math.round(T.altFt) + '|' + Math.round(T.vsFpm / 50) + '|' + Math.round(T.heading)
+      + '|' + (opts.extended ? Math.round(T.throttle * 100) + ',' + Math.round(T.reverse * 100) + ',' + T.gear.toFixed(2) + ',' + T.flapLabel + ',' + Math.round(T.spoilers * 100) + ',' + T.windDeg + ',' + Math.round(T.windKt) : '')
+      + '|' + warnStall + (warnGear ? 'g' : '') + ((warnStall || warnGear) && on ? '*' : '')
+      + '|' + this.w + 'x' + this.h + '|' + opts.safe.top + ',' + opts.safe.left + ',' + opts.safe.right;
+    if (this.mode === 'external' && key === this.extKey) return;
+    if (this.mode === 'external' && this.extAge < EXT_INTERVAL) return;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    if (this.mode === 'external') ctx.clearRect(0, 0, this.w, Math.min(this.h, opts.safe.top + 96));
+    else ctx.clearRect(0, 0, this.w, this.h);
+    this.mode = 'external'; this.extKey = key; this.extAge = 0;
+    this.drawExternalInfo(T, opts);
+    this.drawExternalWarnings(T, opts, on);
+  }
 
   draw(T, camera, fm, opts) {
     const ctx = this.ctx;
     const { w, h } = this;
+    if (!T) { this.clear(); return; }
+    // Yolcu uçağı: savaş uçağı HUD'u yerine her kamerada kompakt uçuş bilgisi şeridi
+    if (opts.style === 'airliner' || opts.externalOnly) { this.drawExternal(T, opts); return; }
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    if (!T) return;
-    // Yolcu uçağı: savaş uçağı HUD'u yerine her kamerada kompakt uçuş bilgisi şeridi
-    if (opts.style === 'airliner') { this.drawExternalInfo(T, opts); this.drawExternalWarnings(T, opts); return; }
-    if (opts.externalOnly) { this.drawExternalInfo(T, opts); this.drawExternalWarnings(T, opts); return; }
+    this.mode = 'cockpit'; this.extKey = '';
     if (!opts.visible) return;
     this.blink += opts.dt || 0.016;
     ctx.save();
     ctx.font = 'bold 14px "SF Mono", Menlo, Consolas, monospace';
     ctx.fillStyle = GREEN; ctx.strokeStyle = GREEN; ctx.lineWidth = 1.5;
-    ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 3;
+    // Okunurluk için koyu gölge: bulanıklık (shadowBlur) her çizimde Gauss süzgeci
+    // demektir ve HUD'da kare başına ~40 çizim var. 1 px kaydırılmış keskin gölge
+    // aynı kontrastı çok daha ucuza verir.
+    ctx.shadowColor = 'rgba(0,0,0,0.75)'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 1;
     ctx.textBaseline = 'middle';
 
     const insetL = opts.safe.left + 8, insetR = opts.safe.right + 8, insetT = opts.safe.top + 8, insetB = opts.safe.bottom + 8;
@@ -131,7 +168,7 @@ export class HUD {
       const y = (T.pitch - deg) * ppd;
       if (Math.abs(y) > h * 0.6) continue;
       ctx.beginPath();
-      ctx.setLineDash(deg < 0 ? [6, 4] : []);
+      ctx.setLineDash(deg < 0 ? DASH : SOLID);
       ctx.moveTo(-ladderW, y); ctx.lineTo(-26, y);
       ctx.moveTo(26, y); ctx.lineTo(ladderW, y);
       // Uç işaretleri: pozitifte aşağı, negatifte yukarı
@@ -139,7 +176,7 @@ export class HUD {
       ctx.moveTo(-ladderW, y); ctx.lineTo(-ladderW, y + tick);
       ctx.moveTo(ladderW, y); ctx.lineTo(ladderW, y + tick);
       ctx.stroke();
-      ctx.setLineDash([]);
+      ctx.setLineDash(SOLID);
       ctx.textAlign = 'right'; ctx.fillText(String(Math.abs(deg)), -ladderW - 4, y);
       ctx.textAlign = 'left'; ctx.fillText(String(Math.abs(deg)), ladderW + 4, y);
     }

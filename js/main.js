@@ -10,6 +10,7 @@ import { AudioEngine } from './audio.js';
 import { CameraRig, CAMERA_NAMES, CAMERA_LABELS } from './cameras.js';
 import { liveriesFor, defaultLiveryId } from './liveries.js';
 import { UI, isStandalone, isIOS, loadSettings, saveSettings } from './ui.js';
+import { AdaptiveQuality, perfMultipliers } from './perf.js';
 
 // ---------------------------------------------------------------------------
 // Yükleme ilerlemesi. Yüzde ZAMANA bağlı değildir: yalnızca bir iş (ya da arazi
@@ -22,7 +23,7 @@ import { UI, isStandalone, isIOS, loadSettings, saveSettings } from './ui.js';
 const LOAD_COST_MS = {
   gfx: 60, sky: 3, lights: 1, terrain: 5800, water: 430, trees: 1000, roads: 52, town: 80,
   airbase: 250, baseDetails: 100, civil: 120, city: 285, surroundings: 15, clouds: 45, collision: 2,
-  env: 40, systems: 10, previews: 1500, shaders: 120,
+  env: 40, systems: 10, previews: 1500, shaders: 900,
 };
 const LOAD_LABEL = {
   gfx: 'Starting graphics…',
@@ -115,8 +116,27 @@ class App {
     this.targetFps = 60;
     this.frameMs = 1000 / 60;
     this.nextRender = 0;
-    this.renderScale = 1;      // kalite ön ayarının piksel oranına uygulanan çarpan (0.6–1)
-    this.slowTime = 0; this.goodTime = 0;
+    this.renderScale = 1;      // kalite ön ayarının piksel oranına uygulanan çarpan (0.8–1)
+    // Uyarlanabilir kalite: önce ikincil efektler, en son yumuşak adımlarla çözünürlük (perf.js)
+    this.aq = new AdaptiveQuality({
+      apply: (tier, scale) => {
+        if (this.world) this.world.setPerf(perfMultipliers(tier));
+        this.renderScale = scale;
+        if (this.renderer) this.applyPixelRatio();
+      },
+    });
+    // Çizim pozu: fizik 120 Hz sabit adımla ilerler, ekran ~60 Hz. Uçak ve kamera
+    // son İKİ fizik durumu arasında enterpolasyonla çizilir; böylece bir karede 1,
+    // ötekinde 3 adım atıldığında görüntü bir fizik adımı kadar (yüksek hızda ~2 m)
+    // sıçramaz. Gecikme en fazla bir fizik adımıdır (8,3 ms).
+    const app = this;
+    this._prevPos = new THREE.Vector3(); this._prevQuat = new THREE.Quaternion();
+    this.pose = {
+      pos: new THREE.Vector3(), quat: new THREE.Quaternion(),
+      get vel() { return app.physics.vel; }, get time() { return app.physics.time; },
+      get telemetry() { return app.physics.telemetry; },
+    };
+    this._acArgs = {};
     this.safe = { top: 0, right: 0, bottom: 0, left: 0 };
     this.ui.el.version.textContent = APP_VERSION;
     if (this.ui.el.loadingVer) this.ui.el.loadingVer.textContent = 'v' + APP_VERSION;
@@ -197,6 +217,7 @@ class App {
     this.updateSelectCamera(0);
     this.world.update(0, this.camera, this.camera.position);
     await this.precompile(this.scene);
+    this.warmupFrame();
     prog.end('shaders');
 
     prog.finish('Ready');
@@ -238,17 +259,41 @@ class App {
 
   /**
    * Gölgelendiricileri yükleme ekranı açıkken derle. Aksi hâlde ilk kare (yükleme
-   * ekranı kapandıktan SONRA) derleme için donuyordu. compileAsync paralel derlemeyi
-   * destekleyen cihazlarda ana iş parçacığını bekletmez.
+   * ekranı kapandıktan SONRA) derleme için donuyordu.
+   *
+   * three.js compile() yalnızca GÖRÜNÜR nesneleri dolaşır. Art yakıcı alevi, iniş
+   * ışığı merceği, uzak LOD parçaları gibi başlangıçta gizli olan her şey ilk
+   * göründüğü karede derlenir ve uçuş sırasında takılma yapardı. Bu yüzden derleme
+   * süresince ağaçtaki her nesne geçici olarak görünür yapılır, sonra eski hâline
+   * döner. compileAsync paralel derlemeyi destekleyen cihazlarda ana iş parçacığını
+   * bekletmez.
    */
   async precompile(target) {
+    const hidden = [];
+    target.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+    let pending = null;
     try {
       // Paralel derleme uzantısı yoksa compileAsync de eşzamanlı derler (ve konsola
       // uyarı yazar): o durumda doğrudan compile kullanılır.
       const parallel = this.renderer.extensions && this.renderer.extensions.has('KHR_parallel_shader_compile');
-      if (parallel && this.renderer.compileAsync) await this.renderer.compileAsync(target, this.camera, this.scene);
+      if (parallel && this.renderer.compileAsync) pending = this.renderer.compileAsync(target, this.camera, this.scene);
       else this.renderer.compile(target, this.camera, this.scene);
     } catch (e) { console.warn('Shader precompilation skipped', e); }
+    finally { for (const o of hidden) o.visible = false; }
+    // compile() nesneleri eşzamanlı dolaştı; görünürlük geri alındıktan sonra yalnızca
+    // programların hazır olması beklenir
+    if (pending) { try { await pending; } catch (e) { console.warn('Shader precompilation skipped', e); } }
+  }
+
+  /**
+   * Yükleme ekranı (opak) açıkken bir kare çizer. compile() gölge haritasının derinlik
+   * gölgelendiricilerini kapsamaz ve onlar da sahnedeki ışık kümesine göre anahtarlanır;
+   * ilk uçuş karesinde derlenmesinler diye burada çizilir. Doku yüklemeleri de bu karede
+   * GPU'ya gider.
+   */
+  warmupFrame() {
+    try { this.renderer.render(this.scene, this.camera); } catch (e) { console.warn('Warm-up frame skipped', e); }
+    this.needsRender = true;
   }
 
   setupRenderer() {
@@ -615,6 +660,8 @@ class App {
     this.cameraRig.applyMode();
     if (ac.setLandingLights) ac.setLandingLights(this.lightsOn);
     if (this.physics) this.syncAircraft(0);
+    // Yeni boya malzemeleri: seçim ekranındayken arka planda derlenir
+    this.precompile(ac.group);
     this.needsRender = true;
   }
 
@@ -649,7 +696,10 @@ class App {
         this.installAircraft(id, () => prog.step('flight', 0, label));
         prog.step('shaders', 0, 'Compiling shaders…');
         await this.breathe();
-        await this.precompile(this.aircraft.group);
+        // Uçağın iniş ışığı sahnenin ışık kümesini değiştirir: DÜNYANIN malzemeleri de
+        // yeni program ister. Bu yüzden yalnızca uçak değil tüm sahne derlenir.
+        await this.precompile(this.scene);
+        this.warmupFrame();
         prog.finish('Ready');
         await this.ui.progressSettled();
         prog.save();
@@ -740,6 +790,8 @@ class App {
     this.controls.setEnabled(true);
     this.lastTime = performance.now();
     this.accumulator = 0;
+    this.snapPose();
+    this.aq.reset();
     this.checkOrientation();
   }
   pause() {
@@ -861,7 +913,8 @@ class App {
     this.world = world;
     this.physics.world = world;
     this.cameraRig.world = world;
-    this.renderScale = 1; this.slowTime = 0; this.goodTime = 0;
+    this.aq.set(0); this.aq.reset();      // yeni kalite ön ayarı: uyarlanabilir kademe baştan
+    this.renderScale = 1;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, preset.pixelRatio));
     this.renderer.shadowMap.enabled = preset.shadows;
     this.scene.traverse((o) => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach((m) => { m.needsUpdate = true; }); } });
@@ -872,6 +925,7 @@ class App {
     prog.step('shaders');
     await this.breathe();
     await this.precompile(this.scene);
+    this.warmupFrame();
     prog.finish('Ready');
     await this.ui.progressSettled();
     prog.save();
@@ -958,18 +1012,41 @@ class App {
     el.innerHTML = L.join('\n');
   }
 
+  /** Çizim pozunu son iki fizik durumu arasında kurar (a: 0..1, adım kesri). */
+  interpolatePose(a) {
+    const p = this.physics, pose = this.pose;
+    // Işınlanma (yeniden başlatma, uçak değişimi): aradaki yol enterpole edilmez
+    if (this._prevPos.distanceToSquared(p.pos) > 400 * 400) { this.snapPose(); return; }
+    a = a < 0 ? 0 : a > 1 ? 1 : a;
+    pose.pos.lerpVectors(this._prevPos, p.pos, a);
+    pose.quat.slerpQuaternions(this._prevQuat, p.quat, a);
+  }
+  snapPose() {
+    const p = this.physics;
+    this._prevPos.copy(p.pos); this._prevQuat.copy(p.quat);
+    this.pose.pos.copy(p.pos); this.pose.quat.copy(p.quat);
+  }
+
+  // dt = 0: anlık eşitleme (yeniden başlatma, kurulum) — poz fiziğe oturtulur
   syncAircraft(dt) {
-    const p = this.physics, T = p.telemetry;
-    this.aircraft.group.position.copy(p.pos);
-    this.aircraft.group.quaternion.copy(p.quat);
-    const sf = p.surfaces;
-    this.aircraft.update({
-      elevator: sf.elevator, aileron: sf.aileron, rudder: sf.rudder,
-      flaps: p.flapsPos, slats: p.slatsPos, spoilers: p.spoilerPos, gear: p.gearPos,
-      throttle: p.engine, engine: p.engine, afterburner: p.abLevel, reverse: p.reversePos, time: p.time,
-      groundSpeed: p.onGround ? p.vel.length() : 0, dt,
-      camDist: this.camera.position.distanceTo(p.pos),
-    });
+    const p = this.physics;
+    if (dt === 0) this.snapPose();
+    const pose = this.pose;
+    this.aircraft.group.position.copy(pose.pos);
+    this.aircraft.group.quaternion.copy(pose.quat);
+    // Amortisör sıkışması kadar gövde alçalır, tekerlekler pistte kalır (yalnızca görsel)
+    const gc = p.gearComp || 0;
+    if (gc) this.aircraft.group.position.y -= gc;
+    const sf = p.surfaces, A = this._acArgs;
+    // Argüman nesnesi her karede yeniden kullanılır (tahsis yok)
+    A.elevator = sf.elevator; A.aileron = sf.aileron; A.rudder = sf.rudder;
+    A.lef = p.lefPos || 0; A.flaperon = p.tefPos || 0; A.toeIn = p.toeIn || 0;
+    A.flaps = p.flapsPos; A.slats = p.slatsPos; A.spoilers = p.spoilerPos; A.gear = p.gearPos;
+    A.throttle = p.engine; A.engine = p.engine; A.afterburner = p.abLevel; A.reverse = p.reversePos; A.time = p.time;
+    A.nozzle = p.engine_.nozzle !== undefined ? p.engine_.nozzle : p.engine;
+    A.groundSpeed = p.onGround ? p.vel.length() : 0; A.dt = dt; A.gearComp = gc;
+    A.camDist = this.camera.position.distanceTo(pose.pos);
+    this.aircraft.update(A);
   }
 
   // ---- 60 fps kilidi ----
@@ -995,7 +1072,8 @@ class App {
     let dt = (now - this.lastTime) / 1000;
     this.lastTime = now;
     if (!(dt > 0)) dt = 0;
-    if (dt > 0.1) dt = 0.1; // arka plandan dönüşte sıçramayı sınırla
+    const frameDt = dt;     // ölçüm için ham kare aralığı
+    if (dt > 0.1) dt = 0.1; // arka plandan dönüşte sıçramayı sınırla (fizik "ölüm sarmalı" da önlenir)
     const running = this.state === 'running';
 
     // Uçak seçim ekranı: henüz uçak yok, arka planda üs üzerinde sinematik kamera döner
@@ -1017,28 +1095,33 @@ class App {
       this.physics.setControls({ pitch: c.pitch, roll: c.roll, yaw: c.yaw, throttle: c.throttle, afterburner: c.afterburner });
       this.accumulator += dt;
       let steps = 0;
+      const p = this.physics;
       while (this.accumulator >= FIXED_DT && steps < 12) {
-        this.physics.step(FIXED_DT);
+        this._prevPos.copy(p.pos); this._prevQuat.copy(p.quat);
+        p.step(FIXED_DT);
         this.accumulator -= FIXED_DT;
         steps++;
       }
+      // Bir karede en fazla 12 adım (0,1 s): yavaş cihazda biriken açık atılır, fizik
+      // kendi kendini besleyen bir gecikme sarmalına girmez.
       if (steps >= 12) this.accumulator = 0;
+      this.interpolatePose(this.accumulator / FIXED_DT);
       if (this.physics.crashed) {
         this.state = 'crashed';
         this.controls.setEnabled(false);
         this.ui.showCrash(this.physics.crashReason);
       }
       this.syncAircraft(dt);
-      this.cameraRig.update(dt, this.physics);
+      this.cameraRig.update(dt, this.pose);
       if (this.physDebug) this.drawPhysDebug();
     }
     if (running || this.needsRender) {
       this.world.setWind(this.physics.windAt(this.physics.groundY + 8, this.physics.time), this.physics.wind.kt);
-      this.world.update(running ? dt : 0, this.camera, this.physics.pos);
+      this.world.update(running ? dt : 0, this.camera, this.pose.pos);
       this.renderer.render(this.scene, this.camera);
       const cockpit = this.cameraRig.mode === 'cockpit';
       const style = getAircraftConfig(this.aircraftId).hud;
-      this.hud.draw(this.physics.telemetry, this.camera, this.physics, {
+      this.hud.draw(this.physics.telemetry, this.camera, this.pose, {
         visible: cockpit, externalOnly: !cockpit, style, extended: style === 'airliner',
         dt, safe: this.safe, cameraName: CAMERA_NAMES[this.cameraRig.mode],
       });
@@ -1046,25 +1129,13 @@ class App {
     }
     this.audio.setListener(this.cameraRig.mode === 'cockpit' ? 'cockpit' : 'external', this.cameraRig.doppler, this.cameraRig.distance);
     this.audio.update(dt, this.physics.telemetry, running);
-    // ---- Uyarlanabilir çözünürlük: 60 fps hedefini tutturmak için ----
-    // Kare süresi 19,5 ms'yi (≈51 fps) aşan süre birikince render ölçeği düşer; 6 s boyunca
-    // hedef tutturulursa kademeli geri yükselir. Arayüz ve HUD tam çözünürlükte kalır.
-    if (running && dt > 0) {
-      if (dt > 0.0195) { this.slowTime += dt; this.goodTime = 0; }
-      else { this.goodTime += dt; this.slowTime = Math.max(0, this.slowTime - dt * 0.25); }
-      if (this.slowTime > 0.6 && this.renderScale > 0.6) {
-        this.renderScale = Math.max(0.6, this.renderScale - 0.12);
-        this.slowTime = 0; this.goodTime = 0; this.applyPixelRatio();
-      } else if (this.goodTime > 6 && this.renderScale < 1) {
-        this.renderScale = Math.min(1, this.renderScale + 0.1);
-        this.goodTime = 0; this.applyPixelRatio();
-      }
-    }
+    // ---- Uyarlanabilir kalite (perf.js): ham kare aralığıyla, yalnızca uçuşta ölçülür ----
+    if (running) this.aq.sample(frameDt, this.frameMs);
     // FPS göstergesi
     if (this.settings.fps) {
       this.frameCount++; this.fpsTime += dt;
       if (this.fpsTime >= 0.5) {
-        const sc = this.renderScale < 0.999 ? ' · scale ' + Math.round(this.renderScale * 100) : '';
+        const sc = this.aq.tier > 0 ? ' · ' + this.aq.label : '';
         this.ui.el.fps.textContent = Math.round(this.frameCount / this.fpsTime) + '/' + this.targetFps + ' fps' + sc + ' · ' + this.renderer.info.render.calls + ' draws';
         this.frameCount = 0; this.fpsTime = 0;
       }

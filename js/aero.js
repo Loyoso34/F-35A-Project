@@ -91,7 +91,7 @@ export function coefficients(s, D, u) {
   // Konfigürasyon katkıları (stall ile sönerek kaybolur)
   const sepFrac = smoothstep(D.sepA0, D.sepA1, aAbs);        // ayrılmış akış oranı 0..1
   const cfgFade = 1 - 0.85 * sepFrac;
-  CL += (D.CLflaps * s.flaps + D.CLslats * s.slats) * cfgFade;
+  CL += (D.CLflaps * s.flaps + D.CLslats * s.slats + (D.CLlef || 0) * (s.lef || 0)) * cfgFade;
   if (D.CLspoiler) CL *= 1 - D.CLspoiler * s.spoilers;
   // Yer etkisi: indüklenmiş akı azalır, taşıma eğimi hafif artar
   CL *= 1 + D.groundLift * (1 - s.sigmaGE);
@@ -110,7 +110,7 @@ export function coefficients(s, D, u) {
   const CDi = (clPot * clPot) / (Math.PI * AR * e) * s.sigmaGE;
   const CDvortex = D.lift === 'vortex' ? D.Kv * Math.abs(sa) * sa * sa : 0;
   const CDsep = D.CDsep * sa * sa * sepFrac;
-  let CD0 = D.CD0 + D.CDgear * s.gear + D.CDflaps * s.flaps + D.CDspoiler * s.spoilers;
+  let CD0 = D.CD0 + D.CDgear * s.gear + D.CDflaps * s.flaps + D.CDspoiler * s.spoilers + (D.CDlef || 0) * (s.lef || 0);
   CD0 += machWaveDrag(M, D);
   // Kontrol yüzeyi sapma sürüklemesi
   const CDctl = D.CDde * u.de * u.de + D.CDda * u.da * u.da + D.CDdr * u.dr * u.dr;

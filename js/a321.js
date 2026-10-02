@@ -1322,7 +1322,6 @@ export class A321neo {
     this.landingSpot.position.set(0, -2.1, st(19.5));
     this.landingSpot.target.position.set(0, -9, st(19.5) - 60);
     this.group.add(this.landingSpot, this.landingSpot.target);
-    this.landingSpot.visible = false;
     this.landingLens = new THREE.Group();
     for (const side of [-1, 1]) {
       const lens = new THREE.Sprite(this.track(new THREE.SpriteMaterial({ map: glowTex, color: 0xfff4e2, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
@@ -1448,8 +1447,10 @@ export class A321neo {
       g.userData.sprite.scale.setScalar(g.userData.size * far * (k.startsWith('nav') ? pulse : 1));
     }
     const ll = this.landingLightsOn;
-    this.landingSpot.intensity = ll ? 55 : 0;
-    this.landingSpot.visible = ll;
+        // Spot ışığı HER ZAMAN sahnededir, kapalıyken yoğunluğu 0'dır. Görünürlüğünü
+    // değiştirmek sahnedeki ışık SAYISINI değiştirir ve her aydınlatılan malzemenin
+    // gölgelendiricisini yeniden derletir (telefonda yüzlerce ms takılma).
+this.landingSpot.intensity = ll ? 55 : 0;
     this.landingLens.visible = ll;
     this.wingLens.visible = ll && gear > 0.5;
   }

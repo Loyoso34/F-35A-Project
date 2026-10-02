@@ -1,11 +1,12 @@
 // F-35A Lightning II – tamamen kod ile üretilen, gerçek ölçekli model.
 // Eksenler: burun -Z, üst +Y, sağ kanat +X. Uzunluk 15.7 m, açıklık 10.7 m, yükseklik 4.4 m.
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeStealthPanelTexture, makeRoughnessTexture, makeMilInsigniaTexture, makeTextTexture, makeCockpitDisplayTexture, makeFlameNoiseTexture, makeGlowTexture } from './textures.js';
 import { getLivery } from './liveries.js';
 
 const DEG = Math.PI / 180;
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export const F35 = {
   length: 15.7, span: 10.7, height: 4.4,
   cgStation: 8.0,
@@ -88,7 +89,13 @@ export function bottomSurfaceY(s, x) {
     const y = a.y + (b.y - a.y) * Math.min(1, Math.max(0, t));
     if (y < best) best = y;
   }
-  return best === Infinity ? profileAt(s).ybot : best;
+  if (best !== Infinity) return best;
+  // Kesitin en geniş noktasının dışı: silüet noktasına kenetlenir. Eskiden karın
+  // ortası (ybot) döndürülüyordu ve dış kenarı buraya taşan parçalar (ana takım yuvası
+  // kabuğu) gövde yanından ~0,45 m aşağı sarkan koyu bir kanat gibi görünüyordu.
+  let wx = -Infinity, wy = profileAt(s).ybot;
+  for (let i = 4; i < pts.length; i++) if (pts[i].x > wx) { wx = pts[i].x; wy = pts[i].y; }
+  return wy;
 }
 // Üst yüzeyin (güverte + omuz) verilen |x| için y değeri – kaplama loft'unun kullandığı 5 noktalı kırık çizgi üzerinden
 export function topSurfaceY(s, x) {
@@ -193,6 +200,43 @@ export function ensureOutward(g, refFn = null) {
 }
 const bodyAxisRef = (v, out) => out.set(0, -0.05, v.z);
 
+/**
+ * KAPALI panel: kesit halkaları kapalı (closeRing) loft edilir ve iki uç yüz üçgen
+ * yelpazesiyle kapatılır. Açık kesit bırakan eski paneller (kanat ucu, menteşe kesiti)
+ * belirli açılardan içi görünen yarıklar oluşturuyordu. Uç yüzlerin yönü panelin
+ * diğer ucuna göre DIŞA dönük kurulur; keskin kenar için ayrı köşe noktaları kullanılır.
+ */
+export function closedLoft(rows, opts = {}) {
+  const body = ensureOutward(loft(rows, Object.assign({}, opts, { closeRing: true })));
+  const cen = (row) => { const c = new THREE.Vector3(); for (const p of row) c.add(new THREE.Vector3(p.x, p.y, p.z)); return c.multiplyScalar(1 / row.length); };
+  const caps = [body.index ? body.toNonIndexed() : body];
+  const ends = [[rows[0], cen(rows[rows.length - 1])], [rows[rows.length - 1], cen(rows[0])]];
+  for (const [row, other] of ends) {
+    const c = cen(row);
+    const out = c.clone().sub(other);
+    const pos = [];
+    for (let k = 0; k < row.length; k++) {
+      const a = row[k], b = row[(k + 1) % row.length];
+      pos.push(c.x, c.y, c.z, a.x, a.y, a.z, b.x, b.y, b.z);
+    }
+    // İlk anlamlı üçgenin normaline göre sarım yönü
+    let sum = new THREE.Vector3();
+    const e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+    for (let i = 0; i < pos.length; i += 9) {
+      e1.set(pos[i + 3] - pos[i], pos[i + 4] - pos[i + 1], pos[i + 5] - pos[i + 2]);
+      e2.set(pos[i + 6] - pos[i], pos[i + 7] - pos[i + 1], pos[i + 8] - pos[i + 2]);
+      sum.add(e1.cross(e2));
+    }
+    if (sum.dot(out) < 0) for (let i = 0; i < pos.length; i += 9) for (let j = 0; j < 3; j++) { const t = pos[i + 3 + j]; pos[i + 3 + j] = pos[i + 6 + j]; pos[i + 6 + j] = t; }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3 * 2), 2));
+    g.computeVertexNormals();
+    caps.push(g);
+  }
+  return mergeGeometries(caps, false);
+}
+
 function naca(t, thick) {
   const x = Math.min(1, Math.max(0, t));
   const y = 5 * thick * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1036 * x ** 4);
@@ -219,11 +263,14 @@ export function getSharedMaterials() {
     duct: new THREE.MeshStandardMaterial({ color: 0x1a1c1f, roughness: 0.85, metalness: 0.2, side: THREE.DoubleSide }),
     metal: new THREE.MeshStandardMaterial({ color: 0x6f7378, roughness: 0.5, metalness: 0.9, flatShading: true, envMapIntensity: 0.8 }),
     metalSmooth: new THREE.MeshStandardMaterial({ color: 0xa4a7ab, roughness: 0.4, metalness: 0.85 }),
+    // F-35 kanopisi: indiyum-kalay-oksit kaplamalı, dışarıdan koyu, altın-bronz yansımalı
+    // görünür (sarı plastik değil). Koyu renk + yüksek metaliklik yansımayı altına boyar,
+    // opaklık iç kokpitin seçilebilmesine yetecek kadar düşük kalır.
     canopy: new THREE.MeshPhysicalMaterial({
-      color: 0xc99b2a, metalness: 0.55, roughness: 0.08, transparent: true, opacity: 0.5,
-      clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.4, side: THREE.DoubleSide, depthWrite: false,
+      color: 0x7a5f2a, metalness: 0.72, roughness: 0.05, transparent: true, opacity: 0.66,
+      clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.9, side: THREE.DoubleSide, depthWrite: false,
     }),
-    canopyInside: new THREE.MeshPhysicalMaterial({ color: 0xc99b2a, metalness: 0.3, roughness: 0.1, transparent: true, opacity: 0.14, side: THREE.FrontSide, depthWrite: false }),
+    canopyInside: new THREE.MeshPhysicalMaterial({ color: 0xb08a3a, metalness: 0.3, roughness: 0.1, transparent: true, opacity: 0.12, side: THREE.FrontSide, depthWrite: false }),
     tire: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.95 }),
     cockpit: new THREE.MeshStandardMaterial({ color: 0x24272b, roughness: 0.9 }),
     pilot: new THREE.MeshStandardMaterial({ color: 0x3c4a3a, roughness: 0.8 }),
@@ -323,23 +370,78 @@ export class F35A {
       const sideRowsMain = [lipRing, ...main.slice(1).map((h) => h.slice(4, 9).map((q) => ({ x: side * q.x, y: q.y, z: q.z })))];
       this.paintGeos.push(ensureOutward(loft(sideRowsMain, { uScale: 2.5, vScale: 0.5 }), bodyAxisRef));
       // Hava alığı boğazı: dudak halkasından ön gövde duvarına (karanlık kanal)
-      const ringA = fore[fore.length - 1].slice(4, 9).map((q) => ({ x: side * q.x, y: q.y, z: st(4.55) }));
+      // Boğaz, ön gövde yan şeridinin bittiği istasyonda (4.5) başlar: arada 5 cm'lik
+      // yarık kalmaz
+      const ringA = fore[fore.length - 1].slice(4, 9).map((q) => ({ x: side * q.x, y: q.y, z: q.z }));
       const ringA2 = fore[fore.length - 1].slice(4, 9).map((q) => ({ x: side * q.x * 0.98, y: q.y, z: st(5.3) }));
       const throat = this.track(loft([lipRing, ringA, ringA2], { uScale: 1, vScale: 1 }));
       const throatMesh = new THREE.Mesh(throat, this.m.duct);
       this.group.add(throatMesh);
+      // Ağız tabanı: boğazın alt kenarı (dudak alt köşesi -> ön gövde alt köşesi) ile
+      // karın şeridinin kenarı (4.5 -> 5.4 alt köşeleri) arasında kalan üçgen bölge.
+      // Kapatılmazsa ağızdan bakınca karın kaplamasının arka yüzü (görünmez) ve
+      // ardındaki gökyüzü görünüyordu.
+      const f8 = fore[fore.length - 1][8], m8 = main[1][8];
+      const P1 = [side * f8.x, f8.y, f8.z], P2 = [side * m8.x, m8.y, m8.z];
+      const P3 = [lipRing[4].x, lipRing[4].y, lipRing[4].z], P4 = [ringA[4].x, ringA[4].y, ringA[4].z];
+      const floor = new THREE.BufferGeometry();
+      floor.setAttribute('position', new THREE.Float32BufferAttribute([...P1, ...P2, ...P3, ...P1, ...P3, ...P4], 3));
+      floor.computeVertexNormals();
+      this.group.add(new THREE.Mesh(this.track(floor), this.m.duct));
       // Kanal içi karanlık taban (derin görünüm)
       const inner = this.track(loft([ringA2, ringA2.map((q) => ({ x: q.x * 0.9, y: q.y * 0.9 - 0.05, z: q.z + 1.2 }))], { uScale: 1, vScale: 1 }));
       this.group.add(new THREE.Mesh(inner, this.m.duct));
     }
-    // Kuyruk kapağı (bumların arka yüzü)
-    const endHalf = main[main.length - 1];
-    const endRing = [...endHalf.map(mirror).reverse(), ...endHalf.slice(1)];
-    const capShape = new THREE.Shape();
-    endRing.forEach((q, i) => { if (i === 0) capShape.moveTo(q.x, q.y); else capShape.lineTo(q.x, q.y); });
-    const cap = new THREE.ShapeGeometry(capShape);
-    cap.translate(0, 0, st(14.6));
-    this.group.add(new THREE.Mesh(this.track(cap), this.m.dark));
+    // Burun ucu: kesitler s=0'da küçük ama AÇIK bir halkayla başlıyordu (önden-yukarıdan
+    // bakınca uçta delik). Birkaç santim önde bir tepe noktasına kapatılır.
+    const tipHalf = fore[0];
+    const tipRing = [...tipHalf, ...tipHalf.slice(1, -1).reverse().map(mirror)];
+    const apex = tipRing.map(() => ({ x: 0, y: 0, z: st(-0.025) }));
+    this.paintGeos.push(ensureOutward(loft([apex, tipRing], { uScale: 1, vScale: 1, closeRing: true }), (v, o) => o.set(0, 0, st(0.3))));
+    this.buildAftBody(main[main.length - 1]);
+  }
+
+  // Arka gövde. Eskiden gövde 14.6 istasyonunda 2,4 m genişliğinde düz, siyah bir
+  // levhayla bitiyordu: arkadan bakınca uçak "kutu" gibi, motor bölümü boş görünüyordu.
+  // Gerçek F-35A'da arka gövde nozul kılıfına doğru daralır (boat-tail) ve iki yanda
+  // stabilatörleri taşıyan kuyruk bumları uzanır.
+  buildAftBody(endHalf) {
+    const Y0 = 0.08;                     // nozul ekseni yüksekliği (buildNozzle ile aynı)
+    const sA = 14.6, sB = 14.95, sC = 15.28, R = 0.585;
+    // Son gövde kesitinin tam halkası: sağ yarı (üst merkez -> alt merkez) + sol yarı (geri)
+    const ring = [...endHalf, ...endHalf.slice(1, -1).reverse().map((q) => ({ x: -q.x, y: q.y, z: q.z }))];
+    const toCircle = (q, r, t, sv) => {
+      const a = Math.atan2(q.y - Y0, q.x);
+      const cx = Math.cos(a) * r, cy = Y0 + Math.sin(a) * r;
+      return { x: q.x + (cx - q.x) * t, y: q.y + (cy - q.y) * t, z: st(sv) };
+    };
+    const rows = [
+      ring.map((q) => ({ x: q.x, y: q.y, z: st(sA) })),
+      ring.map((q) => toCircle(q, R * 1.08, 0.58, sB)),
+      ring.map((q) => toCircle(q, R, 1, sC)),
+    ];
+    this.paintGeos.push(ensureOutward(loft(rows, { uScale: 1, vScale: 1, closeRing: true }), (v, o) => o.set(0, Y0, v.z)));
+    // Kılıf ile nozul arasındaki ince halka (sıcak bölüm conta yüzü)
+    const ann = new THREE.RingGeometry(0.50, R + 0.002, 40, 1);
+    ann.translate(0, Y0, st(sC));
+    const annMat = this.track(this.m.metal.clone()); annMat.side = THREE.DoubleSide;
+    this.group.add(new THREE.Mesh(this.track(ann), annMat));
+    // Kuyruk bumları: stabilatör kökünü taşır, gövde yanından çıkıp incelerek biter
+    const BX = 0.97, BY = -0.07;
+    const sec = (sv, w, h) => {
+      const pts = [];
+      for (let k = 0; k < 14; k++) {
+        const a = (k / 14) * Math.PI * 2;
+        const c = Math.cos(a), sn = Math.sin(a);
+        pts.push({ x: Math.sign(c) * Math.pow(Math.abs(c), 0.75) * w, y: Math.sign(sn) * Math.pow(Math.abs(sn), 0.85) * h, z: st(sv) });
+      }
+      return pts;
+    };
+    for (const side of [-1, 1]) {
+      const bRows = [[13.2, 0.19, 0.16], [14.0, 0.21, 0.17], [14.9, 0.2, 0.16], [15.35, 0.15, 0.115], [15.6, 0.05, 0.04]]
+        .map(([sv, w, h]) => sec(sv, w, h).map((q) => ({ x: side * BX + q.x, y: BY + q.y, z: q.z })));
+      this.paintGeos.push(closedLoft(bRows, { uScale: 1, vScale: 1 }));
+    }
   }
 
   buildIntakes() {
@@ -356,8 +458,9 @@ export class F35A {
       const outer = lh.map((q, k) => ({ x: side * q.x, y: q.y, z: st(4.55 + (k / 4) * 1.15) }));
       const innerR = lh.map((q, k) => ({ x: side * (q.x - 0.035), y: q.y + (k < 2 ? -0.03 : 0.02), z: st(4.55 + (k / 4) * 1.15) - 0.05 }));
       const lip = this.track(loft([outer, innerR], { uScale: 1, vScale: 1 }));
+      // Dudak gövde boyasının koyu tonunda (kenar kaplaması); siyah kanal malzemesiyle
+      // gövdeden dışarı çıkmış bir bıçak gibi görünüyordu.
       const lipMesh = new THREE.Mesh(lip, this.m.paintDark);
-      lipMesh.material = this.m.duct;
       this.group.add(lipMesh);
     }
   }
@@ -435,9 +538,11 @@ export class F35A {
     // Kanopi: eğik ön cam, en yüksek nokta pilot başı hizasında, arkaya doğru incelen damla biçimi.
     // Kesit süperelips (n=2.3): yanlar dik, üst yuvarlak. Taban düz güverteye oturur (çıkıntı/ledge yok).
     const CN = 2.3;
+    // Tepe yüksekliği %7 düşük tutuldu (eski kabarcık fazla yüksekti); kask tepesi
+    // (güverte +0,70 m) ile kanopi tepesi (+0,80 m) arasında pay kalır.
     const profile = [
-      [3.0, 0.08, 0.02], [3.25, 0.30, 0.18], [3.55, 0.44, 0.40], [3.9, 0.52, 0.58], [4.3, 0.57, 0.74],
-      [4.7, 0.59, 0.84], [5.1, 0.59, 0.86], [5.5, 0.57, 0.80], [5.9, 0.52, 0.64], [6.3, 0.43, 0.42], [6.65, 0.28, 0.18], [6.9, 0.10, 0.03],
+      [3.0, 0.08, 0.02], [3.25, 0.30, 0.17], [3.55, 0.44, 0.37], [3.9, 0.52, 0.54], [4.3, 0.57, 0.69],
+      [4.7, 0.59, 0.78], [5.1, 0.59, 0.80], [5.5, 0.57, 0.75], [5.9, 0.52, 0.60], [6.3, 0.43, 0.40], [6.65, 0.28, 0.17], [6.9, 0.10, 0.03],
     ];
     const M = 16;
     const shapeRow = (sv, w, h, base, grow = 0) => {
@@ -457,6 +562,13 @@ export class F35A {
     canopy.renderOrder = 5;
     this.group.add(canopy);
     this.parts.canopy = canopy;
+    // Kokpit görünümünde kanopi malzemesi değişir. Ön derleme (main.js precompile)
+    // yalnızca sahnedeki malzemeleri görür; iç malzemenin programı da yükleme
+    // ekranında derlensin diye hiç çizilmeyen bir vekil ağ eklenir.
+    const canopyProxy = new THREE.Mesh(canopy.geometry, m.canopyInside);
+    canopyProxy.visible = false;
+    canopyProxy.renderOrder = canopy.renderOrder;
+    this.group.add(canopyProxy);
     // Kanopi bow çerçevesi (ön üçte birde) ve ince ön cam tabanı
     const frameMat = this.track(m.dark.clone()); frameMat.side = THREE.DoubleSide;
     const interp = (sv) => { for (let i = 0; i < profile.length - 1; i++) { const [s0, w0, h0] = profile[i], [s1, w1, h1] = profile[i + 1]; if (sv >= s0 && sv <= s1) { const t = (sv - s0) / (s1 - s0); return [w0 + (w1 - w0) * t, h0 + (h1 - h0) * t]; } } return [0.1, 0.03]; };
@@ -483,7 +595,8 @@ export class F35A {
     return { rootX: 1.35, tipX: 5.35, leRoot: 6.55, teRoot: 12.55, leTip: 9.15, teTip: 11.55, thickRoot: 0.05, thickTip: 0.035, y: -0.12, hinge: 0.76 };
   }
 
-  buildWingPanel(side, x0, x1, P, { cStart = 0, cEnd = 1, K = 10, N = 6 } = {}) {
+  // Kanat paneli kesitleri (sağ yarı için x>0; side ile aynalanır)
+  wingRows(side, x0, x1, P, cStart, cEnd, K, N) {
     const rows = [];
     for (let j = 0; j <= N; j++) {
       const x = x0 + (x1 - x0) * (j / N);
@@ -494,34 +607,46 @@ export class F35A {
       const thick = P.thickRoot + (P.thickTip - P.thickRoot) * f;
       rows.push(airfoilPoints(K, chord, thick, cStart, cEnd).map((p) => ({ x: side * x, y: P.y + p.y, z: st(le + chord * p.c) })));
     }
-    return ensureOutward(loft(rows, { uScale: 2, vScale: 1 }));
+    return rows;
   }
 
+  buildWingPanel(side, x0, x1, P, { cStart = 0, cEnd = 1, K = 10, N = 6 } = {}) {
+    return closedLoft(this.wingRows(side, x0, x1, P, cStart, cEnd, K, N), { uScale: 2, vScale: 1 });
+  }
+
+  // Menteşeli yüzey: kanat kesitinden (cStart..cEnd) kapalı panel, menteşe ekseni
+  // (chord kesri hc) etrafında döner. Eksen her iki kanatta +x yönlüdür: pozitif açı
+  // menteşenin ARKASINI aşağı, ÖNÜNÜ yukarı indirir.
+  buildHinged(side, x0, x1, P, cStart, cEnd, hc, K, N) {
+    const hs = (x) => { const f = (x - P.rootX) / (P.tipX - P.rootX); const le = P.leRoot + (P.leTip - P.leRoot) * f, te = P.teRoot + (P.teTip - P.teRoot) * f; return le + (te - le) * hc; };
+    const xm = (x0 + x1) / 2;
+    const axis = new THREE.Vector3(x1 - x0, 0, side * (hs(x1) - hs(x0))).normalize();
+    const geo = this.buildWingPanel(side, x0, x1, P, { cStart, cEnd, K, N });
+    geo.translate(-side * xm, -P.y, -st(hs(xm)));
+    const mesh = new THREE.Mesh(this.track(geo), this.m.paint);
+    mesh.position.set(side * xm, P.y, st(hs(xm)));
+    mesh.castShadow = true;
+    mesh.userData.axis = axis;
+    this.group.add(mesh);
+    return mesh;
+  }
+
+  // F-35A kanat kontrol yüzeyleri (kamuya açık yerleşim):
+  //   - TAM AÇIKLIKLI hücum kenarı flapı (LEF), veterin ~%15'i
+  //   - kanat başına TEK flaperon (iç ~%65 açıklık): flap ve yatış birlikte. Ayrı bir
+  //     kanatçık YOKTUR (o F-35C'nin katlanır kanadına özgüdür).
+  //   - flaperonun dışında firar kenarı sabittir.
   buildWings() {
     const P = this.wingPlanform();
-    this.parts.ailerons = {}; this.parts.flaps = {};
+    const LEF = 0.15, FLAP_X1 = 3.95;
+    this.parts.flaperons = {}; this.parts.lefs = {};
     for (const side of [-1, 1]) {
-      this.paintGeos.push(this.buildWingPanel(side, P.rootX - 0.4, P.tipX, P, { cStart: 0, cEnd: P.hinge, K: 12, N: 8 }));
-      const surfaces = [{ key: 'flaps', x0: P.rootX + 0.05, x1: 3.35 }, { key: 'ailerons', x0: 3.45, x1: P.tipX - 0.1 }];
-      for (const sf of surfaces) {
-        const xm = (sf.x0 + sf.x1) / 2;
-        const fm = (xm - P.rootX) / (P.tipX - P.rootX);
-        const leM = P.leRoot + (P.leTip - P.leRoot) * fm, teM = P.teRoot + (P.teTip - P.teRoot) * fm;
-        const hingeS = leM + (teM - leM) * P.hinge;
-        const f0 = (sf.x0 - P.rootX) / (P.tipX - P.rootX), f1 = (sf.x1 - P.rootX) / (P.tipX - P.rootX);
-        const hs = (f) => { const le = P.leRoot + (P.leTip - P.leRoot) * f, te = P.teRoot + (P.teTip - P.teRoot) * f; return le + (te - le) * P.hinge; };
-        // Menteşe ekseni her iki kanatta +x yönlü: pozitif açı = firar kenarı aşağı (simetrik)
-        const axis = new THREE.Vector3(sf.x1 - sf.x0, 0, side * (hs(f1) - hs(f0))).normalize();
-        const geo = this.buildWingPanel(side, sf.x0, sf.x1, P, { cStart: P.hinge - 0.01, cEnd: 1, K: 5, N: 3 });
-        geo.translate(-side * xm, -P.y, -st(hingeS));
-        geo.computeVertexNormals();
-        const mesh = new THREE.Mesh(this.track(geo), this.m.paint);
-        mesh.position.set(side * xm, P.y, st(hingeS));
-        mesh.castShadow = true;
-        mesh.userData.axis = axis;
-        this.group.add(mesh);
-        this.parts[sf.key][side < 0 ? 'left' : 'right'] = mesh;
-      }
+      const key = side < 0 ? 'left' : 'right';
+      // Sabit kanat: iç (LEF ile flaperon arası) ve dış (LEF'ten firar kenarına)
+      this.paintGeos.push(this.buildWingPanel(side, P.rootX - 0.4, FLAP_X1, P, { cStart: LEF, cEnd: P.hinge, K: 10, N: 6 }));
+      this.paintGeos.push(this.buildWingPanel(side, FLAP_X1, P.tipX, P, { cStart: LEF, cEnd: 1, K: 11, N: 3 }));
+      this.parts.lefs[key] = this.buildHinged(side, P.rootX - 0.02, P.tipX - 0.02, P, 0, LEF + 0.004, LEF, 4, 6);
+      this.parts.flaperons[key] = this.buildHinged(side, P.rootX + 0.04, FLAP_X1 - 0.03, P, P.hinge - 0.008, 1, P.hinge, 5, 4);
     }
   }
 
@@ -539,16 +664,12 @@ export class F35A {
         const thick = S.thickRoot + (S.thickTip - S.thickRoot) * f;
         rows.push(airfoilPoints(K, chord, thick).map((p) => ({ x: side * x, y: p.y, z: st(le + chord * p.c) - st(S.pivot) })));
       }
-      const geo = this.track(ensureOutward(loft(rows, { uScale: 1.5, vScale: 1 })));
+      const geo = this.track(closedLoft(rows, { uScale: 1.5, vScale: 1 }));
       const mesh = new THREE.Mesh(geo, this.m.paint);
       mesh.position.set(0, S.y, st(S.pivot));
       mesh.castShadow = true;
       this.group.add(mesh);
       this.parts.stabs[side < 0 ? 'left' : 'right'] = mesh;
-      const boom = new THREE.CylinderGeometry(0.15, 0.12, 0.5, 8);
-      boom.rotateZ(Math.PI / 2);
-      boom.translate(side * (S.rootX - 0.05), S.y, st(S.pivot));
-      this.paintGeos.push(boom);
     }
     // Dikey kuyruklar (dışa 22° eğik) + dümenler
     this.parts.rudders = {};
@@ -577,11 +698,11 @@ export class F35A {
         }
         return rows;
       };
-      this.paintGeos.push(ensureOutward(loft(mkRows(0, V.hinge), { uScale: 1.5, vScale: 1 })));
+      this.paintGeos.push(closedLoft(mkRows(0, V.hinge), { uScale: 1.5, vScale: 1 }));
       const hingeRoot = V.rootLE + (V.rootTE - V.rootLE) * V.hinge;
       const hingeTip = V.tipLE + (V.tipTE - V.tipLE) * V.hinge;
       const local = { x: side * V.rootX, y: V.rootY, dz: (f) => st(hingeRoot + (hingeTip - hingeRoot) * f) - st(hingeRoot) };
-      const rudGeo = this.track(ensureOutward(loft(mkRows(V.hinge - 0.01, 1, local), { uScale: 1, vScale: 1 })));
+      const rudGeo = this.track(closedLoft(mkRows(V.hinge - 0.01, 1, local), { uScale: 1, vScale: 1 }));
       const rud = new THREE.Mesh(rudGeo, this.m.paint);
       rud.position.set(side * V.rootX, V.rootY, st(hingeRoot));
       rud.castShadow = true;
@@ -593,6 +714,7 @@ export class F35A {
       const fl = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.5, 0.06)), this.m.formLight);
       fl.position.copy(new THREE.Vector3(side * V.rootX, V.rootY, st(13.6)).addScaledVector(up, 1.6).addScaledVector(nrm, 0.05));
       fl.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -side), up, nrm));
+      fl.userData.decal = true;
       this.group.add(fl);
     }
   }
@@ -608,7 +730,11 @@ export class F35A {
     const body = new THREE.CylinderGeometry(0.52, 0.56, NOZ_LEN, 30, 1, true);
     body.rotateX(Math.PI / 2);
     body.translate(0, y0, z0 + NOZ_LEN / 2);
-    const nozzle = new THREE.Mesh(this.track(body), this.m.metal);
+    // Dış kabuk iki yüzlü: arkadan bakınca iç astar ile kabuk arasından kabuğun iç
+    // yüzü görünür (tek yüzlüyken orada gökyüzü görünüyordu)
+    const nozMat = this.track(this.m.metal.clone()); nozMat.side = THREE.DoubleSide;
+    this.nozzleMat = nozMat;
+    const nozzle = new THREE.Mesh(this.track(body), nozMat);
     nozzle.castShadow = true;
     this.group.add(nozzle);
     this.parts.nozzle = nozzle;
@@ -636,13 +762,27 @@ export class F35A {
     }
     const petalGeo = this.track(mergeGeometries(petals.map((g) => g.toNonIndexed()), false));
     const petalMat = this.track(this.m.metal.clone()); petalMat.side = THREE.DoubleSide;
-    this.group.add(new THREE.Mesh(petalGeo, petalMat));
+    const petalMesh = new THREE.Mesh(petalGeo, petalMat);
+    this.group.add(petalMesh);
     // İç koni ve türbin
     const inner = new THREE.CylinderGeometry(0.40, 0.50, NOZ_LEN - 0.05, 24, 1, true);
     inner.rotateX(Math.PI / 2);
     inner.translate(0, y0, z0 + NOZ_LEN / 2 - 0.005);
     const innerMat = this.track(new THREE.MeshStandardMaterial({ color: 0x202226, roughness: 0.8, metalness: 0.6, side: THREE.BackSide }));
     this.group.add(new THREE.Mesh(this.track(inner), innerMat));
+    // Çıkış dudağı: iç astar (r 0,40) ile dış kabuk (r 0,52) arasını kapatan halka
+    const lip = new THREE.RingGeometry(0.395, 0.525, 30, 1);
+    lip.translate(0, y0, z0 + NOZ_LEN - 0.004);
+    const lipMesh = new THREE.Mesh(this.track(lip), nozMat);
+    this.group.add(lipMesh);
+    // Değişken alanlı çıkış: yapraklar ve dudak nozul ekseni etrafında ölçeklenir
+    this.parts.nozzleExit = [petalMesh, lipMesh];
+    this.nozzleY0 = y0;
+    // Türbin arka yüzü: merkez konisi ve koyu halka (düz siyah disk yerine derinlik)
+    const cone = new THREE.ConeGeometry(0.17, 0.42, 18, 1, true);
+    cone.rotateX(Math.PI / 2);
+    cone.translate(0, y0, z0 + 0.26);
+    this.group.add(new THREE.Mesh(this.track(cone), this.track(new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.6, metalness: 0.7, side: THREE.DoubleSide }))));
     const turbine = new THREE.CircleGeometry(0.5, 24);
     turbine.translate(0, y0, z0 + 0.05);
     this.group.add(new THREE.Mesh(this.track(turbine), this.m.dark));
@@ -739,9 +879,11 @@ export class F35A {
       const strut = new THREE.CylinderGeometry(0.07, 0.08, strutLen * 0.6, 10); strut.translate(0, -strutLen * 0.3, 0);
       pivot.add(new THREE.Mesh(this.track(strut), strutMat));
       const oleo = new THREE.CylinderGeometry(0.05, 0.05, strutLen * 0.5, 10); oleo.translate(0, -strutLen * 0.75, 0);
-      pivot.add(new THREE.Mesh(this.track(oleo), this.track(new THREE.MeshStandardMaterial({ color: 0xd8dadc, roughness: 0.2, metalness: 0.9 }))));
+      const oleoMesh = new THREE.Mesh(this.track(oleo), this.track(new THREE.MeshStandardMaterial({ color: 0xd8dadc, roughness: 0.2, metalness: 0.9 })));
+      pivot.add(oleoMesh);
       const fork = new THREE.BoxGeometry(0.24, 0.32, 0.1); fork.translate(0, -strutLen + 0.1, 0);
-      pivot.add(new THREE.Mesh(this.track(fork), strutMat));
+      const forkMesh = new THREE.Mesh(this.track(fork), strutMat);
+      pivot.add(forkMesh);
       const drag = new THREE.CylinderGeometry(0.03, 0.03, strutLen * 0.7, 6); drag.rotateX(0.5); drag.translate(0, -strutLen * 0.4, 0.25);
       pivot.add(new THREE.Mesh(this.track(drag), strutMat));
       const wheel = mkWheel(r, 0.2); wheel.position.set(0, -strutLen, 0);
@@ -762,7 +904,7 @@ export class F35A {
         this.group.add(dp);
         doors.push({ pivot: dp, sign: side });
       }
-      this.parts.gear.nose = { pivot, wheel, retractAxis: 'x', retractSign: -1, doors, radius: r };
+      this.parts.gear.nose = { pivot, wheel, retractAxis: 'x', retractSign: -1, doors, radius: r, slide: [oleoMesh, forkMesh, wheel], wheelY: -strutLen };
     }
     // Ana takımlar: içe katlanır
     for (const side of [-1, 1]) {
@@ -775,7 +917,8 @@ export class F35A {
       const strut = new THREE.CylinderGeometry(0.09, 0.1, strutLen * 0.62, 10); strut.translate(0, -strutLen * 0.31, 0);
       pivot.add(new THREE.Mesh(this.track(strut), strutMat));
       const oleo = new THREE.CylinderGeometry(0.06, 0.06, strutLen * 0.5, 10); oleo.translate(0, -strutLen * 0.75, 0);
-      pivot.add(new THREE.Mesh(this.track(oleo), this.track(new THREE.MeshStandardMaterial({ color: 0xd8dadc, roughness: 0.2, metalness: 0.9 }))));
+      const oleoMesh = new THREE.Mesh(this.track(oleo), this.track(new THREE.MeshStandardMaterial({ color: 0xd8dadc, roughness: 0.2, metalness: 0.9 })));
+      pivot.add(oleoMesh);
       const brace = new THREE.CylinderGeometry(0.04, 0.04, strutLen * 0.85, 6); brace.rotateZ(side * 0.55); brace.translate(side * -0.22, -strutLen * 0.42, 0.06);
       pivot.add(new THREE.Mesh(this.track(brace), strutMat));
       const wheel = mkWheel(r, 0.3); wheel.position.set(side * 0.12, -strutLen, 0);
@@ -788,7 +931,7 @@ export class F35A {
       door.position.set(0, -0.45, 0);
       dp.add(door);
       this.group.add(dp);
-      this.parts.gear[side < 0 ? 'left' : 'right'] = { pivot, wheel, retractAxis: 'z', retractSign: side, doors: [{ pivot: dp, sign: -side }], radius: r };
+      this.parts.gear[side < 0 ? 'left' : 'right'] = { pivot, wheel, retractAxis: 'z', retractSign: side, doors: [{ pivot: dp, sign: -side }], radius: r, slide: [oleoMesh, wheel], wheelY: -strutLen };
     }
   }
 
@@ -816,7 +959,10 @@ export class F35A {
         for (let i = 0; i <= nx; i++) { const x = x0 + (x1 - x0) * (i / nx); row.push({ x, y: bottomSurfaceY(sv, x) - off, z: st(sv) }); }
         rows.push(row);
       }
-      return ensureOutward(loft(rows, { uScale: 1, vScale: 1 }), bodyAxisRef);
+      // İnce KAPALI levha: dış yüz yüzeyin `off` altında, iç yüz gövdenin içinde.
+      // Açık tek yüzlü levhanın kenarı, yandan ve hafif yukarıdan bakınca gövde
+      // silüetinde ince bir yarık (arka yüz elemesi) bırakıyordu.
+      return closedLoft(rows.map((row) => [...row, ...row.slice().reverse().map((q) => ({ x: q.x, y: q.y + off + 0.03, z: q.z }))]), { uScale: 1, vScale: 1 });
     };
     // Silah yuvası kapakları: her yanda iç (düz karın) ve dış (eğik faset) kapak; kapak çevresinde koyu panel aralığı
     const gapMat = this.track(new THREE.MeshStandardMaterial({ color: 0x0f1113, roughness: 0.95 }));
@@ -829,8 +975,8 @@ export class F35A {
     }
     // İniş takımı yuva ağızları (koyu): burun ve ana takımlar; kapaklar kapalıyken örtülür
     gapGeos.push(bellyShell(-0.30, 0.30, 2.95, 4.5, 3, 5, 0.004));
-    for (const side of [-1, 1]) gapGeos.push(bellyShell(side * 1.28, side * 1.86, 8.0, 9.6, 3, 5, 0.004));
-    this.group.add(new THREE.Mesh(this.track(mergeGeometries(gapGeos.map((g) => g.toNonIndexed()), false)), gapMat));
+    for (const side of [-1, 1]) gapGeos.push(bellyShell(side * 1.26, side * 1.72, 8.0, 9.6, 3, 5, 0.004));
+    this.group.add(new THREE.Mesh(this.track(mergeGeometries(gapGeos.map((g) => (g.index ? g.toNonIndexed() : g)), false)), gapMat));
     // Kuyruk kancası kaportası (gövde altı, orta hat) ve kanca
     const hookFair = new THREE.BoxGeometry(0.26, 0.20, 1.7);
     hookFair.rotateX(0.05);
@@ -843,17 +989,20 @@ export class F35A {
     const rec = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.5, 0.36)), this.track(new THREE.MeshStandardMaterial({ color: 0x5c6167, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -1 })));
     rec.position.set(0, bodyTop(7.5) + 0.012, st(7.5));
     rec.rotation.x = -Math.PI / 2;
+    rec.userData.decal = true;
     this.group.add(rec);
     // Formasyon ışık şeritleri (gövde yanları)
     for (const side of [-1, 1]) {
       const fl = new THREE.Mesh(this.track(new THREE.PlaneGeometry(1.2, 0.07)), m.formLight);
       fl.position.set(side * (sideSurfaceX(9.4, -0.2) + 0.012), -0.2, st(9.4));
       fl.rotation.y = side * Math.PI / 2;
+      fl.userData.decal = true;
       this.group.add(fl);
       const fl2 = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.06, 0.6)), m.formLight);
       fl2.position.set(side * 0.45, bodyTop(2.0) - 0.02, st(2.6));
       fl2.rotation.x = -Math.PI / 2;
       fl2.rotation.z = side * 0.3;
+      fl2.userData.decal = true;
       this.group.add(fl2);
     }
     // Antenler
@@ -897,10 +1046,14 @@ export class F35A {
     const spot = new THREE.SpotLight(0xfff2dc, 0, 420, 24 * DEG, 0.45, 0.6);
     spot.castShadow = false;
     const noseGear = this.parts.gear.nose.pivot;
-    spot.position.set(0, -0.45, -0.12);
+    // Işık burun takımının (indirilmiş) konumuna yerleştirilir ama gövde grubuna
+    // bağlanır: takım içeri alınınca pivot GİZLENİR ve ona bağlı bir ışık sahnenin
+    // ışık sayısını değiştirip tüm gölgelendiricileri yeniden derletirdi.
+    noseGear.updateMatrix();
+    spot.position.set(0, -0.45, -0.12).applyMatrix4(noseGear.matrix);
     const target = new THREE.Object3D();
-    target.position.set(0, -6.0, -40);
-    noseGear.add(spot); noseGear.add(target);
+    target.position.set(0, -6.0, -40).applyMatrix4(noseGear.matrix);
+    this.group.add(spot); this.group.add(target);
     spot.target = target;
     this.landingSpot = spot;
     this.landingLens = new THREE.Sprite(this.track(new THREE.SpriteMaterial({ map: glowTex, color: 0xfff4e0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
@@ -927,11 +1080,27 @@ export class F35A {
       const f = (3.4 - P.rootX) / (P.tipX - P.rootX);
       const le = P.leRoot + (P.leTip - P.leRoot) * f, te = P.teRoot + (P.teTip - P.teRoot) * f;
       const sMid = le + (te - le) * 0.42;
-      const thick = (P.thickRoot + (P.thickTip - P.thickRoot) * f) * (te - le) * 0.5;
-      const mesh = new THREE.Mesh(this.track(new THREE.PlaneGeometry(insigW, size)), mat);
-      mesh.position.set(x, P.y + up * (thick + 0.02), st(sMid));
-      mesh.rotation.x = up > 0 ? -Math.PI / 2 : Math.PI / 2;
-      mesh.rotation.z = up > 0 ? 0 : Math.PI;
+      // Kanada YAPIŞIK amblem: düz levha kanat profilinin en kalın noktasının üstünde
+      // duruyordu ve hücum/firar kenarına doğru yüzeyden ~10 cm ayrılıp havada
+      // asılı görünüyordu. Izgara levhanın her köşesi profil yüzeyine oturtulur.
+      const g = new THREE.PlaneGeometry(insigW, size, 14, 8);
+      const o = new THREE.Object3D();
+      o.position.set(x, P.y, st(sMid));
+      o.rotation.x = up > 0 ? -Math.PI / 2 : Math.PI / 2;
+      o.rotation.z = up > 0 ? 0 : Math.PI;
+      o.updateMatrix();
+      g.applyMatrix4(o.matrix);
+      const pa = g.attributes.position;
+      for (let i = 0; i < pa.count; i++) {
+        const vx = Math.abs(pa.getX(i)), sv = pa.getZ(i) + F35.cgStation;
+        const ff = (vx - P.rootX) / (P.tipX - P.rootX);
+        const l = P.leRoot + (P.leTip - P.leRoot) * ff, t = P.teRoot + (P.teTip - P.teRoot) * ff, ch = t - l;
+        const th = P.thickRoot + (P.thickTip - P.thickRoot) * ff;
+        pa.setY(i, P.y + up * (naca((sv - l) / ch, th) * ch + 0.006));
+      }
+      g.computeVertexNormals();
+      const mesh = new THREE.Mesh(this.track(g), mat);
+      mesh.userData.decal = true;
       this.group.add(mesh);
     }
     for (const side of [-1, 1]) {
@@ -939,6 +1108,7 @@ export class F35A {
       mesh.position.set(side * (sideSurfaceX(10.6, 0.3) + 0.02), 0.3, st(10.6));
       mesh.rotation.y = side * Math.PI / 2;
       mesh.rotation.x = side * -0.45;
+      mesh.userData.decal = true;
       this.group.add(mesh);
     }
     const cant = 22 * DEG;
@@ -950,6 +1120,7 @@ export class F35A {
       const place = (mesh, hFrac, s, out) => {
         mesh.position.copy(new THREE.Vector3(side * 0.66, 0.42, st(s)).addScaledVector(up, 2.2 * hFrac).addScaledVector(nrm, out));
         mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -side), up, nrm));
+        mesh.userData.decal = true;
         this.group.add(mesh);
       };
       place(new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.7, 0.35)), txtMat), 0.74, 13.3, 0.045);
@@ -960,16 +1131,71 @@ export class F35A {
   finalize() {
     const geos = this.paintGeos.map((g) => (g.index ? g.toNonIndexed() : g));
     for (const g of geos) { if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2)); }
-    const merged = this.track(mergeGeometries(geos, false));
-    merged.computeVertexNormals();
+    // Normaller kırışma açısıyla: 38°'den yumuşak eğimler (gövde kesitleri, burun,
+    // kanat profili) PÜRÜZSÜZ gölgelenir; chine, firar kenarı ve panel kenarları gibi
+    // keskin kırılmalar korunur. Eskiden birleşik geometri yüz yüz düz gölgeleniyordu
+    // ve burunda/gövdede üçgen desenleri görünüyordu. Yalnızca yükleme anında çalışır.
+    const flat = mergeGeometries(geos, false);
+    const merged = this.track(toCreasedNormals(flat, 38 * DEG));
+    flat.dispose();
     const body = new THREE.Mesh(merged, this.m.paint);
     body.castShadow = true;
     body.receiveShadow = true;
     this.group.add(body);
     this.parts.body = body;
     this.paintGeos.forEach((g) => g.dispose());
+    this.mergeStatic();
     this.group.traverse((o) => { if (o.isMesh) o.frustumCulled = true; });
     this.wheelSpin = 0;
+  }
+
+  /**
+   * Çizim çağrısı azaltma: grubun DOĞRUDAN çocuğu olan, hiçbir yerde canlandırılmayan
+   * ya da gizlenip açılmayan ağlar malzemelerine göre tek ağa birleştirilir (kokpit
+   * parçaları, hava alığı kanalları, panel aralıkları, nozul içi, dekallar...).
+   * Hareketli yüzeyler, takımlar, kanopi, alev, ışıklar ve this.parts altında başvurusu
+   * tutulan her şey korunur. Görünüm birebir aynıdır; yalnızca çizim sayısı düşer.
+   */
+  mergeStatic() {
+    const keep = new Set();
+    const mark = (v, depth = 0) => {
+      if (!v || depth > 3) return;
+      if (v.isObject3D) { v.traverse((o) => keep.add(o)); return; }
+      if (Array.isArray(v)) { for (const x of v) mark(x, depth + 1); return; }
+      if (typeof v === 'object' && !v.isVector3) for (const k of Object.keys(v)) mark(v[k], depth + 1);
+    };
+    mark(this.parts);
+    if (this.lights) mark(this.lights);
+    if (this.landingSpot) keep.add(this.landingSpot);
+    const groups = new Map();
+    for (const o of this.group.children) {
+      if (!o.isMesh || keep.has(o) || !o.visible || o.renderOrder !== 0 || o.children.length) continue;
+      const g = o.geometry;
+      if (!g.attributes.position || g.morphAttributes.position) continue;
+      const key = o.material.uuid + '|' + (o.castShadow ? 1 : 0) + (o.receiveShadow ? 1 : 0) + (o.userData.decal ? 'd' : '');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(o);
+    }
+    for (const list of groups.values()) {
+      if (list.length < 2) continue;
+      const geos = list.map((o) => {
+        o.updateMatrix();
+        let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+        g.applyMatrix4(o.matrix);
+        if (!g.attributes.normal) g.computeVertexNormals();
+        if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+        for (const n of Object.keys(g.attributes)) if (n !== 'position' && n !== 'normal' && n !== 'uv') g.deleteAttribute(n);
+        return g;
+      });
+      const merged = mergeGeometries(geos, false);
+      geos.forEach((g) => g.dispose());
+      if (!merged) continue;
+      const m = new THREE.Mesh(this.track(merged), list[0].material);
+      m.castShadow = list[0].castShadow; m.receiveShadow = list[0].receiveShadow;
+      m.userData.decal = !!list[0].userData.decal;
+      for (const o of list) this.group.remove(o);
+      this.group.add(m);
+    }
   }
 
   setCockpitView(on) {
@@ -984,23 +1210,41 @@ export class F35A {
   }
 
   // Kontrol yüzeyleri ve efektler. surfaces: {elevator, aileron, rudder} -1..1 (elevator +: burun yukarı)
-  update({ elevator = 0, aileron = 0, rudder = 0, flaps = 0, gear = 1, throttle = 0, afterburner = 0, time = 0, groundSpeed = 0, dt = 0, camDist = 25 }) {
+  update({ elevator = 0, aileron = 0, rudder = 0, flaps = 0, lef = 0, flaperon = 0, toeIn = 0, nozzle = null, gearComp = 0, gear = 1, throttle = 0, afterburner = 0, time = 0, groundSpeed = 0, dt = 0, camDist = 25 }) {
     const p = this.parts;
-    const stab = -elevator * 22 * DEG;
-    p.stabs.left.rotation.x = stab - aileron * 5 * DEG;
-    p.stabs.right.rotation.x = stab + aileron * 5 * DEG;
+    // Yüzeyler FCS'nin eyleyici çıktısını (hız sınırlı) izler; ayrıca burada da kısa
+    // bir yumuşatma yapılır ki 60 Hz çizimde 120 Hz fiziğin basamakları görünmesin.
+    // Tüm açılar kamuya açık sınıf değerleridir; işaretler fizikle aynıdır.
+    const k = 1 - Math.exp(-Math.max(dt, 0) / 0.035);
+    const sm = this._sm || (this._sm = { e: elevator, a: aileron, r: rudder, lef, fl: flaperon, toe: toeIn });
+    if (dt > 0) {
+      sm.e += (elevator - sm.e) * k; sm.a += (aileron - sm.a) * k; sm.r += (rudder - sm.r) * k;
+      sm.lef += (lef - sm.lef) * k; sm.fl += (flaperon - sm.fl) * k; sm.toe += (toeIn - sm.toe) * k;
+    } else { sm.e = elevator; sm.a = aileron; sm.r = rudder; sm.lef = lef; sm.fl = flaperon; sm.toe = toeIn; }
+    // Tümüyle hareketli stabilatörler: simetrik yunuslama + diferansiyel yatış payı
+    const stab = -sm.e * 20 * DEG;
+    // Sağa yatış: sağ stabilatörün firar kenarı YUKARI (sağ flaperon gibi), sol aşağı.
+    // (Ölçümle doğrulandı; önceki sürümde diferansiyel ters yöndeydi.)
+    p.stabs.left.rotation.x = stab + sm.a * 8 * DEG;
+    p.stabs.right.rotation.x = stab - sm.a * 8 * DEG;
     const setHinge = (mesh, angle) => { mesh.quaternion.setFromAxisAngle(mesh.userData.axis, angle); };
-    // Sağa yatış: sağ kanatçık yukarı (negatif), sol kanatçık aşağı (pozitif)
-    const ail = aileron * 22 * DEG;
-    setHinge(p.ailerons.right, -ail);
-    setHinge(p.ailerons.left, ail);
-    // Flaperonlar: flap aşağı (her iki tarafta aynı) + yatış karışımı
-    const flapAngle = flaps * 28 * DEG;
-    setHinge(p.flaps.right, flapAngle - aileron * 10 * DEG);
-    setHinge(p.flaps.left, flapAngle + aileron * 10 * DEG);
-    const rud = rudder * 25 * DEG;
-    setHinge(p.rudders.right, -rud);
-    setHinge(p.rudders.left, -rud);
+    // Flaperon: simetrik (pilot flap kolu ya da FCS'nin otomatik programı, büyük olan)
+    // + diferansiyel yatış. Sağa yatış: sağ flaperon yukarı, sol aşağı.
+    const sym = Math.max(flaps, sm.fl) * 30 * DEG;
+    const diff = sm.a * 20 * DEG;
+    setHinge(p.flaperons.right, clamp(sym - diff, -30 * DEG, 35 * DEG));
+    setHinge(p.flaperons.left, clamp(sym + diff, -30 * DEG, 35 * DEG));
+    // Hücum kenarı flapları: AoA ile aşağı (negatif açı = burun kenarı aşağı)
+    const lefA = -sm.lef * 30 * DEG;
+    setHinge(p.lefs.right, lefA);
+    setHinge(p.lefs.left, lefA);
+    // İkiz dümenler: sapma için AYNI yöne, kalkış rotasyonunda / yüksek AoA'da toe-in
+    // (firar kenarları içe). Pozitif açı her iki dümenin firar kenarını +x'e (sağa)
+    // götürür: burnu sağa sapmak için firar kenarları SAĞA döner (ölçümle doğrulandı;
+    // önceki sürümde dümenler ters yöne sapıyordu).
+    const rud = sm.r * 25 * DEG, toe = sm.toe * 14 * DEG;
+    setHinge(p.rudders.right, rud - toe);
+    setHinge(p.rudders.left, rud + toe);
     // İniş takımı ve kapaklar
     this.wheelSpin += (groundSpeed / 0.35) * dt;
     for (const key of ['nose', 'left', 'right']) {
@@ -1010,9 +1254,20 @@ export class F35A {
       if (g.retractAxis === 'x') g.pivot.rotation.x = a; else g.pivot.rotation.z = a;
       g.pivot.visible = gear > 0.001;
       g.wheel.rotation.x = this.wheelSpin * 0.35 / g.radius;
+      // Amortisör: tekerlek, çatal ve piston gövdeye doğru kayar (tekerlek yerde kalır,
+      // gövde aynı miktarda alçalır — bkz. main.js syncAircraft)
+      if (g.slide) {
+        if (!g.slideBase) g.slideBase = g.slide.map((o) => o.position.y);
+        for (let i = 0; i < g.slide.length; i++) g.slide[i].position.y = g.slideBase[i] + gearComp;
+      }
       const doorOpen = Math.min(1, gear * 1.4);
       for (const d of g.doors) d.pivot.rotation.z = d.sign * (Math.PI / 2) * (1 - doorOpen) + d.sign * 0.35 * doorOpen;
     }
+    // Değişken alanlı nozul: rölantide açık, askeri güçte kısılı, AB'de tam açık
+    // (motor modelinin nozul durumu; yoksa gaz kolundan türetilir)
+    const noz = nozzle !== null ? nozzle : Math.max(0, 0.55 * (1 - throttle / 0.6)) + afterburner;
+    const kn = 0.95 + 0.11 * Math.min(1, noz);
+    for (const m of p.nozzleExit) { m.scale.set(kn, kn, 1); m.position.y = this.nozzleY0 * (1 - kn); }
     // Motor parıltısı, nozul ısısı ve art yakıcı
     const mil = Math.max(0, (throttle - 0.55) / 0.45);
     // Ateşleme parlaması: AB seviyesi hızla yükselirken kısa flaş
@@ -1053,8 +1308,10 @@ export class F35A {
     }
     // İniş ışığı: takım açık ve anahtar açıkken
     const ll = this.landingLightsOn && gear > 0.9;
-    this.landingSpot.intensity = ll ? 40 : 0;
-    this.landingSpot.visible = ll;
+        // Spot ışığı HER ZAMAN sahnededir, kapalıyken yoğunluğu 0'dır. Görünürlüğünü
+    // değiştirmek sahnedeki ışık SAYISINI değiştirir ve her aydınlatılan malzemenin
+    // gölgelendiricisini yeniden derletir (telefonda yüzlerce ms takılma).
+this.landingSpot.intensity = ll ? 40 : 0;
     this.landingLens.visible = ll;
   }
 

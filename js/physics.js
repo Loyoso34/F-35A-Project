@@ -75,6 +75,10 @@ export class FlightModel {
     this._uSur = { de: 0, da: 0, dr: 0 };
     this._uZero = { de: 0, da: 0, dr: 0 };
     this._st = {};
+    this._fcsIn = {};
+    this._tx = { V: 0, mach: 0, qbar: 0, thrust: 0, surface: 'runway', agl: 0, pitch: 0, roll: 0, groundY: 0 };
+    this.debug = {};
+    this.telemetry = {};
 
     this.wind = { dirDeg: 110, kt: 9, gustKt: 4, shear: 0.22 };
     this.groundY = 0;
@@ -86,7 +90,7 @@ export class FlightModel {
   get engine() { return this.engine_.n; }
   set engine(v) { this.engine_.n = v; }
   get abLevel() { return this.engine_.ab; }
-  set abLevel(v) { this.engine_.ab = v; }
+  set abLevel(v) { this.engine_.ab = v; this.engine_.abLin = v; }
 
   reset(pose) {
     if (pose) this.spawn = pose;
@@ -104,6 +108,8 @@ export class FlightModel {
     this.gearCmd = 1; this.gearPos = 1;
     this.flapIndex = 0; this.flapsCmd = 0; this.flapsPos = 0; this.slatsPos = 0;
     this.spoilerCmd = 0; this.spoilerPos = 0; this.reverseCmd = 0; this.reversePos = 0;
+    this.lefPos = 0; this.tefPos = 0; this.toeIn = 0;
+    this.gearComp = 0.07; this._gcv = 0;
     this.brakes = false; this.fuel = this.D.fuel;
     this.crashed = false; this.crashReason = ''; this.onGround = true; this.wasOnGround = true;
     this.time = 0; this._nz = 1; this._buffet = 0;
@@ -219,6 +225,36 @@ export class FlightModel {
     }
     const aAbs = Math.abs(alpha);
 
+    // Uçuş yolu açısı (yere göre): FCS'nin bırakılan çubukta yolu tutması için
+    const Vg = vel.length();
+    const gamma = Vg > 1 ? Math.asin(clamp(vel.y / Vg, -1, 1)) : 0;
+
+    // ---------------- Otomatik flap programı (F-35: LEF + flaperon) ----------------
+    // Pilotun flap kolundan bağımsız olarak FCS hücum kenarı flaplarını ve flaperonları
+    // AoA, Mach ve takım konumuna göre programlar. Takım indirilmiş ve yavaşken
+    // flaperonlar kalkış/iniş konumuna sarkar; manevrada AoA ile hücum kenarı iner.
+    // Ses üstünde ikisi de toplanır. Eyleyici hız sınırlı: ani sıçrama yok.
+    const AF = SYS.autoFlaps;
+    if (AF) {
+      const supFade = 1 - smoothstep(0.85, 1.05, mach);
+      let lefT = smoothstep(AF.lefA0, AF.lefA1, aAbs) * supFade;
+      if (this.onGround) lefT = Math.max(lefT, AF.lefGround);
+      const lowSpeed = (1 - smoothstep(AF.tefV0, AF.tefV1, V)) * this.gearPos;
+      const tefT = Math.max(AF.tefLow * lowSpeed, AF.tefManeuver * smoothstep(AF.tefA0, AF.tefA1, aAbs) * supFade);
+      const rate = AF.rate * dt;
+      this.lefPos += clamp(lefT - this.lefPos, -rate, rate);
+      this.tefPos += clamp(tefT - this.tefPos, -rate, rate);
+      // Dümen toe-in: kalkış koşusunda ve rotasyonda dümenler içe döner (burun yukarı
+      // moment yardımı); yüksek AoA'da da kısmen. Görseldir, kuvveti rotasyon
+      // yetkisinin içinde zaten vardır.
+      const toeT = this.onGround
+        ? smoothstep(AF.toeV0, AF.toeV1, V) * (0.35 + 0.65 * Math.max(0, this.stick.pitch))
+        : 0.6 * smoothstep(AF.toeA0, AF.toeA1, aAbs);
+      this.toeIn += clamp(toeT - this.toeIn, -rate, rate);
+    }
+    // Aerodinamiğin gördüğü flap: pilot kolu ile otomatik flaperon programının büyüğü
+    const flapsEff = Math.max(this.flapsPos, this.tefPos);
+
     const p = rb.p, q = rb.q, r = rb.r;
     // Normalize oranlar: payda GÜVENLİ referans hızla sınırlı, böylece p̂ = p·b/(2V)
     // düşük hızda patlamaz. Sönüm momentleri ayrıca qbar ile çarpıldığından hız
@@ -241,7 +277,8 @@ export class FlightModel {
     const st = this._st;
     st.alpha = alpha; st.beta = beta; st.phat = phat; st.qhat = qhat; st.rhat = rhat;
     st.mach = mach; st.sigmaGE = sigmaGE;
-    st.flaps = this.flapsPos; st.slats = this.slatsPos; st.gear = this.gearPos; st.spoilers = this.spoilerPos;
+    st.flaps = flapsEff; st.slats = this.slatsPos; st.gear = this.gearPos; st.spoilers = this.spoilerPos;
+    st.lef = this.lefPos;
     st.dLeft = -dLocal; st.dRight = dLocal;
 
     // ---------------- FCS ----------------
@@ -253,18 +290,19 @@ export class FlightModel {
     const Mgyro = (D.Izz - D.Ixx) * r * p + Ixz * (r * r - p * p);
     const Ngyro = (D.Ixx - D.Iyy) * p * q - Ixz * q * r;
 
-    const CLmaxCfg = clMaxConfig(D, this.flapsPos, this.slatsPos);
-    const alphaTrim = alphaForCL(D, m * G / Math.max(qS, 1), this.flapsPos, this.slatsPos);
+    const CLmaxCfg = clMaxConfig(D, flapsEff, this.slatsPos);
+    const alphaTrim = alphaForCL(D, m * G / Math.max(qS, 1), flapsEff, this.slatsPos);
 
     let sur = this.fcs.sur;
     if (!this.onGround) {
-      sur = this.fcs.update(dt, this.stick, {
-        alpha, beta, V, qbar, mach, p, q, r, nz: this._nz, phi: roll, theta: pitch,
-        CLmaxCfg, mass: m, alphaTrim,
-        Maero: qS * D.chord * c0.Cm, Laero: qS * D.span * c0.Cl, Naero: qS * D.span * c0.Cn,
-        Mgyro, Lgyro, Ngyro,
-        sepFrac: c0.sepFrac, tailEff: c0.tailEff, tailEff1: 1,
-      });
+      const fi = this._fcsIn;   // yeniden kullanılan giriş nesnesi
+      fi.alpha = alpha; fi.beta = beta; fi.V = V; fi.qbar = qbar; fi.mach = mach; fi.p = p; fi.q = q; fi.r = r;
+      fi.nz = this._nz; fi.phi = roll; fi.theta = pitch; fi.gamma = gamma;
+      fi.CLmaxCfg = CLmaxCfg; fi.mass = m; fi.alphaTrim = alphaTrim;
+      fi.Maero = qS * D.chord * c0.Cm; fi.Laero = qS * D.span * c0.Cl; fi.Naero = qS * D.span * c0.Cn;
+      fi.Mgyro = Mgyro; fi.Lgyro = Lgyro; fi.Ngyro = Ngyro;
+      fi.sepFrac = c0.sepFrac; fi.tailEff = c0.tailEff; fi.tailEff1 = 1;
+      sur = this.fcs.update(dt, this.stick, fi);
     }
 
     // ---------------- Aerodinamik (yüzeyler dahil) ----------------
@@ -297,6 +335,7 @@ export class FlightModel {
     const clearance = this.requiredClearance(pitch, roll);
     const agl = pos.y - groundY;
     let onGround = false;
+    let Nload = 0, touchSink = 0;
     if (agl <= clearance + 0.01) {
       onGround = true;
       const paved = surface === 'runway' || surface === 'taxiway' || surface === 'apron';
@@ -318,6 +357,8 @@ export class FlightModel {
       if (vel.y < 0) vel.y = 0;
       pos.y = groundY + clearance;
       const N = Math.max(0, m * G - L * Math.cos(pitch));
+      Nload = N;
+      if (!this.wasOnGround) touchSink = Math.max(0, -vy);
       const rollMu = paved ? GND.rollMu[0] : GND.rollMu[1];
       const brakeMu = this.brakes ? (paved ? GND.brakeMu[0] : GND.brakeMu[1]) : 0;
       const lateralKill = 1 - Math.exp(-dt * 12);
@@ -345,6 +386,19 @@ export class FlightModel {
       F.y = Math.max(F.y, 0);
     }
     this.onGround = onGround;
+
+    // ---------------- Amortisör (YALNIZCA görsel) ----------------
+    // Yer teması kinematiktir (sekme ya da piste gömülme olmaz); burada yalnızca
+    // amortisörün görünür sıkışması hesaplanır: ağırlık tekerdeyken statik sıkışma
+    // (taşıma arttıkça azalır) + teker koyarken alçalma hızıyla tetiklenen sönümlü yay.
+    {
+      const target = onGround && this.gearPos > 0.98 ? 0.07 * clamp(Nload / (m * G), 0, 1.6) : 0;
+      if (touchSink > 0) this._gcv += touchSink * 0.55;
+      const acc = 400 * (target - this.gearComp) - 22 * this._gcv;
+      this._gcv += acc * dt;
+      this.gearComp = clamp(this.gearComp + this._gcv * dt, 0, 0.22);
+      if (this.gearComp <= 0 && this._gcv < 0) this._gcv = 0;
+    }
 
     // ---------------- Doğrusal entegrasyon ----------------
     rb.integrateLinear(F, m, dt);
@@ -399,16 +453,18 @@ export class FlightModel {
     this.surfaces.aileron = sur.da;
     this.surfaces.rudder = -sur.dr;
 
-    this.debug = {
-      CL: c.CL, CD: c.CD, CY: c.CY, Cl: c.Cl, Cm: c.Cm, Cn: c.Cn,
-      Lift: L, Drag: Dr, Side: Yf, Lm: Ltot, Mm: Mtot, Nm: Ntot,
-      Lgyro, Mgyro, Ngyro, qbar, thrust, mass: m,
-      de: sur.de, da: sur.da, dr: sur.dr,
-      sepFrac: c.sepFrac, tailEff: c.tailEff, CLmaxCfg, alphaTrim,
-      fcs: this.fcs.dbg, rateClamped: rb.rateClamped,
-    };
-    this.updateTelemetry(atm, alpha, beta, nz, this.fcs.dbg.auth || 0,
-      { V, mach, qbar, thrust, surface, agl, pitch, roll, groundY });
+    // Hata ayıklama ve telemetri nesneleri YERİNDE güncellenir (120 Hz'de tahsis yok)
+    const d = this.debug;
+    d.CL = c.CL; d.CD = c.CD; d.CY = c.CY; d.Cl = c.Cl; d.Cm = c.Cm; d.Cn = c.Cn;
+    d.Lift = L; d.Drag = Dr; d.Side = Yf; d.Lm = Ltot; d.Mm = Mtot; d.Nm = Ntot;
+    d.Lgyro = Lgyro; d.Mgyro = Mgyro; d.Ngyro = Ngyro; d.qbar = qbar; d.thrust = thrust; d.mass = m;
+    d.de = sur.de; d.da = sur.da; d.dr = sur.dr;
+    d.sepFrac = c.sepFrac; d.tailEff = c.tailEff; d.CLmaxCfg = CLmaxCfg; d.alphaTrim = alphaTrim;
+    d.fcs = this.fcs.dbg; d.rateClamped = rb.rateClamped;
+    const tx = this._tx;
+    tx.V = V; tx.mach = mach; tx.qbar = qbar; tx.thrust = thrust; tx.surface = surface;
+    tx.agl = agl; tx.pitch = pitch; tx.roll = roll; tx.groundY = groundY;
+    this.updateTelemetry(atm, alpha, beta, nz, this.fcs.dbg.auth || 0, tx);
   }
 
   // Yerde: kinematik teker modeli (burun tekeri dümeni, yatış sıfır, rotasyon hız gerektirir)
@@ -457,30 +513,32 @@ export class FlightModel {
     const groundY = extra.groundY !== undefined ? extra.groundY : this.world.heightAt(this.pos.x, this.pos.z);
     const aAbs = Math.abs(alpha);
     const D = this.D;
-    this.telemetry = {
-      tas: V, kias: V * Math.sqrt(atm.rho / RHO0) * KT, ktas: V * KT,
-      mach: extra.mach !== undefined ? extra.mach : V / atm.a,
-      altFt: this.pos.y * FT, aglFt: (this.pos.y - groundY) * FT,
-      vsFpm: this.vel.y * FT * 60,
-      heading,
-      pitch: (extra.pitch !== undefined ? extra.pitch : Math.asin(clamp(fwd.y, -1, 1))) / DEG,
-      roll: (extra.roll !== undefined ? extra.roll : Math.atan2(-right.y, up.y)) / DEG,
-      alpha: alpha / DEG, beta: beta / DEG, g: nz,
-      p: this.rates.p / DEG, q: this.rates.q / DEG, r: this.rates.r / DEG,
-      qbar: extra.qbar || 0,
-      throttle: this.throttle, engine: this.engine_.n, ab: this.engine_.ab,
-      gear: this.gearPos, gearCmd: this.gearCmd, flaps: this.flapsPos, flapsCmd: this.flapsCmd, brakes: this.brakes,
-      slats: this.slatsPos, spoilers: this.spoilerPos, reverse: this.reversePos, flapLabel: this.flapLabel,
-      onGround: this.onGround,
-      stallWarn: !this.onGround && aAbs > this.lim.alphaWarn && V > 20,
-      stall: !this.onGround && aAbs > D.stallA1 && V > 15,
-      buffet: this._buffet || 0,
-      fuelKg: this.fuel, surface: extra.surface || 'runway', thrustKN: (extra.thrust || 0) / 1000,
-      gsKt: this.vel.length() * KT,
-      windDeg: this.wind.kt > 0 ? Math.round(((this.wind.dirDeg % 360) + 360) % 360) : 0,
-      windKt: this.wind.kt,
-      xwindKt: this.wind.kt * Math.sin((((this.wind.dirDeg - heading) % 360) + 360) % 360 * DEG),
-      authority,
-    };
+    // Aynı nesne yerinde güncellenir: tüketiciler (HUD, ses, testler) her zaman
+    // güncel değeri okur, fizik döngüsü çöp üretmez.
+    const t = this.telemetry;
+    t.tas = V; t.kias = V * Math.sqrt(atm.rho / RHO0) * KT; t.ktas = V * KT;
+    t.mach = extra.mach !== undefined ? extra.mach : V / atm.a;
+    t.altFt = this.pos.y * FT; t.aglFt = (this.pos.y - groundY) * FT;
+    t.vsFpm = this.vel.y * FT * 60;
+    t.heading = heading;
+    t.pitch = (extra.pitch !== undefined ? extra.pitch : Math.asin(clamp(fwd.y, -1, 1))) / DEG;
+    t.roll = (extra.roll !== undefined ? extra.roll : Math.atan2(-right.y, up.y)) / DEG;
+    t.alpha = alpha / DEG; t.beta = beta / DEG; t.g = nz;
+    t.p = this.rates.p / DEG; t.q = this.rates.q / DEG; t.r = this.rates.r / DEG;
+    t.qbar = extra.qbar || 0;
+    t.throttle = this.throttle; t.engine = this.engine_.n; t.ab = this.engine_.ab;
+    t.gear = this.gearPos; t.gearCmd = this.gearCmd; t.flaps = this.flapsPos; t.flapsCmd = this.flapsCmd; t.brakes = this.brakes;
+    t.slats = this.slatsPos; t.spoilers = this.spoilerPos; t.reverse = this.reversePos; t.flapLabel = this.flapLabel;
+    t.lef = this.lefPos; t.flaperon = this.tefPos;
+    t.onGround = this.onGround;
+    t.stallWarn = !this.onGround && aAbs > this.lim.alphaWarn && V > 20;
+    t.stall = !this.onGround && aAbs > D.stallA1 && V > 15;
+    t.buffet = this._buffet || 0;
+    t.fuelKg = this.fuel; t.surface = extra.surface || 'runway'; t.thrustKN = (extra.thrust || 0) / 1000;
+    t.gsKt = this.vel.length() * KT;
+    t.windDeg = this.wind.kt > 0 ? Math.round(((this.wind.dirDeg % 360) + 360) % 360) : 0;
+    t.windKt = this.wind.kt;
+    t.xwindKt = this.wind.kt * Math.sin((((this.wind.dirDeg - heading) % 360) + 360) % 360 * DEG);
+    t.authority = authority;
   }
 }

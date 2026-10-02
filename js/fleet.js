@@ -42,7 +42,18 @@ const F35_CFG = {
   // flapNames kol üstündeki kademe adı, flapNotes ise altındaki açıklamadır (İngilizce).
   // F-35'in kanat yüzeyi açıları kamuya açık değildir; derece yazmak yerine kademe adı
   // kullanılır (uydurma sayı verilmez).
-  systems: { flapDetents: [0, 1], flapNames: ['UP', 'LAND'], flapNotes: ['CLEAN', 'LDG'], flapRate: 1 / 3, slatLead: 0, gearRate: 1 / 6, spoilers: null, reverse: 0 },
+  systems: {
+    flapDetents: [0, 1], flapNames: ['UP', 'LAND'], flapNotes: ['CLEAN', 'LDG'], flapRate: 1 / 3, slatLead: 0, gearRate: 1 / 6, spoilers: null, reverse: 0,
+    // FCS'nin otomatik flap programı (kamuya açık davranış: F-35 LEF ve flaperonları
+    // AoA/Mach/takım konumuna göre kendisi ayarlar). Değerler 0..1, görsel açılar aircraft.js'te.
+    autoFlaps: {
+      lefA0: 3 * DEG, lefA1: 24 * DEG, lefGround: 0.25,           // hücum kenarı flapı
+      tefV0: 82, tefV1: 118, tefLow: 0.7,                         // takım aşağı + yavaş: kalkış/iniş flaperonu
+      tefA0: 8 * DEG, tefA1: 20 * DEG, tefManeuver: 0.22,         // manevra kamburluğu
+      toeV0: 30, toeV1: 60, toeA0: 22 * DEG, toeA1: 38 * DEG,     // dümen toe-in
+      rate: 1.4,                                                  // tam aralık/s
+    },
+  },
   cameras: {
     cockpitEye: [F35.pilotEye.x, F35.pilotEye.y, F35.pilotEye.z], cockpitFov: 58, cockpitNear: 0.10, cockpitPitch: -4 * DEG,
     chase: { dist: [21, 30], vRef: 320, up: 2.8, ahead: 70, lookUp: 1.5, fov: 58 },

@@ -49,13 +49,16 @@ export const F35A_AERO = {
   CmHiAlpha: 0.085,                       // [T] toparlanmaya yardım eden burun aşağı moment
 
   // --- Sürükleme ---
-  CD0: 0.0165,                       // [E] temiz, iç taşımalı stealth savaş uçağı
+  CD0: 0.0190,                       // [E] temiz, iç taşımalı stealth savaş uçağı. 0.0165 rölantide
+                                     //     480 kt'tan yalnızca ~1,5 kt/s yavaşlatıyordu (gerçekçi değil)
   e: 0.78, eFlaps: 0.72,             // [E] Oswald verimi
   CDgear: 0.024,                     // [E]
   CDflaps: 0.018, CLflaps: 0.42,     // [E] flaperon iniş konumu
+  CLlef: 0.06, CDlef: 0.004,         // [E] hücum kenarı flapı (tam sapma): küçük taşıma ve sürükleme artışı
   CDspoiler: 0, CLspoiler: 0, CLslats: 0,
   CDsep: 1.35,                       // [T] ayrılmış akış sürüklemesi (düz plaka yaklaşımı)
-  CDwave: 0.047,                     // [E] transonik dalga sürüklemesi tepe değeri
+  CDwave: 0.0443,                    // [E] transonik dalga sürüklemesi tepe değeri; CD0 artışı kadar
+                                     //     azaltıldı: M 1.6'daki toplam (≈0.060) ve azami hız değişmez
   CDbeta: 0.55,                      // [E] kayma açısı sürüklemesi
   CDde: 0.012, CDda: 0.006, CDdr: 0.010,   // [E] kontrol yüzeyi sapma sürüklemesi
   groundLift: 0.10,                  // [E] yer etkisi taşıma artışı
@@ -92,10 +95,16 @@ export const F35A_AERO = {
   // --- Motor: Pratt & Whitney F135-PW-100 ---
   thrustMil: 124500,                 // N  [V] 28 000 lbf
   thrustAB: 191300,                  // N  [V] 43 000 lbf
-  idleFrac: 0.055,                   // [E] rölanti itkisi / askeri itki
+  idleFrac: 0.055,                   // [E] rölanti itkisi / askeri itki (statik)
+  idleRamDrag: 1.45,                 // [E] rölantide ram sürüklemesi: net rölanti itkisi Mach ile düşer,
+                                     //     ~M 0.7'de sıfıra iner (brüt itki ≈ giriş momentum kaybı)
   thrustRhoExp: 0.85,                // [E] yoğunluk üssü
   ramA: -0.28, ramB: 0.42,           // [E] 1 - 0.28M + 0.42M² ram eğrisi
-  spoolUp: 4.0, spoolDown: 2.2, spoolIdleLag: 0.6, abSpool: 0.7,   // s [T]
+  inletM0: 1.3, inletLoss: 0.55,     // [E] DSI alığı: M 1.3 üstünde basınç geri kazanımı kaybı
+                                     //     (ram × (1 − 0.55·(M−1.3)²)); azami hızı kamuya açık M 1.6'ya oturtur
+  spoolUp: 3.3, spoolDown: 2.2, spoolIdleLag: 0.6, abSpool: 0.7,   // s [T] rölanti->askeri ≈ 4,5 s
+  abLightOff: 0.22,                  // s [E] art yakıcı tutuşma gecikmesi (ateşleme + yakıt manifoldu dolumu)
+  abRamp: 1.5, abCut: 0.35,          // s [E] tutuşmadan tam AB'ye kademeli artış / kesmede sönme
   sfcMil: 2.30, sfcAB: 8.20,         // kg/s [E]
   thrustZ: 0.0,                      // m, itki ekseninin CG'ye göre düşey ofseti [E]
 

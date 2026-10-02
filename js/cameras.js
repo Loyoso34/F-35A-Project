@@ -229,16 +229,28 @@ export class CameraRig {
       return;
     }
 
-    // Takip kamerası: uçağın gerisinde, ufka göre seviyeli (görüş ekseni ileriye bakar)
+    // Takip kamerası: uçağın gerisinde, uçağa göre SABİT bir ofsette durur; yalnızca
+    // ofsetin YÖNÜ kısa bir zaman sabitiyle (≈0,12 s) gövde yönelimini izler.
+    // Eskiden dünya konumu 5/s oranıyla izleniyordu: konum gecikmesi hızla doğru
+    // orantılı büyüdüğünden 250 m/s'de kamera hedefinin ~50 m gerisinde kalıyor,
+    // sert dönüşte dışa savruluyor ve uçak ekran merkezinden kayıyordu. Şimdi uçak
+    // her hızda aynı yerde görünür, sert manevrada yalnızca birkaç derece kayar ve
+    // geri gelir. Üstel yaklaşım kare hızından bağımsızdır.
     const speed = fm.vel.length();
     const ch = C.chase;
     const dist = ch.dist[0] + Math.min(speed / ch.vRef, 1) * (ch.dist[1] - ch.dist[0]);
-    const desired = this._v2.copy(pos).addScaledVector(fwd, -dist).addScaledVector(up, ch.up);
-    if (!this.initialized) { this.pos.copy(desired); this.initialized = true; }
-    this.pos.lerp(desired, 1 - Math.exp(-dt * 5));
+    const desired = this._v2.copy(fwd).multiplyScalar(-dist).addScaledVector(up, ch.up);
+    const off = this.chaseOff || (this.chaseOff = new THREE.Vector3());
+    const cup = this.chaseUp || (this.chaseUp = new THREE.Vector3(0, 1, 0));
+    const upT = this._ax.set(0, 1, 0).lerp(up, 0.4).normalize();
+    if (!this.initialized) { off.copy(desired); cup.copy(upT); this.initialized = true; }
+    const k = 1 - Math.exp(-dt / (ch.lag || 0.12));
+    off.lerp(desired, k).setLength(desired.length());
+    cup.lerp(upT, k).normalize();
+    this.pos.copy(pos).add(off);
     cam.position.copy(this.pos);
     if (buffet > 0.01) cam.position.addScaledVector(up, Math.sin(t * 57) * Math.sin(t * 19) * 0.08 * buffet * shake).addScaledVector(this._right.set(1, 0, 0).applyQuaternion(quat), Math.sin(t * 47 + 2) * 0.06 * buffet * shake);
-    cam.up.set(0, 1, 0).lerp(up, 0.4).normalize();
+    cam.up.copy(cup);
     this.look.copy(pos).addScaledVector(fwd, ch.ahead).addScaledVector(up, ch.lookUp);
     cam.lookAt(this.look);
   }

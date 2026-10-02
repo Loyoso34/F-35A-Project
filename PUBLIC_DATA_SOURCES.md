@@ -67,7 +67,7 @@ behaviour* statements.
 | K_p (potential-flow term) | 3.25 | **[E]** | Low-aspect-ratio lifting-line: CL_α = πAR/(1+√(1+(AR/2)²)) = π·2.68/(1+√(1+1.796)) = 3.15 /rad, plus a small body/chine contribution. |
 | K_v (vortex-lift term) | 2.60 | **[T]** | Chosen so CL_max ≈ 2.0 occurs near 40° AoA, which reproduces the publicly demonstrated ability to fly controlled at very high AoA (~50°) and at low speed. |
 | Vortex breakdown | begins ~42°, complete ~75° | **[T]** | Models the loss of vortex lift at extreme AoA. Chosen so CL decays smoothly instead of collapsing. |
-| CD0 (clean) | 0.0165 | **[E]** | Typical clean parasite drag for a stealth fighter with internal carriage; consistent with the published subsonic combat radius class. |
+| CD0 (clean) | 0.0190 | **[E]** | Clean parasite drag for a stealth fighter with internal carriage (open conceptual-design estimates for the F-35 class are ~0.019–0.025). The earlier 0.0165 gave an idle deceleration of only ~1.5 kt/s from 480 kt at low level. |
 | Oswald efficiency e | 0.78 | **[E]** | Typical for a low-AR fighter planform. |
 | Wave drag rise | starts M 0.92, peaks M 1.12 | **[E]** | Standard transonic drag-rise shape. Magnitude tuned so level-flight maximum is ≈ M 1.6 at altitude, matching the published maximum speed. |
 | Max speed | Mach 1.6 | **[V]** | USAF F-35A fact sheet. Used as the *target* the drag model must reproduce, not as a hard limit in code. |
@@ -77,7 +77,7 @@ behaviour* statements.
 | Lateral/directional derivatives | see `js/aerodata.js` | **[E]/[T]** | Conventional fighter values with AoA scheduling. C_nβ is reduced but **kept positive** at high AoA, reflecting the F-35's canted vertical tails, which retain directional stability where a conventional tail would not. |
 | Roll damping C_lp (total) | −0.363 | **[E]** | Not a single typed constant. The wing's share is produced by a **strip model**: at roll rate *p* the down-going wing sees local Δα = +p·(0.32b)/V and the up-going wing −Δα, and each half-wing's CL is evaluated on the *same* lift curve. In the linear region this yields C_lp(wing) = −k·1.28·K_p = −0.28 with k = 0.068. A residual −0.080 covers fuselage and tail. |
 | C_ldr (roll due to rudder) | −0.012 | **[E]** | The vertical tails act above the CG, so rudder deflection produces a small roll in the same direction as the yaw it commands. |
-| Wave-drag magnitude C_Dwave | 0.047 | **[E]** | Solved from the thrust/drag equilibrium at the published maximum speed rather than guessed: at 36 000 ft and M 1.6, q̄·S ≈ 1.73 MN and installed AB thrust ≈ 110 kN, so CD0(supersonic) must be ≈ 0.062. The model reaches M 1.57 at 36 000–40 000 ft. |
+| Wave-drag magnitude C_Dwave | 0.0443 | **[E]** | Solved from the thrust/drag equilibrium at the published maximum speed rather than guessed: at 36 000 ft and M 1.6, q̄·S ≈ 1.73 MN and installed AB thrust ≈ 110 kN, so CD0(supersonic) must be ≈ 0.062. The model reaches M 1.57 at 36 000–40 000 ft. Reduced from 0.047 when CD0 was raised so that the supersonic total (CD0 + wave ≈ 0.060 at M 1.6) is unchanged. |
 
 ### Emergent stall, wing drop and autorotation
 
@@ -121,8 +121,10 @@ frame, not because a number was typed in.
 | Maximum (afterburning) thrust | 191.3 kN (43 000 lbf) | **[V]** | Pratt & Whitney F135 public specification. |
 | Thrust lapse with density | (ρ/ρ₀)^0.85 | **[E]** | Standard turbofan lapse exponent for a low-bypass military engine. |
 | Ram effect with Mach | 1 − 0.28M + 0.42M² | **[E]** | Standard shape for a low-bypass afterburning turbofan: net thrust dips slightly around M 0.3 then rises with ram recovery. Fitted so full-AB thrust at M 1.6 is ≈ 1.44 × the static value. |
-| Spool time, idle → military | ≈ 4 s | **[T]** | No public F135 spool schedule exists. Chosen as typical for a large military turbofan. |
-| Afterburner light-off | ≈ 0.7 s | **[T]** | Typical; no public figure. |
+| Supersonic inlet recovery loss | ram × (1 − 0.55 (M − 1.3)²) above M 1.3 | **[E]** | The F-35 uses a fixed-geometry diverterless (DSI) inlet, whose pressure recovery falls off with shock losses at higher supersonic Mach. Without this term the ram-recovery curve kept thrust growing faster than drag and the model crept to M 1.74 in a long full-AB run; with it the equilibrium is M 1.59–1.60 at 36 000 ft, matching the published M 1.6. Subsonic thrust is unchanged. |
+| Spool time, idle → military | ≈ 4.5 s to 90 % | **[T]** | No public F135 spool schedule exists. Chosen as typical for a large military turbofan. |
+| Idle ram drag | net idle thrust × (1 − 1.45 M) | **[E]** | At idle the engine's gross thrust barely exceeds its inlet momentum drag, so net idle thrust falls with flight speed and reaches ~0 around M 0.7. Static idle thrust (and therefore ground behaviour) is unchanged. |
+| Afterburner light-off | 0.22 s delay, then ≈ 1.5 s staged rise; ≈ 0.35 s cut | **[E]** | Typical for an augmented turbofan: ignition and manifold fill, then zone-by-zone light-up. No public F135 figure. The rise follows an S-curve, so thrust (and the plume) never switch on like a binary light. |
 
 **Note on thrust figures.** Public sources sometimes quote the F135 by *thrust
 class* rather than an exact installed number, and installed thrust differs from

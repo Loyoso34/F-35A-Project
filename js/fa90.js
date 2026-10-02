@@ -650,6 +650,13 @@ export class FA90Vesper {
     canopy.renderOrder = 4;
     g.add(canopy);
     this.parts.canopy = canopy;
+    // Kokpit görünümünde kanopi malzemesi değişir. Ön derleme (main.js precompile)
+    // yalnızca sahnedeki malzemeleri görür; iç malzemenin programı da yükleme
+    // ekranında derlensin diye hiç çizilmeyen bir vekil ağ eklenir.
+    const canopyProxy = new THREE.Mesh(canopy.geometry, this.m.canopyInside);
+    canopyProxy.visible = false;
+    canopyProxy.renderOrder = canopy.renderOrder;
+    this.group.add(canopyProxy);
     // Kanopi çerçevesi: yalnızca ön kemer ve arka derz — Airbus tipi direk yok,
     // tek parça dökme cam izlenimi için kenarlar ince tutuldu.
     const frameMat = this.track(new THREE.MeshStandardMaterial({ color: 0x23262a, roughness: 0.5, metalness: 0.4 }));
@@ -1448,10 +1455,14 @@ export class FA90Vesper {
     const spot = new THREE.SpotLight(0xfff2dc, 0, 460, 24 * DEG, 0.45, 0.6);
     spot.castShadow = false;
     const noseGear = this.parts.gear.nose.pivot;
-    spot.position.set(0, -0.50, -0.14);
+    // Işık burun takımının (indirilmiş) konumuna yerleştirilir ama gövde grubuna
+    // bağlanır: takım içeri alınınca pivot GİZLENİR ve ona bağlı bir ışık sahnenin
+    // ışık sayısını değiştirip tüm gölgelendiricileri yeniden derletirdi.
+    noseGear.updateMatrix();
+    spot.position.set(0, -0.50, -0.14).applyMatrix4(noseGear.matrix);
     const target = new THREE.Object3D();
-    target.position.set(0, -6.0, -40);
-    noseGear.add(spot); noseGear.add(target);
+    target.position.set(0, -6.0, -40).applyMatrix4(noseGear.matrix);
+    this.group.add(spot); this.group.add(target);
     spot.target = target;
     this.landingSpot = spot;
     this.landingLens = new THREE.Sprite(this.track(new THREE.SpriteMaterial({ map: glowTex, color: 0xfff4e0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
@@ -1568,8 +1579,10 @@ export class FA90Vesper {
       g.userData.sprite.scale.setScalar(g.userData.size * far * (k.startsWith('nav') ? pulse : 1));
     }
     const ll = this.landingLightsOn && gear > 0.9;
-    this.landingSpot.intensity = ll ? 42 : 0;
-    this.landingSpot.visible = ll;
+        // Spot ışığı HER ZAMAN sahnededir, kapalıyken yoğunluğu 0'dır. Görünürlüğünü
+    // değiştirmek sahnedeki ışık SAYISINI değiştirir ve her aydınlatılan malzemenin
+    // gölgelendiricisini yeniden derletir (telefonda yüzlerce ms takılma).
+this.landingSpot.intensity = ll ? 42 : 0;
     this.landingLens.visible = ll;
   }
 

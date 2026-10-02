@@ -23,6 +23,24 @@
 import { clamp, smoothstep } from './noise.js';
 
 const DEG = Math.PI / 180;
+const SURF_KEYS = ['de', 'da', 'dr'];
+
+/**
+ * Çubuk serbestken istenen yük faktörü: uçuş yolunu tutan değer.
+ * @param {number} gamma uçuş yolu açısı (rad)
+ * @param {number} phi yatış açısı (rad)
+ */
+export function neutralLoad(gamma, phi) {
+  const ab = Math.abs(phi);
+  // Yatış telafisi 35°'ye kadar tam, 65°'te sıfır; ters uçuşta yok
+  const bank = 1 - smoothstep(35 * DEG, 65 * DEG, ab);
+  const comp = bank / Math.max(0.5, Math.cos(phi)) + (1 - bank);
+  // Yol tutma yalnızca sığ yollarda (seyir, yaklaşma, dönüş). Dik tırmanış ve
+  // dalışta klasik 1 g'ye geçilir: çubuk bırakılan dalıştaki uçak kendiliğinden
+  // yavaşça toparlanır, yere doğru yolunu TUTMAZ.
+  const hold = 1 - smoothstep(15 * DEG, 35 * DEG, Math.abs(gamma));
+  return hold * Math.cos(gamma) * comp + (1 - hold);
+}
 
 export class FCS {
   constructor(D, law) {
@@ -35,7 +53,7 @@ export class FCS {
     this.sf = { pitch: 0, roll: 0, yaw: 0 };   // ön filtreli çubuk
     this.cmd = { de: 0, da: 0, dr: 0 };        // yüzey komutları (-1..1)
     this.sur = { de: 0, da: 0, dr: 0 };        // gerçek yüzey konumları (oran sınırlı)
-    this.dbg = {};
+    this.dbg = { qCmd: 0, pCmd: 0, rCmd: 0, pvCmd: 0, pMax: 0, nTarget: 1, nAvail: 0, aCmd: 0, wG: 0, auth: 0, aFac: 1, over: 0 };
   }
 
   /**
@@ -66,7 +84,14 @@ export class FCS {
     const wG = smoothstep(L.qBlend[0], L.qBlend[1], s.qbar);
 
     // -- g komutu --
-    const nCmd = sp >= 0 ? 1 + sp * (D.gMax - 1) : 1 + sp * (1 - D.gMin);
+    // Bırakılan çubuk sığ yollarda UÇUŞ YOLUNU tutar: eski "nötr = 1 g" komutu
+    // seyirde ve dönüşte yolu yavaşça büküyordu (yatışta irtifa kaybı, hafif
+    // tırmanışta burnun kalkmaya devam etmesi). Yol tutma için gereken yük faktörü
+    // cosγ'dır; orta yatışta (≤35°) irtifa kaybetmemek için 1/cosφ ile telafi edilir.
+    // Dik yatışta, ters uçuşta ve dik tırmanış/dalışta klasik 1 g'ye döner (bkz.
+    // neutralLoad). Yalnızca g kipinde etkilidir; düşük hızdaki AoA kipi trim AoA'yı tutar.
+    const nHold = neutralLoad(s.gamma || 0, s.phi);
+    const nCmd = sp >= 0 ? nHold + sp * (D.gMax - nHold) : nHold + sp * (nHold - D.gMin);
     // Kullanılabilir g: mevcut konfigürasyonun azami taşımasıyla sınırlı
     const nAvail = s.qbar * D.S * s.CLmaxCfg / (s.mass * 9.80665);
     const nTarget = clamp(nCmd, D.gMin, Math.max(0.2, Math.min(D.gMax, nAvail * 0.96)));
@@ -176,15 +201,19 @@ export class FCS {
     // ===================== EYLEYİCİ =====================
     // Sonlu sapma ve SONLU HIZ sınırı: yüzey bir karede 0'dan tam sapmaya atlayamaz.
     const rate = L.surfRate * dt;                // birim/s cinsinden azami hız
-    for (const k of ['de', 'da', 'dr']) {
+    const kAct = (1 - Math.exp(-dt / L.actuator)) * 0.35;
+    for (let i = 0; i < 3; i++) {
+      const k = SURF_KEYS[i];
       const d = this.cmd[k] - this.sur[k];
       this.sur[k] += clamp(d, -rate, rate);
       // İkinci mertebe yumuşatma (eyleyici gecikmesi τ)
-      this.sur[k] += (this.cmd[k] - this.sur[k]) * (1 - Math.exp(-dt / L.actuator)) * 0.35;
+      this.sur[k] += (this.cmd[k] - this.sur[k]) * kAct;
       this.sur[k] = clamp(this.sur[k], -1, 1);
     }
 
-    this.dbg = { qCmd, pCmd, rCmd, pvCmd, pMax, nTarget, nAvail, aCmd, wG, auth, aFac, over };
+    const g = this.dbg;   // yeniden kullanılır: 120 Hz döngüde tahsis yok
+    g.qCmd = qCmd; g.pCmd = pCmd; g.rCmd = rCmd; g.pvCmd = pvCmd; g.pMax = pMax; g.nTarget = nTarget;
+    g.nAvail = nAvail; g.aCmd = aCmd; g.wG = wG; g.auth = auth; g.aFac = aFac; g.over = over;
     return this.sur;
   }
 }

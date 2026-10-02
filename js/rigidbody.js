@@ -77,7 +77,7 @@ export class RigidBody {
     }
 
     this.integrateQuaternion(dt);
-    return { pdot, qdot, rdot, Lg, Mg, Ng };
+    this.pdot = pdot; this.qdot = qdot; this.rdot = rdot;
   }
 
   /**
@@ -111,11 +111,12 @@ export class RigidBody {
     right.set(1, 0, 0).applyQuaternion(this.quat);
   }
 
-  /** Telemetri için Euler açıları (fiziğin durumu DEĞİL). */
+  /** Telemetri için Euler açıları (fiziğin durumu DEĞİL). Sonuç nesnesi yeniden kullanılır. */
   eulerFromAxes(fwd, up, right) {
-    const pitch = Math.asin(Math.max(-1, Math.min(1, fwd.y)));
-    const roll = Math.atan2(-right.y, up.y);
-    const heading = Math.atan2(fwd.x, -fwd.z);
-    return { pitch, roll, heading };
+    const e = this._eul || (this._eul = { pitch: 0, roll: 0, heading: 0 });
+    e.pitch = Math.asin(Math.max(-1, Math.min(1, fwd.y)));
+    e.roll = Math.atan2(-right.y, up.y);
+    e.heading = Math.atan2(fwd.x, -fwd.z);
+    return e;
   }
 }

@@ -763,18 +763,23 @@ export class City {
   }
 
   // Yol üzerinde s mesafesindeki konum ve yön
-  samplePath(p, s) {
+  // out verilirse sonuç ona yazılır (kare döngüsünde tahsis yok). hint: aramaya
+  // başlanacak parça indeksi — araçlar yol boyunca ilerlediği için çoğu karede
+  // aynı ya da bir sonraki parçadadır.
+  samplePath(p, s, out = {}, hint = 1) {
     const len = p.len;
     let t = s % len; if (t < 0) t += len;
-    let i = 1;
-    while (i < p.cum.length - 1 && p.cum[i] < t) i++;
+    const last = p.cum.length - 1;
+    let i = Math.min(Math.max(1, hint), last);
+    if (p.cum[i - 1] > t) i = 1;
+    while (i < last && p.cum[i] < t) i++;
     const a = p.pts[i - 1], b = p.pts[i];
     const seg = Math.max(1e-3, p.cum[i] - p.cum[i - 1]);
     const f = (t - p.cum[i - 1]) / seg;
-    return {
-      x: a[0] + (b[0] - a[0]) * f, z: a[1] + (b[1] - a[1]) * f,
-      dx: (b[0] - a[0]) / seg, dz: (b[1] - a[1]) / seg,
-    };
+    out.x = a[0] + (b[0] - a[0]) * f; out.z = a[1] + (b[1] - a[1]) * f;
+    out.dx = (b[0] - a[0]) / seg; out.dz = (b[1] - a[1]) / seg;
+    out.i = i;
+    return out;
   }
 
   // -------------------------------------------------------------------------
@@ -784,22 +789,30 @@ export class City {
     // sokak detayları kapanırdı. Histerezis eşikte açılıp kapanmayı önler.
     const dc = Math.hypot(camPos.x - this.center.x, camPos.y - this.center.y, camPos.z - this.center.z);
     const d = Math.max(0, dc - this.cfg.r * 0.8);
+    const ds = this.distScale || 1;          // uyarlanabilir kalite (1 = tam)
     for (const t of this.tiers) {
-      const on = t.on ? d < t.dist + 400 : d < t.dist - 400;
+      const on = t.on ? d < t.dist * ds + 400 : d < t.dist * ds - 400;
       if (on !== t.on) { t.on = on; for (const m of t.meshes) m.visible = on; }
     }
     // Trafik yalnızca görünürken güncellenir; uzakta hiç işlenmez
     const im = this.trafficMesh;
     if (!im || !im.visible || !this.cars) return;
     const m4 = this._m4, q = this._q, v = this._v, s = this._s;
-    const up = new THREE.Vector3(0, 1, 0);
+    const up = this._up || (this._up = new THREE.Vector3(0, 1, 0));
+    const p = this._sp || (this._sp = {});
+    // Arazi yüksekliği (gürültü değerlendirmesi) her araç için 4 karede bir, araçlar
+    // arasında kaydırılarak hesaplanır: bir arabanın 4 karede aldığı ~1 m'lik yolda
+    // yükseklik santimetreler mertebesinde değişir.
+    const phase = (this._frame = ((this._frame || 0) + 1) & 3);
     for (let i = 0; i < this.cars.length; i++) {
       const c = this.cars[i];
       c.s += c.v * dt;
-      const p = this.samplePath(c.p, c.s);
+      this.samplePath(c.p, c.s, p, c.seg || 1);
+      c.seg = p.i;
       const nx = -p.dz, nz = p.dx;
       const x = p.x + nx * c.lane, z = p.z + nz * c.lane;
-      v.set(x, this.heightAt(x, z) + 0.35, z);
+      if (c.y === undefined || (i & 3) === phase) c.y = this.heightAt(x, z) + 0.35;
+      v.set(x, c.y, z);
       q.setFromAxisAngle(up, Math.atan2(p.dx * Math.sign(c.v), p.dz * Math.sign(c.v)));
       m4.compose(v, q, s);
       im.setMatrixAt(i, m4);
