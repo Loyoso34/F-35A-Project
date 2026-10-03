@@ -1040,7 +1040,7 @@ class App {
     const sf = p.surfaces, A = this._acArgs;
     // Argüman nesnesi her karede yeniden kullanılır (tahsis yok)
     A.elevator = sf.elevator; A.aileron = sf.aileron; A.rudder = sf.rudder;
-    A.lef = p.lefPos || 0; A.flaperon = p.tefPos || 0; A.toeIn = p.toeIn || 0;
+    A.lef = p.lefPos || 0; A.toeIn = p.toeIn || 0;
     A.flaps = p.flapsPos; A.slats = p.slatsPos; A.spoilers = p.spoilerPos; A.gear = p.gearPos;
     A.throttle = p.engine; A.engine = p.engine; A.afterburner = p.abLevel; A.reverse = p.reversePos; A.time = p.time;
     A.nozzle = p.engine_.nozzle !== undefined ? p.engine_.nozzle : p.engine;

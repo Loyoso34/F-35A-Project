@@ -108,7 +108,7 @@ export class FlightModel {
     this.gearCmd = 1; this.gearPos = 1;
     this.flapIndex = 0; this.flapsCmd = 0; this.flapsPos = 0; this.slatsPos = 0;
     this.spoilerCmd = 0; this.spoilerPos = 0; this.reverseCmd = 0; this.reversePos = 0;
-    this.lefPos = 0; this.tefPos = 0; this.toeIn = 0;
+    this.lefPos = 0; this.camber = 0; this.toeIn = 0;
     this.gearComp = 0.07; this._gcv = 0;
     this.brakes = false; this.fuel = this.D.fuel;
     this.crashed = false; this.crashReason = ''; this.onGround = true; this.wasOnGround = true;
@@ -229,21 +229,22 @@ export class FlightModel {
     const Vg = vel.length();
     const gamma = Vg > 1 ? Math.asin(clamp(vel.y / Vg, -1, 1)) : 0;
 
-    // ---------------- Otomatik flap programı (F-35: LEF + flaperon) ----------------
-    // Pilotun flap kolundan bağımsız olarak FCS hücum kenarı flaplarını ve flaperonları
-    // AoA, Mach ve takım konumuna göre programlar. Takım indirilmiş ve yavaşken
-    // flaperonlar kalkış/iniş konumuna sarkar; manevrada AoA ile hücum kenarı iner.
-    // Ses üstünde ikisi de toplanır. Eyleyici hız sınırlı: ani sıçrama yok.
+    // ---------------- Otomatik hücum kenarı flapı (F-35 LEF) ----------------
+    // FCS hücum kenarı flaplarını yalnızca AoA ile indirir (ses üstünde toplanır);
+    // seyirde, yerde ve taksi sırasında tamamen kapalıdır. Eyleyici hız sınırlı.
+    // FİRAR KENARI: flaperonun simetrik konumu yalnızca pilotun flap kolundan gelir.
+    // (v2.9.0'da takım aşağı ve yavaşken otomatik %70 sarkma vardı; kol UP iken bile
+    // flaperonlar pistte ~21° aşağıda duruyordu.) Yüksek AoA'daki küçük FCS manevra
+    // kamburluğu (camber, en fazla 0,22) uçuş karakteristiğini korumak için
+    // aerodinamikte kalır; yalnızca havada ve AoA 8°'nin üstünde etkindir.
     const AF = SYS.autoFlaps;
     if (AF) {
       const supFade = 1 - smoothstep(0.85, 1.05, mach);
-      let lefT = smoothstep(AF.lefA0, AF.lefA1, aAbs) * supFade;
-      if (this.onGround) lefT = Math.max(lefT, AF.lefGround);
-      const lowSpeed = (1 - smoothstep(AF.tefV0, AF.tefV1, V)) * this.gearPos;
-      const tefT = Math.max(AF.tefLow * lowSpeed, AF.tefManeuver * smoothstep(AF.tefA0, AF.tefA1, aAbs) * supFade);
+      const lefT = this.onGround ? 0 : smoothstep(AF.lefA0, AF.lefA1, aAbs) * supFade;
       const rate = AF.rate * dt;
       this.lefPos += clamp(lefT - this.lefPos, -rate, rate);
-      this.tefPos += clamp(tefT - this.tefPos, -rate, rate);
+      const camT = this.onGround ? 0 : AF.tefManeuver * smoothstep(AF.tefA0, AF.tefA1, aAbs) * supFade;
+      this.camber += clamp(camT - this.camber, -rate, rate);
       // Dümen toe-in: kalkış koşusunda ve rotasyonda dümenler içe döner (burun yukarı
       // moment yardımı); yüksek AoA'da da kısmen. Görseldir, kuvveti rotasyon
       // yetkisinin içinde zaten vardır.
@@ -252,8 +253,9 @@ export class FlightModel {
         : 0.6 * smoothstep(AF.toeA0, AF.toeA1, aAbs);
       this.toeIn += clamp(toeT - this.toeIn, -rate, rate);
     }
-    // Aerodinamiğin gördüğü flap: pilot kolu ile otomatik flaperon programının büyüğü
-    const flapsEff = Math.max(this.flapsPos, this.tefPos);
+    // Aerodinamiğin gördüğü flap: pilotun flap kolu (görsel flaperon açısı) ile
+    // manevra kamburluğunun büyüğü. Seyirde, yerde ve kalkışta camber = 0.
+    const flapsEff = Math.max(this.flapsPos, this.camber);
 
     const p = rb.p, q = rb.q, r = rb.r;
     // Normalize oranlar: payda GÜVENLİ referans hızla sınırlı, böylece p̂ = p·b/(2V)
@@ -529,7 +531,7 @@ export class FlightModel {
     t.throttle = this.throttle; t.engine = this.engine_.n; t.ab = this.engine_.ab;
     t.gear = this.gearPos; t.gearCmd = this.gearCmd; t.flaps = this.flapsPos; t.flapsCmd = this.flapsCmd; t.brakes = this.brakes;
     t.slats = this.slatsPos; t.spoilers = this.spoilerPos; t.reverse = this.reversePos; t.flapLabel = this.flapLabel;
-    t.lef = this.lefPos; t.flaperon = this.tefPos;
+    t.lef = this.lefPos;
     t.onGround = this.onGround;
     t.stallWarn = !this.onGround && aAbs > this.lim.alphaWarn && V > 20;
     t.stall = !this.onGround && aAbs > D.stallA1 && V > 15;

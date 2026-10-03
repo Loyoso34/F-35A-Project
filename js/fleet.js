@@ -44,12 +44,12 @@ const F35_CFG = {
   // kullanılır (uydurma sayı verilmez).
   systems: {
     flapDetents: [0, 1], flapNames: ['UP', 'LAND'], flapNotes: ['CLEAN', 'LDG'], flapRate: 1 / 3, slatLead: 0, gearRate: 1 / 6, spoilers: null, reverse: 0,
-    // FCS'nin otomatik flap programı (kamuya açık davranış: F-35 LEF ve flaperonları
-    // AoA/Mach/takım konumuna göre kendisi ayarlar). Değerler 0..1, görsel açılar aircraft.js'te.
+    // FCS'nin otomatik hücum kenarı flapı, manevra kamburluğu ve dümen toe-in programı
+    // (0..1; görsel açılar aircraft.js'te). Firar kenarı flaperonlarının simetrik açısı
+    // yalnızca pilotun flap kolundan gelir.
     autoFlaps: {
-      lefA0: 3 * DEG, lefA1: 24 * DEG, lefGround: 0.25,           // hücum kenarı flapı
-      tefV0: 82, tefV1: 118, tefLow: 0.7,                         // takım aşağı + yavaş: kalkış/iniş flaperonu
-      tefA0: 8 * DEG, tefA1: 20 * DEG, tefManeuver: 0.22,         // manevra kamburluğu
+      lefA0: 3 * DEG, lefA1: 24 * DEG,                            // hücum kenarı flapı (yerde kapalı)
+      tefA0: 8 * DEG, tefA1: 20 * DEG, tefManeuver: 0.22,         // manevra kamburluğu (yalnızca aerodinamik)
       toeV0: 30, toeV1: 60, toeA0: 22 * DEG, toeA1: 38 * DEG,     // dümen toe-in
       rate: 1.4,                                                  // tam aralık/s
     },
