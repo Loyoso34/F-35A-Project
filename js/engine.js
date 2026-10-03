@@ -26,9 +26,8 @@ export class Engine {
    * @param {boolean} abRequest art yakıcı isteği
    * @param {object} atm atmosphere() çıktısı
    * @param {number} mach
-   * @param {number} reverse 0..1 (ters itki oranı; yalnızca yolcu uçağında)
    */
-  update(dt, throttle, abRequest, atm, mach, reverse = 0, reverseFrac = 0) {
+  update(dt, throttle, abRequest, atm, mach) {
     const D = this.D;
     // Spool: yukarı çıkarken daha yavaş, düşük N'de ek gecikme (gerçek turbofan davranışı)
     const tau = throttle > this.n
@@ -69,7 +68,6 @@ export class Engine {
     const idleNet = D.idleFrac * Math.max(-0.6, 1 - (D.idleRamDrag || 0) * mach * (1 - this.n));
     let T = Tmil * (idleNet + (1 - D.idleFrac) * this.n);
     if (D.thrustAB > D.thrustMil) T += (D.thrustAB - D.thrustMil) * lapse * this.ab;
-    if (reverse > 0.001 && reverseFrac > 0) T -= Tmil * reverseFrac * reverse * (0.55 + 0.45 * this.n) * 2;
 
     this.thrust = T;
     this.fuelFlow = D.sfcMil * (0.08 + 0.92 * this.n) + D.sfcAB * this.ab;

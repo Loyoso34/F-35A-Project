@@ -60,7 +60,7 @@ export class CameraRig {
     this.distance = 0;
   }
 
-  // Uçak değişince kamera yerleşimleri yeni uçağın yapılandırmasından gelir
+  // Kamera yerleşimleri uçak yapılandırmasından (fleet.js) gelir
   setConfig(cfg) {
     this.cfg = cfg ? cfg.cameras : null;
     if (!this.cfg) return;

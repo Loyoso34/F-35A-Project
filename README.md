@@ -1,8 +1,8 @@
-# FFS — Flight Simulator (F-35A Lightning II, Airbus A321neo & FA-90 Vesper, PWA)
+# FFS — Flight Simulator (F-35A Lightning II, PWA)
 
 iPhone Safari (iOS 17+), Android Chrome ve masaüstü tarayıcılarda çalışan, ana ekrana eklenebilen (PWA) bir uçuş simülatörü. Derleme adımı yoktur; yalnızca statik dosyalardan oluşur ve Three.js CDN üzerinden sabit sürümle yüklenir.
 
-Açılışta **uçak seçim ekranı** gelir: **F-35A Lightning II** (savaş uçağı), **Airbus A321neo** (dar gövdeli yolcu uçağı) ve **FA-90 Vesper** (KURGUSAL 7. nesil hava üstünlüğü savaş uçağı). Her uçağın kendi 3B modeli, kokpiti, uçuş modeli, sistemleri, sesi, arayüzü ve kamera konumları vardır.
+Oyundaki tek uçak **F-35A Lightning II**'dir. Açılışta **hangar** ekranı gelir: kalkış havaalanı ve boya şeması seçilir, F-35A kartına dokununca uçuş başlar.
 
 ## Dosya yapısı
 
@@ -15,16 +15,15 @@ js/main.js              Uygulama girişi, yükleme hattı ve ilerleme, oyun dön
 js/perf.js              Uyarlanabilir kalite: önce ikincil efektler, en son yumuşak adımlarla çözünürlük
 js/world.js             Arazi, gökyüzü, deniz/göller, ormanlar, iki havaalanı, kasabalar, yollar, köprü
 js/city.js              Şehir üreteci: bölgeleme, yol ağı, bina yerleşimi, yeşil alan, detay, trafik, LOD
-js/aircraft.js          Prosedürel F-35A modeli (fasetli alt gövde, silah yuvası kapakları, düz kokpit güvertesi)
-js/a321.js              Prosedürel Airbus A321neo modeli (gövde, kanat, LEAP motorlar, kapılar, A320 kokpiti)
-js/fleet.js             Uçak kayıt defteri: her uçağın aerodinamiği, kontrol kanunu, sistemleri, kamerası, sesi
+js/aircraft.js          Prosedürel F-35A modeli: gövde, kokpit + pilot, kanopi, hacimsel art yakıcı alevi
+js/fleet.js             F-35A yapılandırması: aerodinamik veri, kontrol kanunu, sistemler, kamera, ses
 js/liveries.js          Boya şemaları (livery) — YALNIZCA görsel veri; fizik ve sistemlerle bağı yoktur
 js/physics.js           Uçuş dinamiği düzenleyicisi (120 Hz sabit adım): hava verileri, kuvvet/moment
-                        toplama, yer teması; uçaktan bağımsız, veriyi fleet.js + aerodata.js'ten alır
+                        toplama, yer teması; veriyi fleet.js + aerodata.js'ten alır
 js/rigidbody.js         6-DOF rijit cisim: tam Euler denklemleri (I_xz dahil) + kuaterniyon entegrasyonu
 js/atmosphere.js        ISA atmosfer (yoğunluk, ses hızı, basınç oranları)
 js/aero.js              Aerodinamik katsayı modeli — alpha/beta'nın SÜREKLİ fonksiyonları, stall eşiği yok
-js/aerodata.js          Uçak başına aerodinamik/itki veri setleri + yükleme anında bütünlük denetimi
+js/aerodata.js          F-35A aerodinamik/itki veri seti + yükleme anında bütünlük denetimi
 js/engine.js            Motor modeli: spool dinamiği, irtifa/Mach itki kaybı, art yakıcı
 js/fcs.js               Fly-by-wire kontrol kanunu (genel mimari; gerçek F-35 kanunları gizlidir, modellenmez)
 PUBLIC_DATA_SOURCES.md  Her sayının kaynağı: [V] doğrulanmış kamuya açık / [E] mühendislik yaklaşımı / [T] ayarlanmış
@@ -59,15 +58,8 @@ Free Camera -> Cockpit -> Chase -> Flyby -> Left Wing -> Right Wing -> Landing G
 
 ## Boya şemaları (livery)
 
-Seçim ekranında her uçak için bir satır livery çipi vardır; seçim `localStorage`'a
-yazılır ve sonraki açılışta geri yüklenir.
-
-| F-35A | Airbus A321neo |
-|---|---|
-| USAF Standard | Atlantic Blue |
-| Navy Style | Aurora Teal |
-| Luftwaffe Style | Ember Red |
-| | Slate Charcoal |
+Hangarda bir satır livery çipi vardır: **USAF Standard**, **Navy Style**, **Luftwaffe
+Style**. Seçim `localStorage`'a yazılır ve sonraki açılışta geri yüklenir.
 
 - Tanımlar `js/liveries.js` içinde tek bir veri tablosudur. Yeni bir livery eklemek
   için diziye bir girdi yazmak yeterlidir; arayüz listeyi kendisi üretir.
@@ -75,11 +67,10 @@ yazılır ve sonraki açılışta geri yüklenir.
   işaret/yazı dekalları. Geometri, kütle, atalet, aerodinamik katsayılar, sistemler,
   kamera ve ses hiçbir biçimde etkilenmez — aynı girdiyle 60 s manevra sonunda iki
   farklı livery **birebir aynı** uçuş durumunu verir (test/livphys.mjs).
-- Ek maliyet yoktur: savaş uçağında panel dokusu paylaşılır (renk çarpanıyla
-  tonlanır), yolcu uçağında kaplama dokusu zaten uçak başına üretiliyordu. Üçgen
+- Ek maliyet yoktur: panel dokusu paylaşılır (renk çarpanıyla tonlanır). Üçgen
   sayısı ve çizim çağrısı değişmez.
 - Uçuş sırasında livery değiştirilirse yalnızca görsel model yeniden kurulur;
-  fizik nesnesine dokunulmaz (konum, hız, yönelim, motor, takım/flap/spoyler korunur).
+  fizik nesnesine dokunulmaz (konum, hız, yönelim, motor, takım/flap korunur).
 
 ## Uçuş modeli mimarisi
 
@@ -144,7 +135,7 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 
 **Yüzde GERÇEK ilerlemedir, zamana bağlı değildir.** Yükleme aşamalara bölünür (grafik, gökyüzü, arazi, su, ormanlar, yollar, kasabalar, üs, havalimanı, şehir, bulutlar, yansımalar, sistemler, uçak önizlemeleri, gölgelendirici derlemesi). En uzun iş olan arazi her arazi parçası (chunk) bittiğinde, ormanlar yerleştirilen ağaç sayısıyla, önizlemeler uçak uçak ilerler. Her aşamanın payı süresiyle ağırlıklanır: ilk açılışta ölçülmüş varsayılan süreler, sonraki açılışlarda BU cihazda bir önceki yüklemede ölçülen süreler kullanılır (`localStorage`, kalite ayarına göre ayrı). Çubuk ve yüzde aynı değerden çizilir; çizilen değer gerçek ilerlemeye kısa bir yumuşatmayla yaklaşır ama onu asla geçmez. %100 yalnızca her şey (gölgelendiriciler dahil) hazır olunca görünür. Uçak değiştirirken ve kalite değişiminde de aynı gösterge kullanılır. Dünya üretimi değişmedi: yeni (dilimli) kurulumun ürettiği geometri, örnekler ve çarpışma/yükseklik sorguları önceki sürümle bayt bayt aynıdır (üç kalite ayarında da doğrulandı).
 
-**Geçişler.** Her menü, panel ve katman (duraklat, ayarlar, kaza, uçak seçimi, kontroller, yükleme, yön uyarısı, bildirimler) aynı kurallarla açılır/kapanır: açılış 200 ms (saydamlık + hafif ölçek/kayma, yavaşlayarak), kapanış 150 ms (hızlanarak). Web Animations API kullanılır: yarıda kesilen geçiş o anki görünümden devam eder, hızlı art arda basışlarda sıçrama ya da takılı kalan katman olmaz. Kapanan katman dokunuşu hemen bırakır; açılan katmanın düğmeleri animasyon sürerken de çalışır. Animasyon herhangi bir nedenle başlamazsa (kare üretilmezse) katman yine de son hâline geçer. Düğmeler basıldığında anında hafifçe küçülür. Sistemde "Hareketi azalt" açıksa geçişler kapanır.
+**Geçişler.** Her menü, panel ve katman (duraklat, ayarlar, kaza, hangar, kontroller, yükleme, yön uyarısı, bildirimler) aynı kurallarla açılır/kapanır: açılış 200 ms (saydamlık + hafif ölçek/kayma, yavaşlayarak), kapanış 150 ms (hızlanarak). Web Animations API kullanılır: yarıda kesilen geçiş o anki görünümden devam eder, hızlı art arda basışlarda sıçrama ya da takılı kalan katman olmaz. Kapanan katman dokunuşu hemen bırakır; açılan katmanın düğmeleri animasyon sürerken de çalışır. Animasyon herhangi bir nedenle başlamazsa (kare üretilmezse) katman yine de son hâline geçer. Düğmeler basıldığında anında hafifçe küçülür. Sistemde "Hareketi azalt" açıksa geçişler kapanır.
 
 ## F-35A: kalite, uçuş modeli ve görsel geçiş (v2.9.0)
 
@@ -165,7 +156,7 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 **Flap UP iken flaperonlar aşağıda görünüyordu — iki ayrı kök neden.**
 
 1. *Gizli otomatik sarkma.* v2.9.0'daki FCS programı takım aşağı ve hız 118 kt'un altındayken flaperonları flap kolundan bağımsız olarak %70 (≈21°) indiriyordu; kol UP iken bile pistte flaperonlar sarkık duruyordu (LEF de yerde 7,5° aşağıdaydı). Bu program kaldırıldı: flaperonun simetrik açısı artık yalnızca flap koludur (UP = 0°, LAND = 30°, ara konumlarda doğrusal), LEF yerde tamamen kapalıdır. Görsel açı ile aerodinamiğin gördüğü flap aynı değerdir. Tek istisna: havada, AoA 8°'nin üstünde FCS'nin küçük manevra kamburluğu (en fazla 0,22) uçuş karakteristiğini değiştirmemek için yalnızca aerodinamikte kalır; seyirde, yerde ve kalkışta sıfırdır. Sonuç: flap UP kalkışta sanal ~21° flap yardımı yok — kopma hızı ~190 kt'a çıkar; kısa kalkış için flap LAND seçilir (~175 kt).
-2. *Menteşede V oluk.* Kanat ve dikey kuyruk kesitlerini üreten `airfoilPoints` bir veter aralığının ön ucunda alt yüzey noktasını atlıyordu; hareketli yüzeyin ön ucu dikey değil çapraz bir kesitle başlıyor ve yüzey 0°'deyken bile LEF ve flaperon menteşesi boyunca alt yüzeyde ~3 cm derin bir oluk (sarkmış flap gölgesi) bırakıyordu. Kesit artık tam dikey kapanır (isteğe bağlı `cutStart`; A321/FA-90 etkilenmez). Ayrıca sabit kanat ile hareketli yüzeyler arasındaki 4–10 mm'lik bindirmeler (z-fighting şeritleri) kaldırıldı, LEF uca kadar uzatıldı, flaperon dış ucu kanat ucuna 4 mm boşlukla hizalandı.
+2. *Menteşede V oluk.* Kanat ve dikey kuyruk kesitlerini üreten `airfoilPoints` bir veter aralığının ön ucunda alt yüzey noktasını atlıyordu; hareketli yüzeyin ön ucu dikey değil çapraz bir kesitle başlıyor ve yüzey 0°'deyken bile LEF ve flaperon menteşesi boyunca alt yüzeyde ~3 cm derin bir oluk (sarkmış flap gölgesi) bırakıyordu. Kesit artık tam dikey kapanır (isteğe bağlı `cutStart`). Ayrıca sabit kanat ile hareketli yüzeyler arasındaki 4–10 mm'lik bindirmeler (z-fighting şeritleri) kaldırıldı, LEF uca kadar uzatıldı, flaperon dış ucu kanat ucuna 4 mm boşlukla hizalandı.
 
 Doğrulama (`f35flush`): flap 0'da flaperon/LEF köşelerinin sabit kanat profilinden en büyük sapması 1e-8 m / 4e-5 m, kuaterniyonlar birim; flap 0,25/0,5/0,75/1 → 7,5°/15°/22,5°/30°, sol ve sağ birebir aynı; 8 120 ışınlık yüzey taramasında oluk/basamak 0 (v2.9.0: 414).
 
@@ -175,115 +166,57 @@ Doğrulama (`f35flush`): flap 0'da flaperon/LEF köşelerinin sabit kanat profil
 
 **Maliyet.** +371 üçgen (12 933 → 13 304), çizim çağrısı 68 → 67 (kanal malzemesi tek ağa birleşir). Delik testi 4 durumda 50 görünümde 0 piksel (v2.9.0: 133).
 
-## Uçak seçimi
+## F-35A: tek uçak, pilot, kokpit ve art yakıcı (v3.0.0)
 
-- Oyun açılınca **Select Aircraft** ekranı gelir. Kartlar yan yana durur (dar ekranda alt alta); her kartta uçağın **oyun içi modelinden anlık üretilmiş** önizlemesi, adı ve teknik bilgileri vardır. Önizlemeler dışarıdan indirilmez; `WebGLRenderTarget` ile o anda render edilir.
-- Karta dokunulduğunda yalnızca seçilen uçak sahneye kurulur: modeli, fiziği, kokpiti, sesi, HUD biçimi, arayüz düğmeleri ve kamera konumları birlikte değişir. Birden fazla uçak aynı anda sahnede bulunmaz; önceki model ve tüm kaynakları (`dispose`) serbest bırakılır.
-- Uçuş sırasında **☰ Menu → Pause → Change Aircraft** ile seçim ekranına dönülür.
-- Yeni uçak eklemek için `js/fleet.js` içine bir yapılandırma nesnesi eklemek yeterlidir; kodun geri kalanında uçağa özel dallanma yoktur.
+**Yalnızca F-35A.** Önceki sürümlerdeki diğer iki uçak oyundan tamamen çıkarıldı: modelleri,
+aerodinamik veri setleri, filo yapılandırmaları, liveryleri, yalnızca onların kullandığı dokular,
+genişletilmiş dış HUD şeridi, hız freni düğmesi ve **V** tuşu, ters itki, slat ve hız freni fizik
+yolları, konvansiyonel kanat taşıma dalı, servis çalışanı önbellek girdileri ve sivil
+havalimanındaki park halindeki yolcu jeti siluetleri. F-35A'nın uçuşu sayısal olarak aynıdır (çıkarılan
+terimlerin hepsi F-35'te sıfırla çarpılıyordu; regresyon paketi aynı sonuçları verir). Eski
+kayıtlarda başka bir uçak seçiliyse yükleme sırasında F-35A'ya düşer.
 
-## Airbus A321neo
+**Pilot.** Silindir gövde + küre kafa yerine: süperelips kesitlerle loft edilmiş gövde (kalçadan
+omza, koltuk sırtıyla aynı ~14° eğimde), omuzlar, kollar (sağ el yan çubukta, sol el gaz
+kolunda), bacaklar ve pedallarda botlar; adaçayı yeşili tulum, koşum kayışları, bel kemeri, can
+yeleği yakası ve cepleri, sağ uylukta diz tahtası; Gen III HMDS tarzı büyük yuvarlak kask
+(arka-üst şişkinlik, yan projektörler), yüzü kaşlardan çeneye örten koyu yansıtıcı vizör,
+oksijen maskesi ve göğse inen hortum. Gövde köşe renkli tek ağdır: kask ve vizörle birlikte
+yine 3 çizim çağrısı. Kokpit kamerasında gizlenir; apronda park eden uçaklarda pilot yoktur.
 
-**Model.** Gerçek ölçüler: uzunluk 44,51 m, kanat açıklığı 35,8 m (sharklet dahil), yükseklik 11,8 m. Yuvarlatılmış gövde kesiti 20 istasyonluk bir tablodan loft edilir (düz alt yüzey yok).
+**Kokpit.** Tek geniş panoramik ekran (göze dönük ~26° eğik, çerçeveli), kanopi biçimini izleyen
+kavisli parlama siperi, diz paneli, düğme sıralı yan konsollar, HOTAS (gaz kolu ve yan çubuk),
+pedallar, US16E benzeri fırlatma koltuğu (minderler, kova yanları, yan raylar, daralan başlık
+kutusu, sarı fırlatma kolu) ve koltuk arkasında kanopi altına alçalan avyonik güvertesi. Bütün
+donanım köşe renkli tek malzemededir: tek çizim çağrısına birleşir.
 
-**Burun ve ön gövde.** Kesitler 0 → 6,50 m arasında analitik bir eğriden üretilir. Yarı genişlik oranı f(s) kontrol noktalarından **monoton kübik (PCHIP)** ile geçirilir; ilk 1,5 m gerçek bir **teğet ojiv** radomdan gelir (taban yarıçapı 1,35 m, uzunluk 2,5 m → ojiv yarıçapı ρ = (R_b² + L_n²)/(2R_b) = 2,99 m, r(x) = √(ρ² − (L_n − x)²) + R_b − ρ). Bu ojiv s = 0,25 / 0,50 / 1,00 / 1,50 m'de gövde genişliğinin **%14 / %26 / %43 / %55**'i kadardır — yani A320 radomu küttür. Radom tabanı silindire teğet değildir (gövde arkasında genişlemeyi sürdürür), bu yüzden eğri 1,9 m'den sonra sekant gibi devam eder ve 6,8 m'de tam kesite teğet oturur.
+**Kokpitin dışarı taşması düzeltildi.** Kokpit parçaları artık kanopi profilinden türetilen
+yüzeyle (`canopySurfaceY`) kırpılır. Kanopi kenarının altındaki iç eşik rafı 3.8–4.6
+istasyonlarında gövde yanından **7–9 cm dışarı** taşıyordu (chine boyunca koyu şerit); dış
+kenar artık chine'in 6 cm içinde kalır. Eski parlama siperinin uçları kanopi camından dışarı
+çıkıyordu; yenisi camın 3 cm altında kırpılır. `f35inside` testi kokpit ve pilotun 18 000+
+köşesinin her birinin kanopi camının ya da gövde üst yüzeyinin altında ve gövde kesitinin
+içinde olduğunu doğrular: 0 ihlal.
 
-Karina doğrudan tanımlıdır: `yb(s) = −2,06 + 1,15·(1 − s/5)³`, uçta −0,90. Sarkma buradan gelir, taç ise `yb + 4,05·f(s)` olarak türetilir; kesit her yerde dairesele yakın kalır. **Üs 3'tür**: karina uçta hızla yükselir, böylece siluet alttan da daralır — üs 2 ile alt hat neredeyse yataydı ve burun yuvarlak kapaklı bir *boru* gibi görünüyordu.
+**Kanopi.** Camın taban kenarı boyunca, gövdeye oturan koyu çerçeve bandı (burundan kuyruğa
+kesintisiz), arka çerçeve kemeri ve inceltilmiş bow. Oyunda kanopi açılma işlevi yoktur;
+eklenmedi.
 
-Denenen ve elenen iki eğri vardı: 7,0 m'lik uzun bir ojiv (aynı istasyonlarda %9 / %16 / %31) burnu **sivri** yapıyordu; sonraki 5,0 m'lik dolgun eğri (%17 / %30 / %49) ise onu **şişkin** yapıyor, üstelik radom camları örtüyordu. Şimdiki eğri ikisinin arasındadır.
+**Art yakıcı.** İç içe üç saydam tüp (sert tüp kenarları, beyaza patlayan katı koni) yerine tek
+**hacimsel** alev: sınırlayıcı bir silindirin içinde 14 örnekli kısa bir ışın yürüyüşü
+(düşük kalitede 9) analitik bir yoğunluk alanını tarar — nozul çıkışında dolu, hafif
+genişleyip uca doğru incelen ve gürültüyle dalgalanan dış zarf (turuncu-sarıdan kızıla),
+açık sarı-beyaz sıcak çekirdek, çekirdekte düzenli aralıklı **şok elmasları** ve alevin ötesine
+uzanan titreşen ısı pusu (kırılma taklidi; ek render hedefi yok). Çıktı önçarpımlı yayılım +
+soğurmadır: gündüz göğünün önünde renkli, gece parlak; ton eşlemesi beyaza patlamayı önler.
+Alev nozul alanını (kn) izler, uçağın grubunun çocuğudur (gecikme ya da kopma olmaz) ve nozul
+ekseniyle hizalıdır (`f35only` testi: çıkışa uzaklık 7 cm, eksen nokta çarpımı 1,0000).
+Uzaktan görünürlük için kameraya dönük yumuşak bir nozul halesi, AB'de petallerde hafif ısı
+tonu; askeri güçte nozul içi yalnızca derinde sıcak bir tondadır. Tek çizim çağrısı (+ hale).
 
-Radom **ayrı bir küre değildir**; aynı kesit tablosunun ilk parçasının loft'udur, yalnızca malzemesi farklıdır (derz istasyon 2,44'te). Radom ile kaplama aynı halkayı paylaştığı için geçişte ne dikiş ne çap sıçraması olur.
-
-**Kokpit camları.** A320 ailesinin altı pencereli düzeni: iki ön cam (No.1), yan ön cam (No.2), açılabilir DV penceresi ve arka çeyrek pencere. Her cam **(u, w) parametre uzayında hafifçe yuvarlatılmış köşeli** bir dış hattan üretilir (u = 0 ön direk → 1 arka direk, w = 0 üst → 1 alt kenar); No.1 camın üst-ön köşesi diğerlerinden geniş yuvarlanır — Airbus ön camının imzası budur.
-
-Bandın kenarları sabit v ile değil **mutlak yükseklikle** çözülür: üst kenar y = 1,38 → 1,17 m, eşik y = 0,66 → 0,75 m. Bant böylece neredeyse yataydır ve gövde onun çevresinde büyür; A320'nin kaşı (üst camın üstündeki gövde) önde 0,01 m'den arkada 0,80 m'ye açılır, cam yükseklikleri 0,71 → 0,42 m'ye iner. Sabit v ile çalışırken eşik arkaya doğru yükseliyor, DV penceresinin alt kenarı pilot göz hizasının üstünde kalıyordu (yana bakınca gövde duvarı görünüyordu). Camlar arasındaki istasyon boşlukları 0,16-0,18 m'dir; daha dar boşluklarda çerçeve halkaları birleşiyor ve dört cam **tek bir kara leke** gibi okunuyordu.
-
-Camlar yüzeye yapıştırılmış dekal değildir, **gerçek derinliği olan** dört katmanlı bir yapıdır (hepsi yüzey normali boyunca, metre cinsinden ötelenir):
-
-1. **Parlama maskesi** — 4 mm, mat siyah; bandı saran ince şerit, uçlara doğru kama gibi sivrilir. Üst kenarı taç çizgisini geçemez, böylece burnun tepesinde gövde rengi bir **orta direk** kalır ve iki ön cam ayrı okunur.
-2. **Çerçeve halkası** — 22 mm, koyu gri metal; cam başına ayrı bir halka, dış hattı aynı eğrinin genişletilmiş kopyası. Halkalar birbirine değmez, aralarında maske görünür.
-3. **Yanak (reveal)** — çerçeveden cam yüzeyine inen 17 mm'lik duvar; kenardaki gölge çizgisi buradan gelir.
-4. **Cam** — 5 mm, koyu ve parlak.
-
-**Kokpit astarı.** Gövdeyi izleyen, cam açıklıkları kesilmiş bir tüptür. İki kural onu doğru kılar:
-
-- Astar hücresi cam çerçevesinden **küçük** olmalıdır (0,055 m × 0,023 v hücreye karşı 0,062 m × 0,028 v çerçeve). Açıklık camdan bir hücre büyük kesildiği için, hücre çerçeveden büyükse kesim izi çerçevenin dışına taşar ve kokpitten bakınca testere dişi bir kenar görünür.
-- Ön camın **önünde** bir koridor açıktır. Astar orada da devam ediyordu ve camdan çıkan bakış ışınını birkaç on santim sonra yeniden kesiyordu: pilot düz ileri baktığında dışarıyı göremiyor, kokpit dar bir kemer gibi duruyordu. Eşiğin altı ve tacın üstü kapalı kalır, yani burnun içinden aşağı ya da yukarı bakılamaz.
-
-Pilot göz noktası tacın ~0,95 m altındadır (gerçek A320'de ~1,0-1,1 m). Ölçülen görüş: düz ileri −10°…+20°, yan pencerelerden −12°…+26°.
-
-**Işıklar.** Seyir ve çakar ışıkları kanat ucu kaportasına oturur: kırmızı/yeşil hücum kenarında, beyaz flaşör firar kenarında — sharklet'in dibinde, gerçek A320neo'daki gibi. (Sharklet eklendikten sonra ışıklar bir süre ESKİ kanat ucu noktasında kalmış ve uçağın ~1 m yanında havada asılı duruyordu; konumlar artık doğrudan kanat geometrisinden türetilir ve `fleet.mjs` her ışığın gövdeye uzaklığını 0,15 m sınırıyla sınar.)
-
-Dört yolcu kapısı, iki kanat üstü acil çıkış, iki kargo kapağı çerçeveleriyle birlikte modellenir; ayrıca VHF blade antenler, SATCOM, pitot ve AoA probları, APU egzozu ve dikey stabilizatör kökünde dorsal fileto vardır. Takım kapakları yalnızca takım hareket ederken açılır (gerçek davranış), takım tam açık ya da kapalıyken kapanır.
-
-**Motorlar.** CFM LEAP-1A ölçülerinde büyük baypaslı nacelle (kamuya açık veriler: fan çapı 1,98 m, nacelle dış çapı ~2,42 m). Nacelle tek bir eksenel profilden döndürülerek üretilir ve uç uca eklenen üç parçadan oluşur: fan kaportası, ters itki derzi (sığ bir oluk) ve ters itki kaportası. Parçalar ORTAK yarıçapta birleşir — daha önce derz, daralan kaportanın içinden geçen ayrı bir silindirdi ve ekranda testere dişi gibi bir z-fighting bandı bırakıyordu.
-
-Giriş dudağı, iç giriş kanalı, 18 geniş kirişli fan kanadı, spinner, fan lülesi, sıcak kısım kaportası, sıcak lüle ve merkez konisi ayrı ayrı modellenir. Fan kanatları yarıçapla birlikte burulur (kökte eksene ~30°, uçta ~62°), böylece fan diski önden bakıldığında gerçek bir fan gibi yoğun okunur. Kanat kökü göbeğin, ucu kanal duvarının içinde kalır; kapatılmamış uçlar hiçbir açıdan görünmez. Pilon dikey bir kanatçık olarak loft edilir: alt sıraları nacelle'in, üst sıraları kanadın İÇİNDE kalır, dolayısıyla iki uçta da ne boşluk ne taşma olur. Fan N1 ile orantılı döner.
-
-**Kanat.** Sabit kanat TAM profil olarak (veterin %0'ından %100'üne) kapalı biçimde loft edilir. Daha önce yalnızca %13-74 arası bir "kutu" vardı; slat ve flap panellerinin arasındaki açıklıklarda kanadın içi görünüyor, hücum ve firar kenarları kesik duruyordu. Hareketli yüzeyler bu kapalı kabuğun 14 mm dışına oturur, böylece nötr konumda çakışıp z-fighting yapmazlar ve açıldıklarında altından gerçek kanat yapısı çıkar.
-
-Sharklet'in kök kesiti kanadın uç kesitiyle birebir aynıdır (aynı veter, kalınlık ve y), yükselme ise dairesel bir kıvrımla başlayıp düz devam eder — A320neo'nun "yumuşak dip, dik uç" silueti. Kanat başına dört flap ray karinası (kano) firar kenarının ~1,5 m gerisine uzanır; A320 ailesinin en tanınır alt-kanat detayıdır.
-
-**Kontrol yüzeyleri.** Aileron, asansör, dümen, Fowler flap (0 / 1 / 2 / 3 / FULL), öne-aşağı uzayan slat, kanat başına beş spoyler paneli. Spoyler panelleri artık düz kutular değil, üst yüzeyi izleyen ince levhalardır ve süpürülmüş menteşe çizgisi etrafında döner (düz X ekseni 45°'de panel uçlarında ~0,2 m sapma bırakıyordu). Yüzeyler mekanik hızla hareket eder (ani sıçrama yok), sol ve sağ birbirini doğru aynalar, flap kolu spoyleri hiç kıpırdatmaz.
-
-**Kokpit.** A320 ailesine özgü düzen: iki sidestick, PFD ve ND ekranları, iki ECAM ekranı, glareshield üzerinde FCU, orta konsolda gaz kolları ile flap / hız freni / takım kolları, tavan paneli ve koltuklar. Gaz kolları, kollar ve sidestick'ler uçuş girdileriyle birlikte hareket eder.
-
-**Uçuş modeli.** F-35'ten tamamen bağımsız katsayı takımı: 80 t kalkış ağırlığı, 128 m² kanat, 2 × 143 kN statik itki. Ağır jet karakteri ölçülerle doğrulanmıştır — ~30 s'de 150 kt'a ulaşan kalkış rulosu, ~2 500–3 000 ft/dk ilk tırmanış, 3° süzülme yolunda ~142–150 kt yaklaşma, flare, temas, otomatik yer spoyleri, ters itki ve duruş.
-
-- **İtki kaybı:** yüksek baypaslı turbofanda net itki hızla belirgin düşer (M 0,23'te statiğin ~%78'i). Savaş uçağının düşük baypaslı motorunda ise ram basıncı itkiyi artırır; iki karakteristik `fleet.js` içinde ayrı parametrelenmiştir.
-- **Spool gecikmesi:** rölantiden tam güce ~8 s (F-35'te ~3,5 s). Yaklaşmada gaz verince gecikmeyi hissedersiniz.
-- **Hız freni / yer spoyleri:** havada spoyler yarım açılır (hız freni), yerde tam açılır. Temastan sonra fren komutuyla kendiliğinden devreye girer.
-- **Ters itki:** yerde, 23 kt üzerinde ve fren komutuyla açılır; hız düşünce kendiliğinden kapanır.
-
-## FA-90 Vesper (kurgusal)
-
-**Bu uçak gerçek değildir.** Hiçbir gerçek uçağın geometrisi, performans verisi ya da sistem davranışı kopyalanmamıştır; tüm sayılar bu proje için tasarlanmış tutarlı bir kurgudur. Tasarımı `js/fa90.js` (model) ve `js/aerodata.js` içindeki `FA90_AERO` (aerodinamik/itki) tanımlar.
-
-**Siluet.** Uzunluk 19,6 m, açıklık 14,8 m, yükseklik 4,54 m, azami kalkış ağırlığı 29 t. Gövde açıklığın %45'i kadar geniştir ve taşıma üretir (lifting body). Kesit elmas biçimlidir: düz üst güverte, keskin **çine** kenarı, düz karın — hiçbir istasyonda dairesel kesit yoktur. 21 satırlık bir istasyon tablosu `smoothstep` ile ara değerlenir, böylece iki istasyon arasında kırık oluşmaz.
-
-**Kırık lambda hattı.** Çine burun ucundan başlar, gövdenin en geniş yerinde kırılır ve kanat hücum kenarı olarak 44°/38° ile devam eder. Firar kenarı **W biçimlidir** (iki çentik). Bu iki hat uçağın imzasıdır.
-
-**Kuyruksuz düzen.** Yatay kuyruk yoktur. Yunuslama ve yatış, yan başına ÜÇ firar kenarı yüzeyiyle yapılır: iç flaperon + iki elevon. W firar kenarının her kolu ayrı bir yüzeydir, çünkü kırık bir menteşe çizgisi etrafında dönen tek parça yüzey fiziksel olarak imkânsız olurdu; her yüzeyin menteşesi DÜZDÜR ve firar kenarından sabit veter payı geriye alınarak türetilmiştir. Sapma, arka güvertedeki 45° eğik **tam hareketli** iki yüzeyle sağlanır; ikisi de sapma komutunda aynı yöne döner.
-
-**Hava alıkları.** Çinenin altında, gövdeye gömülü DSI mantığında iki alık. Sıkıştırma tümseği (rampa) da kaporta da ayrı levha değil, deriye oturan KAPALI HACİMLERDİR: her istasyonda kesit, dış yay ile gövde derisini izleyen taban yayı arasındaki halkadır; uçlar şerit kapaklıdır. Tek açıklık ağızdır ve o da koyu kanal cebiyle kapanır.
-
-**Motor bölümü ve lüleler.** Arka gövde iki motoru GERÇEKTEN saran kapalı bir yapıdır. Gövde kesiti s = 18,2 ile 19,1 m arasında, iki motor lobu ve aralarında bel olan bir **motor bölmesi** kesitine yumuşakça dönüşür (plan görünüşündeki genişlik korunur) ve 19,1'de iki lüle açıklığı olan bir **arka perdeyle** kapanır. Her motor dört parçadır ve sınır halkaları BİREBİR aynı noktalardır: (1) perdedeki açıklıktan çıkan, çıkışta boat-tail yapan nasel kabuğu, (2) **lüle çıkışı** — testere dişli metal dudak + koyu ıraksak bölüm, (3) 2 m'lik iç kanal, (4) konik türbin yüzü + merkez gövde (plug). Kanal ve türbin iki yüzlü koyu malzemedir: egzozun içine bakıldığında dünya değil KARANLIK görünür. Askeri güç ve art yakıcıda çıkış alanı **açılır** (yakınsak-ıraksak davranış); bu bir biçim hedefi (morph target) ile yapılır: kabuğa bağlı dış halka ile kanala bağlı iç halka sabit kalır, yalnızca dudak, dişler ve ıraksak bölüm açılır. Üç katmanlı alev bunun üzerine biner.
-
-**Mesh bütünlüğü (v2.7.1).** v2.7.0'daki "%28 → %11" ölçümü YANILTICIYDI: o ışın paritesi testi tüm malzemeleri çift yüzlü yapıyordu, yani yüz elemesine (backface culling) KÖRDÜ. Yerine **piksel-kesin delik testi** kondu: gerçek malzemelerle (tek yüzlüler dahil) magenta arka plan üzerine render, ardından tüm meshlerin çift yüzlü kapsama maskesi; arka planın, orada geometri OLDUĞU hâlde göründüğü her piksel bir deliktir. (Çıkartmalar boya katmanıdır, maskeye girmez.) Bulunan ve kökünden düzeltilen nedenler:
-
-- `ringCap()` sarımı TERSTİ: her kapak içe bakıyor, dışarıdan eleniyordu (birim testle ölçüldü).
-- Gövdenin kuyruk kapağı da tersti: arkadan bakınca arka yüz tümden kayboluyor, lüleler BOŞ bir kabuğun içinde asılı görünüyordu. Düz kapağın sarımını çevirmek egzoz tünelini 4 cm'ye indirirdi; yerine yukarıdaki motor bölmesi + arka perde kuruldu.
-- s = 18,2'de 22 noktalı ana loft ile 66 noktalı motor bölmesi aynı istasyonda buluşuyordu (T-kavşağı): kenar boyunca piksel çatlakları açılıyordu. Arada artık her kenarı ortak bir uyarlama şeridi var.
-- Lüle çıkışı art yakıcıda tüm parça olarak ölçekleniyordu: dış halka kabuktan, iç halka kanaldan ayrılıyor, tam gazda arkadan bakınca gövdenin içi görünüyordu (7 500+ delik pikseli). Yerine biçim hedefi (yukarıda).
-- Sabit kanat tek loft'tu; yüzey sınırlarındaki veter basamağında burulmuş, sarımı ters dönmüş şerit üçgenler vardı. Artık her aralık ayrı, kapalı bir paneldir.
-- Hava alığı rampası tek yüzlü açık levhaydı; artık kapalı hacim.
-- İşaretler düz levhaydı: kanat yıldızı bir uçta kanadın 8 cm içinde, diğer uçta 12 cm havadaydı; gövde yanı yıldızı kanadın içine giriyordu. Artık yüzeyin GERÇEK çokgenini izleyen ızgaralardır (ölçülen boşluk her noktada 4–6 mm). Kuyruk işaretleri artık eğik yüzeyin çocuğudur, sapmada onunla döner.
-- Tam hareketli eğik dikey yüzeylerin kökü sapmada gövdeden kalkıyordu (5°'de 1,9 cm, 22°'de 34 cm boşluk). Köke, yüzeyin kendi düzleminde gövde içinde kalan bir salma eklendi; 20°'nin üstünde firar kenarı kökü arka gövdenin kenarını aştığı için görsel sapma 18° ile sınırlandı (uçuş modeli dümeni birim girdiyle hesaplar, fizik değişmedi).
-
-Ölçüm (1200x800, 10 arka/yan görünüm): v2.7.0'da **67 126** delik pikseli → v2.7.1'de **0**. Sıfır sonucu altı durumda da tutar: rölanti, askeri güç, art yakıcı, iniş takımı kapalı, tam dümen/elevon/aileron/flap/hava freni (iki yönde). Ayrıca arka yarım kürenin 182 görünümlük taraması (15° azimut, −60°…+60° yükseklik, iki mesafe) ve ön yarım kürenin 98 görünümlük taraması: **0**. Üçgen sayısı 18,8 bin → 21,2 bin; uçak için ayrı LOD yoktur, her mesafede aynı model çizilir.
-
-**Performans — "10 kat güçlü" nasıl yorumlandı.** İstek, her fiziksel parametreyi onla çarpmak olarak DEĞİL, genel bir oyun hedefi olarak ele alındı. Uçak şunlara sahiptir:
-
-| | değer | not |
-|---|---|---|
-| Kütle (tam yakıt) | 29,0 t | kanat yükü 372 kg/m² (F-22 ~375, Su-57 ~370) |
-| İtki (art yakıcı) | 430 kN | tam yakıtta T/W ≈ 1,5 |
-| Süperkruvaziyer | **M 1,44** | 36 000 ft, art yakıcı KAPALI (ölçüm) |
-| Azami Mach | **M 1,93** | yapay tavan değil: itki-sürükleme dengesi (ölçüm) |
-| CLmax / L/D max | 2,30 / 11,7 | F-35: 2,21 / 10,6 |
-| Stall hızı | 99 kt | deniz seviyesi, temiz (F-35: 118 kt) |
-| Yapısal G | +12 / −5 | FCS tavanı; ölçülen tepe 12,1 g |
-| Yatış oranı | 320°/s | FCS oran tavanı; yüksek AoA'da ayrıca kısılır |
-| AoA yetkisi | 52° sınır, 30° yumuşak | girdap taşıması için yüksek ama sınırsız değil |
-
-Buna karşılık uçak **konumu ya da dönüşü doğrudan oynanan bir nesne DEĞİLDİR**. Aynı rijit cisim çözücüsünden geçer ve kütle, atalet (I_xz dahil), yer çekimi, taşıma, sürükleme ve açısal momentum yasalarına uyar:
-
-- **Anlık dönüş yok.** Tam yatış komutu verildiğinde oran sıfırdan tavana bir adımda çıkmaz: ölçümde kademeli yükselir (0,2 s aralıklarla örneklenmiştir). Eyleyici hızı 6,0 birim/s ile sınırlıdır (tam sapma ≈ 0,17 s).
-- **Sonsuz ivme yok.** 40 000 ft'te tam art yakıcıyla düz uçuşta hız M 2,0'da itki-sürükleme dengesine oturur ve orada kalır.
-- **Enerji korunumu.** 40 000 ft'te sürekli tam çubuk manevrasında hız 337 → 308 kt düşer.
-- **Departure koruması aerodinamiktir.** Yüksek AoA'da yatış oranı tavanı (26°'den itibaren kısılır) ve koordinasyon geri beslemesi vardır; 35° AoA'da tam yatışta kayma açısı 10,7°'de kalır ve dümen darbesinden sonra 0,1°'ye toparlar.
-
-**Kontrol yüzeyi animasyonu sahte değildir.** Her yüzeyin açısı doğrudan pilot girdisinden türetilir ve dünya uzayında ölçülerek doğrulanır (`fa90surf` testi): elevator üç yüzeyi de simetrik hareket ettirir, aileron onları ayrıştırır, flap yalnızca iç flaperonları sarkıtır, dümen iki eğik yüzeyi de aynı yöne döndürür, spoiler girdisi sırt frenlerini orantılı açar. Sol ve sağ yüzeyler birbirinin tam aynasıdır (menteşe ekseninin hem y hem z bileşeni yan ile işaret değiştirir). Eğik yüzeylerin görsel sapması ±18°'dir; bu açıda kök hâlâ en az 13 cm gövdenin içindedir (`finrud2` ölçümü).
+**Maliyet.** Uçak 13 312 → 17 702 üçgen (pilot ve kokpit), çizim çağrısı 67 → 66. Yeni gölgelendirici
+programı yükleme ekranında derlenir: takım, ışık, ilk art yakıcı ve kamera geçişlerinde yeni
+program 0 (`hitch`).
 
 ## Dünya ve havaalanları
 
@@ -299,9 +232,9 @@ Buna karşılık uçak **konumu ya da dönüşü doğrudan oynanan bir nesne DE�
 | Konum | Harita merkezi (0, 0) | 24 km doğu-güneydoğu |
 | Pist | 09/27 · 3000 x 45 m | 12/30 · 3400 x 45 m |
 | Kot | 0 m | 185 m (yayla) |
-| Tesisler | Paralel taksi yolları, apron, sundurmalar, hangarlar, korumalı sığınaklar, kule, park halinde F-35'ler | Paralel taksi yolu, apron ve duraklar, cam cepheli terminal + parmak iskele, körükler, kargo apronu, hangarlar, kule, park halinde yolcu uçakları |
+| Tesisler | Paralel taksi yolları, apron, sundurmalar, hangarlar, korumalı sığınaklar, kule, park halinde F-35'ler | Paralel taksi yolu, apron ve duraklar, cam cepheli terminal + parmak iskele, körükler, kargo apronu, hangarlar, kule |
 
-İki havaalanı arası **yaklaşık 26 km (14 deniz mili)**: A321neo ile tırmanış-seyir-iniş içeren gerçek bir kısa hat uçuşu. Kalkış yeri **seçim ekranındaki KALKIŞ satırından** seçilir; kamera seçilen havaalanının üzerinde döner. Her iki havaalanı da her iki uçakla kalkış ve inişe uygundur.
+İki havaalanı arası **yaklaşık 26 km (14 deniz mili)**. Kalkış yeri **hangardaki Departure satırından** seçilir; kamera seçilen havaalanının üzerinde döner. Her iki havaalanı da kalkış ve inişe uygundur.
 
 **Performans.** Arazi 18 x 18 = 324 parçaya bölünür ve üç kademede örneklenir: havaalanı/su çevresi 2x, iç bölge normal, dış dağ kuşağı yarı çözünürlük. Her parçanın iki LOD'u ve histerezisi vardır. Ağaç bütçesi haritanın tamamına eşit dağıtılmaz; iki havaalanı arasındaki koridora ağırlıklı ve **koruluk kümeleri** halinde yerleştirilir, böylece aynı bütçeyle seyrek nokta yerine gerçek orman dokusu oluşur. Ağaç parçaları da 4 km'lik hücrelerdir (mesafe kırpması isabetli olsun diye) ve ağaç geometrisi düşük segmentlidir.
 
@@ -353,12 +286,11 @@ Aerodinamik her zaman **havaya göre bağıl hızla** hesaplanır, yer hızıyla
 - **Sol joystick:** yunuslama ve yatış. **Sağ kaydırıcı:** gaz kolu; üstteki turuncu bölge art yakıcı.
 - **Alt kümede soldan sağa sıra: FLAPS → JOYSTICK → RUDDER.** Dümen ekranın ortasında durur; dar ekranda ortaya sığmazsa joystickin hemen sağına çekilir (çakışmama güvencesi her zaman önde gelir).
 - **RUDDER kaydırıcısı (ekranın ortası):** yaylı analog dümen ve burun tekeri; parmağı/fareyi bırakınca tam merkeze döner. **Takım / Fren:** aç-kapat.
-- **FLAPS kolu (ekranın en solu):** gerçek bir kol gibi çalışan dikey kaydırıcı. Yukarı 0 (temiz), aşağı son kademe; sürüklerken en yakın kademeye oturur, ize dokunmak da o kademeye atlar. Topuz kademe adını ve **flap açısını** gösterir (A321neo: 0 / 1 = 10° / 2 = 15° / 3 = 20° / FULL = 40°; FA-90: UP / MVR = 9° / LAND = 18°). Kol her uçuşta **0'da** başlar. Klavyedeki **F** kademeleri sırayla gezer; kol onu da izler.
+- **FLAPS kolu (ekranın en solu):** gerçek bir kol gibi çalışan dikey kaydırıcı. Yukarı 0 (temiz), aşağı son kademe; sürüklerken en yakın kademeye oturur, ize dokunmak da o kademeye atlar. Topuz kademe adını gösterir (UP / LAND). Kol her uçuşta **0'da** başlar. Klavyedeki **F** kademeleri sırayla gezer; kol onu da izler.
 - **☰ Menü (sol üst):** Duraklat, Kamera, Ses ve Işık düğmeleri bu çekmecede toplanır; dokununca yumuşak bir geçişle açılır, 7 s hareketsizlikte veya duraklatınca kendini kapatır. Ekranda sürekli yalnızca uçuş için gerekli kontroller kalır. Çekmece açıkken joystick alanı onun altından başlar, böylece uçuş girişi ile menü dokunuşları çakışmaz.
-- **Spoilers (A321neo ve FA-90):** hız freni / yer spoyleri. A321neo'da kanat üstü spoyler, FA-90'da sırt hava frenleri. Klavyede **V**.
 - **Kalkış durumu:** uçak piste **fren basılı DEĞİL**, gaz rölantide ve **flap 0** ile doğar. Yerinde durmasını fren değil, aşağıda anlatılan kopma sürtünmesi sağlar.
-- **Uçak ve kamera düğmeleri İngilizcedir:** `Flaps`, `Spoilers`, `Camera`, `Landing Gear`. Kamera modu adları da İngilizcedir (CHASE / COCKPIT / FREE / FLYBY / LEFT WING / RIGHT WING / LANDING GEAR).
-- **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır) → uçuş geçişi (sabit dış kamera, Doppler sesi) → sol kanat → sağ kanat → iniş takımı. Kanat ve takım görünümleri gövdeye sabittir ve her uçak için ayrı konumlanır. Tam HUD yalnızca kokpit görünümünde çizilir; tüm dış görünümlerde üst ortada kompakt bir şerit sürekli **IAS / ALT / VS / HDG** gösterir, A321neo'da ayrıca **THR / GEAR / FLAP / SPD BRK / WIND**; altında kısa uyarılar (STALL, İNİŞ TAKIMI) çıkar. Dar ekranda sığmayan alanlar sondan düşer.
+- **Uçak ve kamera düğmeleri İngilizcedir:** `Flaps`, `Camera`, `Landing Gear`. Kamera modu adları da İngilizcedir (CHASE / COCKPIT / FREE / FLYBY / LEFT WING / RIGHT WING / LANDING GEAR).
+- **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır) → uçuş geçişi (sabit dış kamera, Doppler sesi) → sol kanat → sağ kanat → iniş takımı. Kanat ve takım görünümleri gövdeye sabittir. Tam HUD yalnızca kokpit görünümünde çizilir; tüm dış görünümlerde üst ortada kompakt bir şerit sürekli **IAS / ALT / VS / HDG** gösterir; altında kısa uyarılar (STALL, İNİŞ TAKIMI) çıkar. Dar ekranda sığmayan alanlar sondan düşer.
 - **Işık:** iniş ışıkları (takım açıkken burun önünü aydınlatır). Seyir ışıkları (kırmızı/yeşil/beyaz), flaşörler ve dönen ikaz ışıkları her zaman açıktır.
 - **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, L ışıklar, M ses, P/Esc duraklat.
 - **Kalkış:** gazı sonuna kadar itin, ~145 kt'ta burnu kaldırın, tırmanışta takımı toplayın. (Fren zaten açıktır; park freni istenirse **Brakes** düğmesiyle basılır.)
@@ -427,11 +359,11 @@ Pist, taksi yolları, apron ve işaretler arazinin yalnızca 5–10 cm üstünde
 
 - Hız vektörü gerçek ivmelenmeden gelir; dikey hız (VS) doğrudan hız vektörünün düşey bileşenidir. Burun aşağıdayken irtifa kaybı kaçınılmazdır; yapay irtifa tutucu yoktur.
 - Kontrol kanunu yük katsayısı (g) komutludur; düşük hızda hücum açısı komutuna geçer. Çubuk merkezdeyken uçak trim durumuna yakın kalır, ancak hız düştükçe burun düşer.
-- Yunuslama sönümü: dış döngü kazancı dinamik basınca göre programlanır (kapalı döngü kısa periyot sönümü F-35'te ζ≈0,9, A321neo'da ζ≈0,95), çubuk girişine ön filtre ve kontrol momentlerine 0,04 s eyleyici gecikmesi uygulanır. Çubuk bırakıldığında uçak yeni uçuş yoluna tek ve düzgün bir geçişle oturur; burun aşağı-yukarı sekmesi yoktur. Fizik 120 Hz sabit adımlı olduğundan davranış kare hızından bağımsızdır.
+- Yunuslama sönümü: dış döngü kazancı dinamik basınca göre programlanır (kapalı döngü kısa periyot sönümü ζ≈0,9), çubuk girişine ön filtre ve kontrol momentlerine 0,04 s eyleyici gecikmesi uygulanır. Çubuk bırakıldığında uçak yeni uçuş yoluna tek ve düzgün bir geçişle oturur; burun aşağı-yukarı sekmesi yoktur. Fizik 120 Hz sabit adımlı olduğundan davranış kare hızından bağımsızdır.
 - Taşıma/sürükleme: CL eğrisi tek sürekli ifadedir (eşik yok), indüklenmiş sürükleme (Oswald), girdap/ayrılma sürüklemesi, transonik dalga sürüklemesi, takım/flap sürüklemesi, yer etkisi (h/b oranına göre) ve ISA atmosferi.
-- Motor: yavaş tepkili itki (spool), art yakıcı ayrı kademe, yakıt tüketimi; ses motoru rumble/türbin/egzoz/art yakıcı katmanlarını buna göre karıştırır. Ses tümüyle sentezlenir (döngüye alınmış motor kaydı yoktur): gürleme, kükreme, türbin ıslığı ve egzoz katmanlarının frekans ve seviyeleri N1'i sürekli izler, böylece rölanti, spool, kalkış, seyir, spool-down ve ters itki kendiliğinden ayrışır.
-- Kullanılabilir yük katsayısı, içinde bulunulan konfigürasyonun azami taşımasıyla hesaplanır (flap ve slat katkısı dahil). Yalnızca temiz CLmax kullanılsaydı yolcu uçağı yaklaşmada 1 g'nin altında bir tavana takılır ve flare yapamazdı.
-- Aerodinamik/itki katsayıları `js/aerodata.js`'te, kontrol kanunu kazançları ile sistem/kamera/ses/arayüz yapılandırması `js/fleet.js`'tedir; ikisi de uçak başına ayrıdır.
+- Motor: yavaş tepkili itki (spool), art yakıcı ayrı kademe, yakıt tüketimi; ses motoru rumble/türbin/egzoz/art yakıcı katmanlarını buna göre karıştırır. Ses tümüyle sentezlenir (döngüye alınmış motor kaydı yoktur): gürleme, kükreme, türbin ıslığı ve egzoz katmanlarının frekans ve seviyeleri N1'i sürekli izler, böylece rölanti, spool, kalkış, seyir ve spool-down kendiliğinden ayrışır.
+- Kullanılabilir yük katsayısı, içinde bulunulan konfigürasyonun azami taşımasıyla hesaplanır (flap katkısı dahil).
+- Aerodinamik/itki katsayıları `js/aerodata.js`'te, kontrol kanunu kazançları ile sistem/kamera/ses/arayüz yapılandırması `js/fleet.js`'tedir; 
 - İniş takımı kolu yerde **ağırlık-tekerde (squat switch)** kilidiyle korunur: tekerlekler yerdeyken takım içeri alınamaz.
 
 Eski cihazlarda veya Düşük Güç Modu'nda takılma olursa **Düşük** seçin.

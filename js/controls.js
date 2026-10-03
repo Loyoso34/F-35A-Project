@@ -9,7 +9,7 @@ export class Controls {
     this.cb = callbacks;
     this.state = { pitch: 0, roll: 0, yaw: 0, throttle: 0, afterburner: false };
     this.lever = 0; // 0..leverMax
-    this.leverMax = 1.15;   // art yakıcısı olmayan uçakta 1.0
+    this.leverMax = 1.15;   // üst %15: art yakıcı kademesi
     this.enabled = false;
     this.keys = new Set();
     this.stickPointer = null;
@@ -216,7 +216,7 @@ export class Controls {
     f.addEventListener('lostpointercapture', end);
     f.addEventListener('contextmenu', (e) => e.preventDefault());
   }
-  /** Uçak değişince kademeleri kurar ve kolu 0'a alır. */
+  /** Uçak kurulunca kademeleri kurar ve kolu 0'a alır. */
   setFlapDetents(names, notes) {
     this.flapNames = (names && names.length) ? names.slice() : ['0'];
     this.flapNotes = (notes && notes.length === this.flapNames.length) ? notes.slice() : this.flapNames.map(() => '');
@@ -273,7 +273,6 @@ export class Controls {
     };
     tap('btn-gear', () => this.cb.onGear && this.cb.onGear());
     tap('btn-brake', () => this.cb.onBrake && this.cb.onBrake());
-    tap('btn-spoiler', () => this.cb.onSpoilers && this.cb.onSpoilers());
     const secondary = (fn) => () => { this.cb.onMenuActivity && this.cb.onMenuActivity(); fn(); };
     tap('btn-menu', () => this.cb.onMenu && this.cb.onMenu());
     tap('btn-camera', secondary(() => this.cb.onCamera && this.cb.onCamera()));
@@ -336,7 +335,6 @@ export class Controls {
         case 'KeyC': this.cb.onCamera && this.cb.onCamera(); break;
         case 'KeyM': this.cb.onSound && this.cb.onSound(); break;
         case 'KeyL': this.cb.onLights && this.cb.onLights(); break;
-        case 'KeyV': this.cb.onSpoilers && this.cb.onSpoilers(); break;
         case 'KeyR': this.cb.onViewRecenter && this.cb.onViewRecenter(); break;   // bakışı ortala
         case 'KeyP': case 'Escape': this.cb.onPause && this.cb.onPause(); break;
         // Shift+D: geliştirici fizik paneli (§40). Normal oyunda kapalı.
@@ -440,12 +438,4 @@ export class Controls {
   }
 
   resetLever(v = 0) { this.lever = Math.min(v, this.leverMax); this.setThrottleUI(); }
-  // Uçak değişince gaz kolu aralığı: art yakıcısı olmayan uçakta üst kademe kaldırılır
-  setAfterburnerEnabled(on) {
-    this.leverMax = on ? 1.15 : 1.0;
-    const ab = document.getElementById('throttle-ab');
-    if (ab) ab.hidden = !on;
-    this.lever = Math.min(this.lever, this.leverMax);
-    this.setThrottleUI();
-  }
 }

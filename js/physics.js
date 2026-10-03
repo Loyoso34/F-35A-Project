@@ -51,8 +51,7 @@ export class FlightModel {
 
     this.throttle = 0; this.afterburner = false;
     this.gearCmd = 1; this.gearPos = 1;
-    this.flapIndex = 0; this.flapsCmd = 0; this.flapsPos = 0; this.slatsPos = 0;
-    this.spoilerCmd = 0; this.spoilerPos = 0; this.reverseCmd = 0; this.reversePos = 0;
+    this.flapIndex = 0; this.flapsCmd = 0; this.flapsPos = 0;
     // Uçak piste "yuvarlanmaya hazır" durumda doğar: park freni BASILI DEĞİLDİR.
     // Kendiliğinden ileri kaymayı fren değil, aşağıdaki kopma (statik) sürtünmesi engeller.
     this.brakes = false;
@@ -106,8 +105,7 @@ export class FlightModel {
     this.engine_.reset();
     this.fcs.reset();
     this.gearCmd = 1; this.gearPos = 1;
-    this.flapIndex = 0; this.flapsCmd = 0; this.flapsPos = 0; this.slatsPos = 0;
-    this.spoilerCmd = 0; this.spoilerPos = 0; this.reverseCmd = 0; this.reversePos = 0;
+    this.flapIndex = 0; this.flapsCmd = 0; this.flapsPos = 0;
     this.lefPos = 0; this.camber = 0; this.toeIn = 0;
     this.gearComp = 0.07; this._gcv = 0;
     this.brakes = false; this.fuel = this.D.fuel;
@@ -154,7 +152,6 @@ export class FlightModel {
     this.flapsCmd = d[this.flapIndex];
   }
   get flapLabel() { return this.sys.flapNames[this.flapIndex]; }
-  toggleSpoilers() { if (this.sys.spoilers) this.spoilerCmd = this.spoilerCmd > 0.5 ? 0 : 1; }
   toggleBrakes() { this.brakes = !this.brakes; }
 
   windAt(y, t, out) {
@@ -187,15 +184,6 @@ export class FlightModel {
     if (Math.abs(this.gearCmd - this.gearPos) < SYS.gearRate * dt) this.gearPos = this.gearCmd;
     this.flapsPos = clamp(this.flapsPos + Math.sign(this.flapsCmd - this.flapsPos) * SYS.flapRate * dt, 0, 1);
     if (Math.abs(this.flapsCmd - this.flapsPos) < SYS.flapRate * dt) this.flapsPos = this.flapsCmd;
-    this.slatsPos = SYS.slatLead ? Math.min(1, this.flapsPos * SYS.slatLead) : 0;
-    if (SYS.spoilers) {
-      const auto = SYS.spoilers.groundAuto && this.onGround && (this.brakes || this.reversePos > 0.05) && vel.length() > 8;
-      const maxDefl = this.onGround ? 1 : (SYS.spoilers.airFrac !== undefined ? SYS.spoilers.airFrac : 1);
-      const target = Math.min(maxDefl, Math.max(this.spoilerCmd, auto ? 1 : 0));
-      this.spoilerPos += (target - this.spoilerPos) * (1 - Math.exp(-dt * SYS.spoilers.rate));
-    } else this.spoilerPos = 0;
-    this.reverseCmd = (SYS.reverse > 0 && this.onGround && this.brakes && vel.length() > 12 && this.throttle < 0.5) ? 1 : 0;
-    this.reversePos += (this.reverseCmd - this.reversePos) * (1 - Math.exp(-dt / 1.2));
 
     // ---------------- Atmosfer ve hava verileri ----------------
     const atm = atmosphere(pos.y);
@@ -279,7 +267,7 @@ export class FlightModel {
     const st = this._st;
     st.alpha = alpha; st.beta = beta; st.phat = phat; st.qhat = qhat; st.rhat = rhat;
     st.mach = mach; st.sigmaGE = sigmaGE;
-    st.flaps = flapsEff; st.slats = this.slatsPos; st.gear = this.gearPos; st.spoilers = this.spoilerPos;
+    st.flaps = flapsEff; st.gear = this.gearPos;
     st.lef = this.lefPos;
     st.dLeft = -dLocal; st.dRight = dLocal;
 
@@ -292,8 +280,8 @@ export class FlightModel {
     const Mgyro = (D.Izz - D.Ixx) * r * p + Ixz * (r * r - p * p);
     const Ngyro = (D.Ixx - D.Iyy) * p * q - Ixz * q * r;
 
-    const CLmaxCfg = clMaxConfig(D, flapsEff, this.slatsPos);
-    const alphaTrim = alphaForCL(D, m * G / Math.max(qS, 1), flapsEff, this.slatsPos);
+    const CLmaxCfg = clMaxConfig(D, flapsEff);
+    const alphaTrim = alphaForCL(D, m * G / Math.max(qS, 1), flapsEff);
 
     let sur = this.fcs.sur;
     if (!this.onGround) {
@@ -326,7 +314,7 @@ export class FlightModel {
       F.addScaledVector(right, Yf);
     }
     // İtki gövde ileri ekseni boyuncadır; eksen kayması olmadığından yapay moment üretmez.
-    const thrust = this.engine_.update(dt, this.throttle, this.afterburner, atm, mach, this.reversePos, SYS.reverse || 0);
+    const thrust = this.engine_.update(dt, this.throttle, this.afterburner, atm, mach);
     F.addScaledVector(fwd, thrust);
     this.fuel = Math.max(0, this.fuel - this.engine_.fuelFlow * dt);
 
@@ -530,7 +518,7 @@ export class FlightModel {
     t.qbar = extra.qbar || 0;
     t.throttle = this.throttle; t.engine = this.engine_.n; t.ab = this.engine_.ab;
     t.gear = this.gearPos; t.gearCmd = this.gearCmd; t.flaps = this.flapsPos; t.flapsCmd = this.flapsCmd; t.brakes = this.brakes;
-    t.slats = this.slatsPos; t.spoilers = this.spoilerPos; t.reverse = this.reversePos; t.flapLabel = this.flapLabel;
+    t.flapLabel = this.flapLabel;
     t.lef = this.lefPos;
     t.onGround = this.onGround;
     t.stallWarn = !this.onGround && aAbs > this.lim.alphaWarn && V > 20;

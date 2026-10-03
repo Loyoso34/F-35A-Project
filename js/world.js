@@ -1416,37 +1416,6 @@ export class World {
     };
     addM(hangarGeos, wallMat, true);
     addM(tankGeos, this.track(new THREE.MeshStandardMaterial({ color: 0xc8ccce, roughness: 0.6, metalness: 0.3 })), true);
-    // Park halinde yolcu uçakları: apron boş bir beton levha gibi görünmesin.
-    // Kutu/silindirden kurulu düşük maliyetli siluet (uçak başına ~120 üçgen).
-    const planeGeos = [], planeDark = [];
-    const parkPlane = (px, pz, rot, scale) => {
-      const parts = [], dark = [];
-      const L = 38 * scale, R = 1.9 * scale, SP = 17 * scale;
-      const fus = new THREE.CylinderGeometry(R, R * 0.55, L, 8);
-      fus.rotateX(Math.PI / 2); fus.translate(0, R + 3.0 * scale, 0);
-      parts.push(fus);
-      const nose = new THREE.SphereGeometry(R, 8, 5); nose.scale(1, 1, 1.6); nose.translate(0, R + 3.0 * scale, -L / 2);
-      parts.push(nose);
-      const wing = new THREE.BoxGeometry(SP * 2, 0.55 * scale, 6.5 * scale);
-      wing.translate(0, R + 2.2 * scale, 1.5 * scale); parts.push(wing);
-      const tail = new THREE.BoxGeometry(0.6 * scale, 9.5 * scale, 7 * scale);
-      tail.translate(0, R + 7.5 * scale, L / 2 - 3.5 * scale); parts.push(tail);
-      const htail = new THREE.BoxGeometry(12 * scale, 0.45 * scale, 3.5 * scale);
-      htail.translate(0, R + 3.4 * scale, L / 2 - 2 * scale); parts.push(htail);
-      for (const sx of [-1, 1]) {
-        const nac = new THREE.CylinderGeometry(1.3 * scale, 1.15 * scale, 4.6 * scale, 8);
-        nac.rotateX(Math.PI / 2); nac.translate(sx * 6.2 * scale, R - 0.4 * scale, -0.5 * scale);
-        dark.push(nac);
-      }
-      const m4 = new THREE.Matrix4().makeRotationY(rot).setPosition(px, 0, pz);
-      for (const gg of parts) { gg.applyMatrix4(m4); planeGeos.push(gg); }
-      for (const gg of dark) { gg.applyMatrix4(m4); planeDark.push(gg); }
-    };
-    C.stands.forEach((st2, i) => { if (i % 3 !== 1) return; parkPlane(st2.x, st2.z + 26, Math.PI, 1); });
-    parkPlane((C.cargo.x0 + C.cargo.x1) / 2, (C.cargo.z0 + C.cargo.z1) / 2, Math.PI * 0.5, 0.92);
-    const planeMat = this.track(new THREE.MeshStandardMaterial({ color: 0xeceff2, roughness: 0.5, metalness: 0.1 }));
-    addM2(planeGeos, planeMat, g, q);
-    addM2(planeDark, this.track(new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.45, metalness: 0.5 })), g, q);
     // Pist kenar ışıkları ve yaklaşma ışıkları (uzakta gizlenir: piksel altı parıldamayı önler)
     const lights = [];
     const lg = new THREE.SphereGeometry(0.42, 5, 4);
@@ -2156,16 +2125,6 @@ export class World {
     for (const d of this.disposables) if (d && d.dispose) d.dispose();
     this.scene.remove(this.group);
   }
-}
-
-// Birden çok geometriyi tek ağa birleştirip gruba ekler (uv eksikse tamamlar)
-function addM2(geos, mat, group, q) {
-  if (!geos.length) return;
-  for (const gg of geos) if (!gg.attributes.uv) gg.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(gg.attributes.position.count * 2), 2));
-  const mesh = new THREE.Mesh(mergeGeometries(geos.map((x2) => (x2.index ? x2.toNonIndexed() : x2)), false), mat);
-  mesh.castShadow = q.shadows; mesh.receiveShadow = q.shadows;
-  group.add(mesh);
-  return mesh;
 }
 
 function distToPolylineAny(x, z) {

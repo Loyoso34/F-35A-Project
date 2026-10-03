@@ -5,9 +5,7 @@
 //     "if (alpha > stallAngle) { farklı model }" yoktur. Stall, eğrinin kendi
 //     şeklinden doğar.
 //  2. Alpha ±180°'de tanımlıdır. Post-stall bölgesinde hesap durmaz.
-//  3. İki taşıma formülasyonu vardır ve veri setinden seçilir:
-//       'vortex'  — Polhamus hücum kenarı emme analojisi (çineli/delta savaş uçağı)
-//       'classic' — doğrusal + yumuşak tepe + düz plaka (konvansiyonel kanat)
+//  3. Taşıma: Polhamus hücum kenarı emme analojisi (çineli, yüksek ok açılı kanat).
 //  4. Normalize açısal oranlar (p̂, q̂, r̂) düşük hızda patlamaz: payda
 //     güvenli bir referans hızla sınırlanır ve sönüm momentleri qbar ile
 //     ölçeklendiği için hız düşerken küçülür, büyümez.
@@ -37,23 +35,6 @@ function clVortex(alpha, D) {
   return pot + vor * burst;
 }
 
-/**
- * Konvansiyonel kanat: doğrusal bölge, yumuşak tepe, stall sonrası düz plakaya geçiş.
- * Geçişler smoothstep ile harmanlanır, kırılma noktası yoktur.
- */
-function clClassic(alpha, D) {
-  const s = Math.sign(alpha) || 1;
-  const a = Math.abs(alpha);
-  const lin = D.CLa * a;
-  // Tepe civarı yuvarlanma
-  const t = smoothstep(D.alphaLin, D.alphaMax, a);
-  const peak = lin + (D.CLmax - D.CLa * D.alphaLin) * t * (2 - t) - (lin - D.CLa * D.alphaLin) * t;
-  // Düz plaka (ayrılmış akış)
-  const plate = D.CLplate * Math.sin(2 * a);
-  const sep = smoothstep(D.alphaMax, D.alphaDrop, a);
-  return s * (peak * (1 - sep) + plate * sep);
-}
-
 // ---------------------------------------------------------------------------
 // Ana değerlendirme
 // ---------------------------------------------------------------------------
@@ -69,7 +50,7 @@ const C = {
  *
  * @param {object} s  uçuş durumu:
  *   alpha, beta (rad), phat, qhat, rhat (normalize açısal oranlar),
- *   mach, sigmaGE (yer etkisi: 1 = etki yok), flaps, slats, gear, spoilers (0..1),
+ *   mach, sigmaGE (yer etkisi: 1 = etki yok), flaps, lef, gear (0..1),
  *   dLeft, dRight (sol/sağ kanat yerel alpha farkı, rad) — asimetrik stall için
  * @param {object} D  uçağa ait aerodinamik veri seti (aerodata.js)
  * @param {object} u  kontrol yüzeyi konumları: de, da, dr (-1..1, normalize)
@@ -83,16 +64,14 @@ export function coefficients(s, D, u) {
   // Sol ve sağ kanat ayrı yerel hücum açısı görür (yatış oranı ve kayma nedeniyle).
   // İkisinin ortalaması toplam taşımayı, farkı ise doğal yatış momentini verir.
   // Bu, asimetrik stall'ı YAPAY bir tork olmadan üretir.
-  const base = D.lift === 'vortex' ? clVortex : clClassic;
-  const clL = base(alpha + s.dLeft, D);
-  const clR = base(alpha + s.dRight, D);
+  const clL = clVortex(alpha + s.dLeft, D);
+  const clR = clVortex(alpha + s.dRight, D);
   let CL = 0.5 * (clL + clR);
 
   // Konfigürasyon katkıları (stall ile sönerek kaybolur)
   const sepFrac = smoothstep(D.sepA0, D.sepA1, aAbs);        // ayrılmış akış oranı 0..1
   const cfgFade = 1 - 0.85 * sepFrac;
-  CL += (D.CLflaps * s.flaps + D.CLslats * s.slats + (D.CLlef || 0) * (s.lef || 0)) * cfgFade;
-  if (D.CLspoiler) CL *= 1 - D.CLspoiler * s.spoilers;
+  CL += (D.CLflaps * s.flaps + (D.CLlef || 0) * (s.lef || 0)) * cfgFade;
   // Yer etkisi: indüklenmiş akı azalır, taşıma eğimi hafif artar
   CL *= 1 + D.groundLift * (1 - s.sigmaGE);
   // Sıkıştırılabilirlik: Prandtl-Glauert ses altında artırır, ses üstünde eğim düşer
@@ -106,11 +85,11 @@ export function coefficients(s, D, u) {
   const AR = D.AR;
   const e = D.e + (D.eFlaps - D.e) * s.flaps;
   const ca = Math.cos(alpha), sa = Math.sin(alpha);
-  const clPot = D.lift === 'vortex' ? D.Kp * sa * ca * ca : CL * (1 - sepFrac);
+  const clPot = D.Kp * sa * ca * ca;
   const CDi = (clPot * clPot) / (Math.PI * AR * e) * s.sigmaGE;
-  const CDvortex = D.lift === 'vortex' ? D.Kv * Math.abs(sa) * sa * sa : 0;
+  const CDvortex = D.Kv * Math.abs(sa) * sa * sa;
   const CDsep = D.CDsep * sa * sa * sepFrac;
-  let CD0 = D.CD0 + D.CDgear * s.gear + D.CDflaps * s.flaps + D.CDspoiler * s.spoilers + (D.CDlef || 0) * (s.lef || 0);
+  let CD0 = D.CD0 + D.CDgear * s.gear + D.CDflaps * s.flaps + (D.CDlef || 0) * (s.lef || 0);
   CD0 += machWaveDrag(M, D);
   // Kontrol yüzeyi sapma sürüklemesi
   const CDctl = D.CDde * u.de * u.de + D.CDda * u.da * u.da + D.CDdr * u.dr * u.dr;
@@ -130,7 +109,6 @@ export function coefficients(s, D, u) {
   let Cm = D.Cm0 + cma * Math.sin(alpha)
     + D.Cmq * s.qhat
     + D.CmFlaps * s.flaps
-    + D.CmSpoiler * s.spoilers
     + D.Cmde * u.de;
   // Çok yüksek alpha'da burun aşağı eğilim (girdap patlaması basınç merkezini geri taşır).
   // Bu bir EŞİK değil, düzgün bir smoothstep ile devreye giren sürekli bir terimdir
@@ -220,11 +198,10 @@ function machWaveDrag(M, D) {
  * Konfigürasyondaki azami taşıma katsayısı (FCS'nin kullanılabilir g hesabı için).
  * Eğriyi tarayarak bulunur; böylece formülasyon değişse de doğru kalır.
  */
-export function clMaxConfig(D, flaps, slats) {
+export function clMaxConfig(D, flaps) {
   let best = 0;
-  const base = D.lift === 'vortex' ? clVortex : clClassic;
   for (let a = 2 * DEG; a < 60 * DEG; a += 2 * DEG) {
-    const v = base(a, D) + (D.CLflaps * flaps + D.CLslats * slats) * (1 - 0.85 * smoothstep(D.sepA0, D.sepA1, a));
+    const v = clVortex(a, D) + D.CLflaps * flaps * (1 - 0.85 * smoothstep(D.sepA0, D.sepA1, a));
     if (v > best) best = v;
   }
   return best;
@@ -234,9 +211,8 @@ export function clMaxConfig(D, flaps, slats) {
  * Verilen taşıma katsayısını üreten hücum açısı (trim tahmini için).
  * Eğri tek tepeli olduğundan tepe öncesi bölgede ikiye bölme ile aranır.
  */
-export function alphaForCL(D, target, flaps, slats) {
-  const base = D.lift === 'vortex' ? clVortex : clClassic;
-  const f = (a) => base(a, D) + (D.CLflaps * flaps + D.CLslats * slats) * (1 - 0.85 * smoothstep(D.sepA0, D.sepA1, Math.abs(a)));
+export function alphaForCL(D, target, flaps) {
+  const f = (a) => clVortex(a, D) + D.CLflaps * flaps * (1 - 0.85 * smoothstep(D.sepA0, D.sepA1, Math.abs(a)));
   let lo = -14 * DEG, hi = D.alphaPeak;
   if (target <= f(lo)) return lo;
   if (target >= f(hi)) return hi;

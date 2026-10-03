@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FFS">
   <meta name="theme-color" content="#0b1016">
-  <meta name="description" content="FFS Flight Simulator: fly the F-35A Lightning II, Airbus A321neo and the fictional FA-90 Vesper. Installable web app for phones and desktop.">
+  <meta name="description" content="FFS Flight Simulator: fly the F-35A Lightning II. Installable web app for phones and desktop.">
   <title>FFS — Flight Simulator</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/icon-180.png">
@@ -256,7 +256,7 @@
     .ap-chip b { font-size: 12.5px; font-weight: 700; color: #e8f0f8; }
     .ap-chip span { font-size: 10px; color: rgba(185,200,216,0.62); }
     .ap-chip.on { border-color: rgba(120,190,255,0.85); background: rgba(38,74,112,0.6); }
-    /* Livery seçimi: uçak başına bir satır çip. Kalkış çipleriyle aynı görsel dil. */
+    /* Livery seçimi: bir satır çip. Kalkış çipleriyle aynı görsel dil. */
     .sel-lv-host { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
     .sel-lv { display: flex; align-items: center; gap: 10px; justify-content: center; flex-wrap: wrap; }
     .sel-lv-lbl { font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: rgba(185,200,216,0.55); white-space: nowrap; }
@@ -475,7 +475,6 @@
     <div id="right-col">
       <button class="btn on" id="btn-gear" aria-label="Landing gear"><span class="i">🛬</span><span class="l">Landing Gear</span></button>
       <button class="btn on" id="btn-brake" aria-label="Wheel brakes"><span class="i">🛑</span><span class="l">Brakes</span></button>
-      <button class="btn" id="btn-spoiler" hidden aria-label="Spoilers"><span class="i">🪶</span><span class="l">Spoilers</span></button>
     </div>
     <div class="zone" id="throttle">
       <div id="throttle-track"><div id="throttle-ab"></div><div id="throttle-fill"></div></div>
@@ -485,11 +484,11 @@
 
   <div id="select" class="overlay" hidden>
     <div class="sel-wrap">
-      <h1 class="sel-title">Select Aircraft<small>Tap the aircraft you want to fly</small></h1>
+      <h1 class="sel-title">Hangar<small>Pick a departure airport and paint scheme, then tap the F-35A to fly</small></h1>
       <div class="sel-grid" id="sel-grid"></div>
       <div class="sel-ap" id="sel-ap"><span class="sel-ap-lbl">Departure</span><div class="sel-ap-row" id="sel-ap-row"></div></div>
       <div class="sel-lv-host" id="sel-livery"></div>
-      <p class="sel-hint" id="sel-hint">You can switch aircraft later from Pause → Change Aircraft.</p>
+      <p class="sel-hint" id="sel-hint">You can come back here later from Pause → Hangar.</p>
     </div>
   </div>
 
@@ -503,13 +502,11 @@
         <li><b>Bottom row, left to right:</b> flap lever &rarr; stick &rarr; rudder slider (center)</li>
         <li><b>Rudder slider:</b> drag to yaw; it springs back to center. On the ground it also steers the nosewheel</li>
         <li><b>Flap lever:</b> slide down to extend, up to retract. It snaps to each detent and shows the setting and flap angle</li>
-        <li><b>Landing Gear / Brakes:</b> tap to toggle. The A321neo and FA-90 also have a <b>Spoilers</b> button</li>
+        <li><b>Landing Gear / Brakes:</b> tap to toggle</li>
         <li><b>Takeoff:</b> you start with the brakes released and flaps up &mdash; open the throttle and rotate at about 140 kt</li>
         <li><b>☰ Menu:</b> Pause, <b>Camera</b> (free &rarr; cockpit &rarr; chase &rarr; flyby &rarr; left wing &rarr; right wing &rarr; landing gear), Sound and Lights</li>
-        <li><b>Keyboard:</b> WASD/arrows pitch and roll, Q/E rudder, Shift/Ctrl throttle, G gear, F flaps, V spoilers, B brakes, L lights, C camera, P pause</li>
-        <li><b>A321neo:</b> flap settings are 0 / 1 (10&deg;) / 2 (15&deg;) / 3 (20&deg;) / FULL (40&deg;). On the ground, the brake also deploys the thrust reversers</li>
-        <li><b>FA-90 Vesper:</b> a fictional tailless design &mdash; the trailing-edge elevons control both pitch and roll, and the <b>Spoilers</b> button opens the dorsal air brakes. Flap settings are UP / MVR (9&deg;) / LAND (18&deg;)</li>
-        <li><b>Two airports:</b> Anadolu Air Base and Yesilova Airport. Choose your departure airport on the selection screen</li>
+        <li><b>Keyboard:</b> WASD/arrows pitch and roll, Q/E rudder, Shift/Ctrl throttle, G gear, F flaps, B brakes, L lights, C camera, P pause</li>
+        <li><b>Two airports:</b> Anadolu Air Base and Yesilova Airport. Choose your departure airport in the hangar</li>
       </ul>
     </div>
   </div>
@@ -543,7 +540,7 @@
   <div class="overlay" id="start-screen" hidden>
     <div class="panel" style="text-align:center">
       <h1>FFS</h1>
-      <p>Flight Simulator &mdash; F-35A Lightning II, Airbus A321neo and FA-90 Vesper</p>
+      <p>Flight Simulator &mdash; F-35A Lightning II</p>
       <button class="big" id="btn-start">Start</button>
       <p class="small" id="start-hint"></p>
     </div>
@@ -555,7 +552,7 @@
       <div class="row">
         <button class="btn" id="btn-resume">Resume</button>
         <button class="btn" id="btn-restart">Restart</button>
-        <button class="btn" id="btn-aircraft">Change Aircraft</button>
+        <button class="btn" id="btn-aircraft">Hangar</button>
         <button class="btn" id="btn-settings">Settings</button>
       </div>
     </div>

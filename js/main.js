@@ -38,7 +38,7 @@ const LOAD_LABEL = {
   surroundings: 'Finishing airport surroundings…', clouds: 'Forming clouds…', collision: 'Finishing scenery…',
   env: 'Preparing reflections…',
   systems: 'Setting up flight systems…',
-  previews: 'Rendering aircraft previews…',
+  previews: 'Rendering aircraft preview…',
   shaders: 'Compiling shaders…',
 };
 const PROFILE_KEY = 'ffs.loadProfile';
@@ -194,7 +194,6 @@ class App {
       onPause: () => this.togglePause(),
       onLights: () => this.toggleLights(),
       onPhysDebug: () => this.togglePhysDebug(),
-      onSpoilers: () => this.toggleSpoilers(),
       onMenu: () => this.ui.toggleMenu(),
       onMenuActivity: () => this.ui.menuActivity(),
       onViewDrag: (dx, dy) => this.cameraRig.drag(dx, dy),
@@ -209,7 +208,7 @@ class App {
 
     prog.step('previews');
     await this.breathe();
-    await this.buildThumbnails(null, (k, n) => prog.step('previews', k / n, `Rendering aircraft previews (${Math.min(n, Math.floor(k) + 1)}/${n})…`));
+    await this.buildThumbnails(null, (k, n) => prog.step('previews', k / n));
     prog.end('previews');
 
     prog.step('shaders');
@@ -493,7 +492,7 @@ class App {
     return list.some((l) => l.id === saved) ? saved : defaultLiveryId(aircraftId);
   }
 
-  /** Uçak başına bir satır livery çipi üretir (seçim ekranında). */
+  /** Hangarda livery çip satırını üretir. */
   buildLiveryRows() {
     const host = this.ui.el.selLivery;
     if (!host || host.childElementCount) return;
@@ -594,7 +593,7 @@ class App {
       try {
         ac = cfg.build({ quality: this.settings.quality, livery: this.liveryId(id) });
         if (this.envMap && ac.setEnvironment) ac.setEnvironment(this.envMap);
-        ac.update({ gear: 1, flaps: 0, slats: 0, spoilers: 0, throttle: 0.2, engine: 0.2, time: 0.35, dt: 0.016 });
+        ac.update({ gear: 1, flaps: 0, throttle: 0.2, engine: 0.2, time: 0.35, dt: 0.016 });
         scene.add(ac.group);
         // Model kurulumu ile ilk çizim (gölgelendirici derlemesi) ayrı dilimlerde:
         // arada tarayıcı bir kare çizer, döndürmeye tepki verir
@@ -740,8 +739,6 @@ class App {
     this.lightsOn = false;
     this.aircraft.setLandingLights(false);
     this.ui.setToggle(this.ui.el.btnLights, false);
-    this.ui.el.btnSpoiler.hidden = !cfg.ui.spoilerButton;
-    this.controls.setAfterburnerEnabled(!!cfg.ui.afterburner);
     this.controls.resetLever(0);
     // Flap kolu: kademe adları ve açıları uçaktan gelir, kol her zaman 0'da başlar
     this.controls.setFlapDetents(cfg.systems.flapNames, cfg.systems.flapNotes);
@@ -865,16 +862,8 @@ class App {
     if (!p) return;
     ui.setToggle(ui.el.btnGear, p.gearCmd > 0.5);
     ui.setToggle(ui.el.btnBrake, p.brakes);
-    ui.setToggle(ui.el.btnSpoiler, p.spoilerCmd > 0.5);
     // Flap kolu fizikteki kademeyi izler (klavye ya da dokunma, fark etmez)
     this.controls.setFlapUI(p.flapIndex);
-  }
-  toggleSpoilers() {
-    if (this.state !== 'running' || !this.physics) return;
-    if (!this.physics.sys.spoilers) return;
-    this.physics.toggleSpoilers();
-    this.updateToggleButtons();
-    this.ui.message(this.physics.spoilerCmd ? 'Speed brakes extended' : 'Speed brakes retracted', 1100);
   }
   toggleLights() {
     if (this.state !== 'running') return;
@@ -1015,7 +1004,7 @@ class App {
   /** Çizim pozunu son iki fizik durumu arasında kurar (a: 0..1, adım kesri). */
   interpolatePose(a) {
     const p = this.physics, pose = this.pose;
-    // Işınlanma (yeniden başlatma, uçak değişimi): aradaki yol enterpole edilmez
+    // Işınlanma (yeniden başlatma, hangardan yeniden uçuş): aradaki yol enterpole edilmez
     if (this._prevPos.distanceToSquared(p.pos) > 400 * 400) { this.snapPose(); return; }
     a = a < 0 ? 0 : a > 1 ? 1 : a;
     pose.pos.lerpVectors(this._prevPos, p.pos, a);
@@ -1041,8 +1030,8 @@ class App {
     // Argüman nesnesi her karede yeniden kullanılır (tahsis yok)
     A.elevator = sf.elevator; A.aileron = sf.aileron; A.rudder = sf.rudder;
     A.lef = p.lefPos || 0; A.toeIn = p.toeIn || 0;
-    A.flaps = p.flapsPos; A.slats = p.slatsPos; A.spoilers = p.spoilerPos; A.gear = p.gearPos;
-    A.throttle = p.engine; A.engine = p.engine; A.afterburner = p.abLevel; A.reverse = p.reversePos; A.time = p.time;
+    A.flaps = p.flapsPos; A.gear = p.gearPos;
+    A.throttle = p.engine; A.engine = p.engine; A.afterburner = p.abLevel; A.time = p.time;
     A.nozzle = p.engine_.nozzle !== undefined ? p.engine_.nozzle : p.engine;
     A.groundSpeed = p.onGround ? p.vel.length() : 0; A.dt = dt; A.gearComp = gc;
     A.camDist = this.camera.position.distanceTo(pose.pos);
@@ -1120,9 +1109,8 @@ class App {
       this.world.update(running ? dt : 0, this.camera, this.pose.pos);
       this.renderer.render(this.scene, this.camera);
       const cockpit = this.cameraRig.mode === 'cockpit';
-      const style = getAircraftConfig(this.aircraftId).hud;
       this.hud.draw(this.physics.telemetry, this.camera, this.pose, {
-        visible: cockpit, externalOnly: !cockpit, style, extended: style === 'airliner',
+        visible: cockpit, externalOnly: !cockpit,
         dt, safe: this.safe, cameraName: CAMERA_NAMES[this.cameraRig.mode],
       });
       this.needsRender = false;

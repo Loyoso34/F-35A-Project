@@ -3,16 +3,16 @@
 // (kahverengi gürültü, gaz kolu ile spektrum değişir), art yakıcı (yumuşak kırpma + çıtırtı + ateşleme darbesi),
 // rüzgar, yer gürültüsü, stall uyarısı. Kokpit içinde boğuk/gürlemeli, dışarıda parlak ve kükremeli.
 // Dış "uçuş geçişi" kamerasında Doppler ve mesafe zayıflaması uygulanır. Master kompresör kırpmayı önler.
-// Varsayılan (savaş uçağı) ses profili
+// F-35A (F135) ses profili; fleet.js aynı değerleri verir
 const DEFAULT_PROFILE = {
   rumbleF: [38, 75], rumbleFilter: [120, 260], rumbleGain: [0.10, 0.22],
   roarBP: [220, 620], roarLP: [500, 2200], roarGain: [0.05, 0.55],
   whineF: [700, 3500], whineGain: [0.004, 0.028], hissHP: [1800, 2500], hissGain: 0.05,
-  ab: 1, reverse: 0, idle: 0.22, rollLP: 220,
+  ab: 1, idle: 0.22, rollLP: 220,
 };
 
 export class AudioEngine {
-  // Uçak sesi profili: motor türüne göre frekans ve seviye eşlemesi (fleet.js'ten gelir)
+  // Motor sesi profili: frekans ve seviye eşlemesi (fleet.js'ten gelir)
   setProfile(p) { this.profile = p || null; }
 
   constructor() {
@@ -194,8 +194,7 @@ export class AudioEngine {
     const ctx = this.ctx, t = ctx.currentTime, k = 0.06;
     const P = this.profile || DEFAULT_PROFILE;
     const eng = running ? T.engine : 0;
-    // Art yakıcı kanalı: savaş uçağında AB, yolcu uçağında ters itki gürlemesi için kullanılır
-    const ab = running ? (T.ab * P.ab + (T.reverse || 0) * P.reverse) : 0;
+    const ab = running ? T.ab * P.ab : 0;
     const rpm = P.idle + (1 - P.idle) * eng;     // rölanti hissi profile göre
     const cockpit = this.view === 'cockpit';
     const dg = cockpit ? 1 : this.distanceGain;

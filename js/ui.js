@@ -33,7 +33,7 @@ export class UI {
       guide: $('guide'), guideClose: $('guide-close'),
       touch: $('touch'), msg: $('msg'), fps: $('fps'),
       btnGear: $('btn-gear'), btnBrake: $('btn-brake'), btnSound: $('btn-sound'), btnLights: $('btn-lights'),
-      btnMenu: $('btn-menu'), drawer: $('drawer'), btnSpoiler: $('btn-spoiler'),
+      btnMenu: $('btn-menu'), drawer: $('drawer'),
       select: $('select'), selGrid: $('sel-grid'), selHint: $('sel-hint'), btnAircraft: $('btn-aircraft'), selApRow: $('sel-ap-row'), selLivery: $('sel-livery'),
     };
     this.el.guideClose.addEventListener('click', () => this.hide('guide'));
@@ -240,8 +240,13 @@ export function isIOS() {
   return /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 export function loadSettings() {
-  try { return Object.assign({ quality: 'medium', tilt: 0, sound: 1, fps: 0, aircraft: 'f35a', spawn: 'base' }, JSON.parse(localStorage.getItem('f35a.settings') || '{}')); }
-  catch (e) { return { quality: 'medium', tilt: 0, sound: 1, fps: 0, aircraft: 'f35a', spawn: 'base' }; }
+  const def = { quality: 'medium', tilt: 0, sound: 1, fps: 0, aircraft: 'f35a', spawn: 'base' };
+  let s;
+  try { s = Object.assign(def, JSON.parse(localStorage.getItem('f35a.settings') || '{}')); } catch (e) { return def; }
+  // Oyunda yalnızca F-35A var: eski kayıtlardaki başka uçak seçimi ve boya kayıtları atılır
+  s.aircraft = 'f35a';
+  if (s.livery && typeof s.livery === 'object') s.livery = s.livery.f35a ? { f35a: s.livery.f35a } : {};
+  return s;
 }
 export function saveSettings(s) {
   try { localStorage.setItem('f35a.settings', JSON.stringify(s)); } catch (e) { /* özel mod */ }
