@@ -147,47 +147,193 @@ export function makeWaterNormalTexture(size = 512) {
 }
 
 // Uçak gövdesi: koyu gri gizlilik boyası, panel çizgileri, perçinler, hafif aşınma.
+// İniş takımı yuvası iç yüzü: açık gri boyalı yapı (F-35 yuvaları açık renklidir), enine
+// çerçeveler ve boyuna kirişler, hidrolik borular, kenarlara doğru koyulaşan gölge (derinlik
+// hissi). u: yuvanın enine (0..1), v: boyuna (0..1).
+export function makeGearBayTexture(w = 256, h = 512) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#9ba1a7';
+  ctx.fillRect(0, 0, w, h);
+  // Enine çerçeveler (gölgeli kenarlı)
+  const nf = 7;
+  for (let i = 1; i < nf; i++) {
+    const y = (i / nf) * h;
+    ctx.fillStyle = '#b9bec3'; ctx.fillRect(0, y - 5, w, 7);
+    ctx.fillStyle = '#5d6369'; ctx.fillRect(0, y + 2, w, 3);
+  }
+  // Boyuna kirişler
+  for (const x of [0.22, 0.78]) {
+    ctx.fillStyle = '#c3c8cc'; ctx.fillRect(x * w - 4, 0, 6, h);
+    ctx.fillStyle = '#5a6066'; ctx.fillRect(x * w + 2, 0, 3, h);
+  }
+  // Hidrolik/elektrik hatları
+  const pipes = [[0.34, '#3a3f44', 4], [0.40, '#7a5a2a', 3], [0.62, '#3a3f44', 5], [0.67, '#2f5a7a', 3]];
+  for (const [x, col, wd] of pipes) {
+    ctx.fillStyle = col; ctx.fillRect(x * w, 0, wd, h);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(x * w, 0, 1, h);
+    for (let k = 0; k < 6; k++) { ctx.fillStyle = '#2a2d31'; ctx.fillRect(x * w - 2, (k + 0.5) / 6 * h, wd + 4, 5); }
+  }
+  // Kutular / aktüatör yuvaları
+  ctx.fillStyle = '#7d848a';
+  ctx.fillRect(0.05 * w, 0.18 * h, 0.12 * w, 0.14 * h);
+  ctx.fillRect(0.83 * w, 0.58 * h, 0.12 * w, 0.18 * h);
+  ctx.strokeStyle = '#4c5257'; ctx.lineWidth = 2;
+  ctx.strokeRect(0.05 * w, 0.18 * h, 0.12 * w, 0.14 * h);
+  ctx.strokeRect(0.83 * w, 0.58 * h, 0.12 * w, 0.18 * h);
+  // Derinlik gölgesi: kenarlar koyu, orta hafif açık
+  const gx = ctx.createLinearGradient(0, 0, w, 0);
+  gx.addColorStop(0, 'rgba(10,12,14,0.75)'); gx.addColorStop(0.18, 'rgba(10,12,14,0.15)');
+  gx.addColorStop(0.82, 'rgba(10,12,14,0.15)'); gx.addColorStop(1, 'rgba(10,12,14,0.75)');
+  ctx.fillStyle = gx; ctx.fillRect(0, 0, w, h);
+  const gy = ctx.createLinearGradient(0, 0, 0, h);
+  gy.addColorStop(0, 'rgba(10,12,14,0.65)'); gy.addColorStop(0.1, 'rgba(10,12,14,0)');
+  gy.addColorStop(0.9, 'rgba(10,12,14,0)'); gy.addColorStop(1, 'rgba(10,12,14,0.65)');
+  ctx.fillStyle = gy; ctx.fillRect(0, 0, w, h);
+  return finishTexture(new THREE.CanvasTexture(c), { repeat: false });
+}
+
+// F-35 kaplama dokusu (döşenir). Eski doku: düzgün 10x8 ızgara, 2 px siyah çizgiler, 60 rastgele
+// dikdörtgen ve kum gibi noktalar — "kareli kâğıt" gibi görünüyordu. Yeni doku:
+//   - düzensiz panel yerleşimi, her panel tonu çok hafif farklı (RAM kaplama yamaları),
+//   - ince koyu panel derzleri + yanında açık renkli sızdırmazlık bandı,
+//   - bazı dikey derzlerde F-35'e özgü testere dişi kenar,
+//   - derzler boyunca düzenli perçin sıraları, az sayıda yuvarlak köşeli servis kapağı.
+// Doku kenarlardan kesintisiz döşenir. Büyük ölçekli ton/kir değişimi gölgelendiricide
+// (applyPaintDetail) nesne uzayında eklenir; döşeme tekrarı böylece seçilmez.
 export function makeStealthPanelTexture(size = 1024) {
   const c = makeCanvas(size, size);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(size, size);
-  const n = periodicNoise(size, 4, 41, 6, 0.5);
-  const rand = mulberry32(42);
+  const n = periodicNoise(size, 4, 41, 4, 0.5);
   for (let i = 0; i < size * size; i++) {
-    const v = 118 + (n[i] - 0.5) * 26 + (rand() - 0.5) * 6;
+    const v = 124 + (n[i] - 0.5) * 9;
     img.data[i * 4] = v; img.data[i * 4 + 1] = v + 1; img.data[i * 4 + 2] = v + 3; img.data[i * 4 + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
-  // Panel çizgileri (F-35 tarzı testere dişi kenarlar için kırık çizgiler)
-  ctx.strokeStyle = 'rgba(30,32,36,0.75)';
-  ctx.lineWidth = 2;
-  const cols = 10, rows = 8;
-  for (let i = 0; i <= cols; i++) {
-    const x = Math.round((i / cols) * size) + (i % 2 ? 18 : 0);
-    ctx.beginPath(); ctx.moveTo(x, 0);
-    for (let y = 0; y <= size; y += 64) {
-      const zig = (Math.floor(y / 64) % 2) ? 6 : -6;
-      ctx.lineTo(x + (i % 3 === 0 ? zig : 0), y);
+  const rand = mulberry32(42);
+  const S = size;
+  const colsF = [0, 0.12, 0.27, 0.39, 0.53, 0.66, 0.80, 0.91];
+  const rowsF = [0, 0.16, 0.34, 0.49, 0.67, 0.83];
+  const X = colsF.map((f) => Math.round(f * S)), Y = rowsF.map((f) => Math.round(f * S));
+  // Panel tonları (ızgara hücreleri; satırlar arasında sütunlar kaydırılmaz, sarmalama korunur)
+  for (let j = 0; j < Y.length; j++) {
+    const y0 = Y[j], y1 = j + 1 < Y.length ? Y[j + 1] : S;
+    for (let i = 0; i < X.length; i++) {
+      const x0 = X[i], x1 = i + 1 < X.length ? X[i + 1] : S;
+      const d = (rand() - 0.5) * 2;
+      ctx.fillStyle = d > 0 ? `rgba(255,255,255,${0.022 * d})` : `rgba(0,0,0,${-0.028 * d})`;   // hafif: büyük düz kanatta şerit gibi görünmesin
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
     }
-    ctx.stroke();
   }
-  for (let j = 0; j <= rows; j++) {
-    const y = Math.round((j / rows) * size) + (j % 2 ? 30 : 0);
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke();
+  const seam = (pts, dark = 0.42) => {
+    ctx.lineJoin = 'miter';
+    ctx.strokeStyle = 'rgba(205,210,214,0.20)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x + 1.6, y + 1.6) : ctx.moveTo(x + 1.6, y + 1.6))); ctx.stroke();
+    ctx.strokeStyle = `rgba(38,41,45,${dark})`; ctx.lineWidth = 1.4;
+    ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+  };
+  const rivets = (x0, y0, x1, y1, off, gap = 13) => {
+    const len = Math.hypot(x1 - x0, y1 - y0), nx = -(y1 - y0) / len, ny = (x1 - x0) / len;
+    ctx.fillStyle = 'rgba(52,55,60,0.30)';
+    for (let t = gap * 0.5; t < len; t += gap) {
+      const x = x0 + (x1 - x0) * (t / len) + nx * off, y = y0 + (y1 - y0) * (t / len) + ny * off;
+      ctx.beginPath(); ctx.arc(x, y, 1.1, 0, Math.PI * 2); ctx.fill();
+    }
+  };
+  // Dikey derzler (bazıları testere dişi); x=0 ve x=S aynı çizgi
+  X.forEach((x, i) => {
+    const saw = i % 3 === 1;
+    for (const xx of i === 0 ? [0, S] : [x]) {
+      const pts = [];
+      if (saw) { const t = 22; for (let y = 0; y <= S; y += t) pts.push([xx + ((y / t) % 2 ? 9 : -9), y]); }
+      else pts.push([xx, 0], [xx, S]);
+      seam(pts);
+      if (!saw) { rivets(xx, 0, xx, S, 5); rivets(xx, 0, xx, S, -5); }
+    }
+  });
+  Y.forEach((y, j) => { for (const yy of j === 0 ? [0, S] : [y]) { seam([[0, yy], [S, yy]]); rivets(0, yy, S, yy, 5); } });
+  // Servis kapakları: hücre içinde, yuvarlak köşeli, çevresi perçinli
+  for (let k = 0; k < 16; k++) {
+    const i = Math.floor(rand() * X.length), j = Math.floor(rand() * Y.length);
+    const cx0 = X[i], cx1 = i + 1 < X.length ? X[i + 1] : S, cy0 = Y[j], cy1 = j + 1 < Y.length ? Y[j + 1] : S;
+    const w = Math.min(cx1 - cx0 - 30, 36 + rand() * 80), h = Math.min(cy1 - cy0 - 30, 26 + rand() * 50);
+    if (w < 20 || h < 16) continue;
+    const x = cx0 + 15 + rand() * (cx1 - cx0 - 30 - w), y = cy0 + 15 + rand() * (cy1 - cy0 - 30 - h), r = 5;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+    ctx.fillStyle = rand() > 0.5 ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.03)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(40,43,47,0.36)'; ctx.lineWidth = 1.1; ctx.stroke();
+    ctx.fillStyle = 'rgba(50,53,58,0.30)';
+    const per = 2 * (w + h), nR = Math.max(6, Math.round(per / 11));
+    for (let q = 0; q < nR; q++) {
+      let t = (q / nR) * per, px, py;
+      if (t < w) { px = x + t; py = y + 4; } else if ((t -= w) < h) { px = x + w - 4; py = y + t; } else if ((t -= h) < w) { px = x + w - t; py = y + h - 4; } else { t -= w; px = x + 4; py = y + h - t; }
+      ctx.beginPath(); ctx.arc(px, py, 0.9, 0, Math.PI * 2); ctx.fill();
+    }
   }
-  // Küçük kapaklar ve perçin sıraları
-  ctx.strokeStyle = 'rgba(40,42,46,0.6)';
-  ctx.lineWidth = 1.5;
-  for (let k = 0; k < 60; k++) {
-    const x = rand() * size, y = rand() * size, w = 20 + rand() * 90, h = 12 + rand() * 40;
-    ctx.strokeRect(x, y, w, h);
+  return finishTexture(new THREE.CanvasTexture(c), { aniso: 8 });
+}
+
+// Büyük ölçekli değişim dokusu (nesne uzayında örneklenir): R düşük frekans ton,
+// G orta frekans leke, B akış yönünde (boyuna) uzamış kir izleri için.
+export function makeMacroNoiseTexture(size = 256) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const a = periodicNoise(size, 4, 71, 3, 0.55), b = periodicNoise(size, 4, 72, 9, 0.5), s = periodicNoise(size, 3, 73, 16, 0.5);
+  for (let i = 0; i < size * size; i++) {
+    img.data[i * 4] = a[i] * 255; img.data[i * 4 + 1] = b[i] * 255; img.data[i * 4 + 2] = s[i] * 255; img.data[i * 4 + 3] = 255;
   }
-  ctx.fillStyle = 'rgba(60,62,66,0.5)';
-  for (let k = 0; k < 2500; k++) {
-    const x = rand() * size, y = rand() * size;
-    ctx.fillRect(x, y, 1.5, 1.5);
-  }
-  return finishTexture(new THREE.CanvasTexture(c));
+  ctx.putImageData(img, 0, 0);
+  return finishTexture(new THREE.CanvasTexture(c), { srgb: false });
+}
+
+// Bakım/uyarı işaretleri atlası (düşük görünürlüklü koyu gri). Her öğenin uv dikdörtgeni
+// STENCIL_ATLAS'ta; tek doku + tek malzeme, tüm işaretler tek çizime birleşir.
+export const STENCIL_ATLAS = {
+  warn: [0, 0, 0.125, 0.5], rescue: [0.125, 0, 0.5, 0.5], nostep: [0.5, 0, 0.75, 0.25],
+  fuel: [0.5, 0.25, 0.75, 0.5], intake: [0.75, 0, 1, 0.5], jack: [0, 0.5, 0.125, 1],
+  ground: [0.125, 0.5, 0.375, 0.75], data: [0.375, 0.5, 0.75, 1], walk: [0.75, 0.5, 1, 0.625],
+};
+export function makeStencilAtlas(w = 1024, h = 256, ink = '#4b5056') {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  const R = (k) => { const [u0, v0, u1, v1] = STENCIL_ATLAS[k]; return { x: u0 * w, y: v0 * h, w: (u1 - u0) * w, h: (v1 - v0) * h }; };
+  ctx.fillStyle = ink; ctx.strokeStyle = ink; ctx.lineJoin = 'round';
+  const text = (s, x, y, px, align = 'center') => { ctx.font = `bold ${px}px Arial, Helvetica, sans-serif`; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y); };
+  // Fırlatma koltuğu uyarı üçgeni
+  { const r = R('warn'), cx = r.x + r.w / 2, cy = r.y + r.h * 0.52, s = r.w * 0.42;
+    ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(cx, cy - s); ctx.lineTo(cx + s, cy + s * 0.8); ctx.lineTo(cx - s, cy + s * 0.8); ctx.closePath(); ctx.stroke();
+    text('!', cx, cy + s * 0.15, 54); }
+  // Kurtarma oku + yazı
+  { const r = R('rescue'), y = r.y + r.h * 0.38;
+    ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(r.x + 30, y); ctx.lineTo(r.x + r.w - 70, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(r.x + r.w - 30, y); ctx.lineTo(r.x + r.w - 76, y - 26); ctx.lineTo(r.x + r.w - 76, y + 26); ctx.closePath(); ctx.fill();
+    text('RESCUE', r.x + r.w / 2 - 20, r.y + r.h * 0.72, 40);
+    text('CANOPY JETTISON', r.x + r.w / 2 - 20, r.y + r.h * 0.9, 18); }
+  // NO STEP
+  { const r = R('nostep'); ctx.lineWidth = 3; ctx.strokeRect(r.x + 8, r.y + 10, r.w - 16, r.h - 20); text('NO STEP', r.x + r.w / 2, r.y + r.h / 2, 30); }
+  // Yakıt bilgisi
+  { const r = R('fuel'); text('FUEL  JP-8', r.x + r.w / 2, r.y + r.h * 0.35, 24); text('SPR 55 PSI MAX', r.x + r.w / 2, r.y + r.h * 0.72, 18); }
+  // Hava alığı tehlike şeridi (köşeli)
+  { const r = R('intake');
+    ctx.lineWidth = 6; ctx.beginPath();
+    for (let k = 0; k < 5; k++) { const x = r.x + 18 + k * 44; ctx.moveTo(x, r.y + r.h * 0.18); ctx.lineTo(x + 22, r.y + r.h * 0.36); ctx.lineTo(x, r.y + r.h * 0.54); }
+    ctx.stroke(); text('DANGER', r.x + r.w / 2, r.y + r.h * 0.72, 30); text('JET INTAKE', r.x + r.w / 2, r.y + r.h * 0.9, 20); }
+  // Kriko noktası
+  { const r = R('jack'), cx = r.x + r.w / 2, cy = r.y + r.h * 0.45; ctx.beginPath(); ctx.moveTo(cx, cy - 36); ctx.lineTo(cx + 34, cy + 24); ctx.lineTo(cx - 34, cy + 24); ctx.closePath(); ctx.fill(); text('JACK', cx, r.y + r.h * 0.86, 22); }
+  // Topraklama
+  { const r = R('ground'); text('GROUND HERE', r.x + r.w / 2, r.y + r.h * 0.3, 26); ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(r.x + r.w / 2, r.y + r.h * 0.7, 12, 0, Math.PI * 2); ctx.stroke(); }
+  // Veri bloğu (seri/bakım)
+  { const r = R('data'); ctx.font = 'bold 19px Arial, Helvetica, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ['F-35A  LIGHTNING II', 'LOCKHEED MARTIN AERONAUTICS', 'SERVICE: OIL MIL-PRF-23699', 'HYD: MIL-PRF-87257  3000/4000 PSI', 'OXY: OBOGS - NO SERVICING'].forEach((s, k) => ctx.fillText(s, r.x + 10, r.y + 8 + k * 23)); }
+  // Yürüme yolu sınır çizgisi parçası (kesikli)
+  { const r = R('walk'); ctx.lineWidth = 5; ctx.setLineDash([22, 12]); ctx.beginPath(); ctx.moveTo(r.x, r.y + r.h / 2); ctx.lineTo(r.x + r.w, r.y + r.h / 2); ctx.stroke(); ctx.setLineDash([]); }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.needsUpdate = true;
+  return t;
 }
 
 // Pürüzlülük haritası: panel çizgilerinde daha parlak, geri kalanda mat.
@@ -218,7 +364,7 @@ export function makeMilInsigniaTexture(kind = 'starbar', size = 256) {
   // yıldız-çubuk işaretini taşır. Donanma şemasında yalnızca ton daha soluktur.
   // (Amblemin üstüne yazı EKLENMEZ: dekal düzlemleri dönüşe göre simetrik amblem
   //  için kurulmuştur, yazı kanadın bir yüzünde ters görünür.)
-  return makeInsigniaTexture(size, kind === 'navy' ? 0.72 : 1);
+  return makeInsigniaTexture(Math.max(512, size), kind === 'navy' ? 0.8 : 1);
 }
 
 // Balkenkreuz: dört kollu, içi boş, gri konturlu modern Alman işareti.
@@ -249,33 +395,35 @@ function makeIronCrossTexture(size = 256) {
   return t2;
 }
 
-// Kanat üstü işaret dokusu: yıldız-çubuk amblemi (silik, düşük görünürlüklü).
-export function makeInsigniaTexture(size = 256, contrast = 1) {
-  const c = makeCanvas(size, size);
+// Yıldız-çubuk amblemi, düşük görünürlüklü (iki ton gri). Gerçek oranlar: daire yarıçapı R,
+// çubuklar daireden R uzunluğunda ve R/2 yüksekliğinde dışa uzanır, hepsini ince bir kontur
+// çevreler; toplam en-boy 4R x 2R. Yüksek çözünürlük + anizotropi: keskin kenar.
+export function makeInsigniaTexture(size = 512, contrast = 1) {
+  const W = size, H = size / 2;
+  const c = makeCanvas(W, H);
   const ctx = c.getContext('2d');
-  ctx.clearRect(0, 0, size, size);
-  const cx = size / 2, cy = size / 2, R = size * 0.28;
-  // contrast < 1: daha soluk işaret (donanma tipi düşük görünürlük)
-  const aLight = 0.9 * contrast, aStar = 0.95 * contrast;
-  ctx.fillStyle = `rgba(160,165,172,${aLight})`;
-  ctx.lineWidth = size * 0.02;
-  ctx.strokeStyle = `rgba(160,165,172,${aLight})`;
-  // Çubuklar
-  ctx.strokeRect(cx - R * 1.9, cy - R * 0.5, R * 3.8, R);
-  // Daire
-  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fillStyle = `rgba(80,84,90,${contrast})`; ctx.fill(); ctx.stroke();
-  // Yıldız
+  ctx.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2, R = H * 0.44, k = contrast;
+  const light = `rgba(168,173,179,${0.92 * k})`, dark = `rgba(92,97,104,${0.95 * k})`, edge = `rgba(70,74,80,${0.9 * k})`;
+  const bh = R * 0.5, bl = R * 0.98;
+  const outline = (grow) => {
+    ctx.beginPath();
+    ctx.rect(cx - R - bl - grow, cy - bh / 2 - grow, 2 * (R + bl + grow), bh + 2 * grow);
+    ctx.moveTo(cx + R + grow, cy); ctx.arc(cx, cy, R + grow, 0, Math.PI * 2);
+  };
+  ctx.fillStyle = edge; outline(R * 0.07); ctx.fill('nonzero');
+  ctx.fillStyle = light; ctx.fillRect(cx - R - bl, cy - bh / 2, 2 * (R + bl), bh);
+  ctx.fillStyle = dark; ctx.fillRect(cx - R - bl, cy - bh * 0.08, 2 * (R + bl), bh * 0.16);   // çubuk ortası çizgi
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fillStyle = dark; ctx.fill();
   ctx.beginPath();
-  for (let i = 0; i < 5; i++) {
-    const a = -Math.PI / 2 + (i * 4 * Math.PI) / 5;
-    const x = cx + Math.cos(a) * R * 0.85, y = cy + Math.sin(a) * R * 0.85;
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? R * 0.382 : R * 0.98;
+    const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
-  ctx.closePath();
-  ctx.fillStyle = `rgba(160,165,172,${aStar})`;
-  ctx.fill();
+  ctx.closePath(); ctx.fillStyle = light; ctx.fill();
   const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
   t.needsUpdate = true;
   return t;
 }
@@ -550,6 +698,39 @@ export function makeGlowTexture(size = 64) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.needsUpdate = true;
+  return t;
+}
+
+// Formasyon (elektrolüminesan) şerit ışığı: koyu, yuvarlak uçlu gövde çerçevesi içinde keskin
+// kenarlı mercek; merkezde açık yeşil-beyaz, kenara doğru doygun yeşil. Saydam zemin.
+export function makeStripLightTexture(w = 256, h = 32) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  const rr = (x, y, ww, hh, r) => { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + ww, y, x + ww, y + hh, r); ctx.arcTo(x + ww, y + hh, x, y + hh, r); ctx.arcTo(x, y + hh, x, y, r); ctx.arcTo(x, y, x + ww, y, r); ctx.closePath(); };
+  rr(1, 1, w - 2, h - 2, (h - 2) / 2); ctx.fillStyle = 'rgba(40,46,44,0.92)'; ctx.fill();
+  const g = ctx.createLinearGradient(0, 4, 0, h - 4);
+  g.addColorStop(0, '#6fd486'); g.addColorStop(0.5, '#effff0'); g.addColorStop(1, '#6fd486');
+  rr(5, 5, w - 10, h - 10, (h - 10) / 2); ctx.fillStyle = g; ctx.fill();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.needsUpdate = true;
+  return t;
+}
+// Şeridin hafif halesi: uzun kapsül biçimli yumuşak düşüş (alfa), ışığın boyaya taşması.
+export function makeStripGlowTexture(w = 256, h = 64) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  const x0 = w * 0.2, x1 = w * 0.8, cy = h / 2;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const dx = x < x0 ? x0 - x : x > x1 ? x - x1 : 0, dy = y - cy;
+    const d2 = (dx * dx) / (w * w * 0.012) + (dy * dy) / (h * h * 0.05);
+    const a = Math.exp(-d2) * 255;
+    const i = (y * w + x) * 4; img.data[i] = img.data[i + 1] = img.data[i + 2] = 255; img.data[i + 3] = a;
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true;
   return t;
 }
 

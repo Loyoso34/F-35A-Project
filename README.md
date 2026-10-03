@@ -67,8 +67,9 @@ Style**. Seçim `localStorage`'a yazılır ve sonraki açılışta geri yükleni
   işaret/yazı dekalları. Geometri, kütle, atalet, aerodinamik katsayılar, sistemler,
   kamera ve ses hiçbir biçimde etkilenmez — aynı girdiyle 60 s manevra sonunda iki
   farklı livery **birebir aynı** uçuş durumunu verir (test/livphys.mjs).
-- Ek maliyet yoktur: panel dokusu paylaşılır (renk çarpanıyla tonlanır). Üçgen
-  sayısı ve çizim çağrısı değişmez.
+- Ek maliyet yok denecek kadar azdır: panel dokusu paylaşılır (renk çarpanıyla tonlanır).
+  Navy şemasının NAVY yazısı ve burun numarası iki küçük dekal çizimi ekler (65 → 67);
+  diğer şemalarda üçgen sayısı ve çizim çağrısı aynıdır.
 - Uçuş sırasında livery değiştirilirse yalnızca görsel model yeniden kurulur;
   fizik nesnesine dokunulmaz (konum, hız, yönelim, motor, takım/flap korunur).
 
@@ -217,6 +218,63 @@ tonu; askeri güçte nozul içi yalnızca derinde sıcak bir tondadır. Tek çiz
 **Maliyet.** Uçak 13 312 → 17 702 üçgen (pilot ve kokpit), çizim çağrısı 67 → 66. Yeni gölgelendirici
 programı yükleme ekranında derlenir: takım, ışık, ilk art yakıcı ve kamera geçişlerinde yeni
 program 0 (`hitch`).
+
+## F-35A: iniş takımı, boya, Donanma işaretleri ve formasyon ışıkları (v3.1.0)
+
+Uçağın biçimi ve kimliği değişmedi; bu sürüm ayrıntı ve doğruluk geçişidir.
+
+**İniş takımı (yeniden tasarlandı).**
+- Lastikler profilli döndürme yüzeyleridir (yanak, omuz, sırt yivleri); çanak jant iki
+  yüzlüdür, dış yüzde 8 cıvatalı göbek, iç yüzde fren diski vardır.
+- Burun takımı: muylu, dış silindir, direksiyon bileziği ve eyleyicisi, krom piston, çatal,
+  tork (makas) kolları, hidrolik hat, iki iniş/taksi lambası (iniş spot ışığı bu lambalardan
+  çıkar) ve bacağın önünden yuva tavanına uzanan dizli sürükleme dikmesi.
+- Ana takımlar: bacak, rakor bileziği, krom piston, tork kolları, aks gövdesi, fren kaliperi,
+  iki hidrolik hat ve yuva tavanına çıkan dizli yan dikme.
+- Kapaklar gövde altının eğrisini izleyen kalın panellerdir (kaplamaya ışınla oturtulur);
+  iç yüzlerinde kaplamayı izleyen kaburgalar, menteşe kulakları ve eyleyici kolu vardır.
+  Açıkken dik (menteşe tarafına 6° yatık) asılı dururlar. Yuva içleri yapı dokuludur
+  (kaburgalar, hatlar, bağlantılar).
+- Animasyon sıralıdır ve yumuşak geçişlidir: kapaklar açılır, bacak iner, amortisör serbest
+  kalır; toplamada tersi. Burun takımı öne katlanır. Ana takımlar da öne katlanır: 0,74 m
+  çaplı tekerlek 0,36 m genişliğindeki yuva ağzından yalnızca dik (0,29 m genişliğiyle)
+  geçebildiği için ağızdan dik girer, gövde içine girdikten sonra merkeze döner.
+- Yuvalar tekerleğin katlanırken süpürdüğü yaya göre uzatıldı (burun 2,48–4,50; ana
+  7,05–9,15); burun muylusu yuvanın arka ucuna alındı.
+- **Doğrulama** (`gearpoke`): takımın her üçgen kenarı, inikten toplanmışa 11 adımda dış
+  kaplamayla kesiştirilir. Yuva ağızları dışında kesişme: **0**. Önceden yüzlerce vardı:
+  ana tekerlek katlanırken silah yuvası kapağının ve yan duvarın içinden geçiyor, burun
+  dikmesi yuvanın gerisinde kaplamayı deliyor, ana muylunun ucu yan kaplamadan dışarı
+  çıkıyordu. Katlanmış burun takımı kokpit tabanının en az 9 cm altında kalır.
+
+**Boya ve yüzey.** Düzensiz panel ızgarası; ek yerleri aydınlık/koyu çift çizgi, perçin sıraları,
+testere dişli kapak kenarları ve perçin çevreli bakım kapakları. Boyaya gölgelendiricide makro ton
+değişimi, akış izleri, gövde altında hafif kir ve egzoz çevresinde is eklenir (tek paylaşılan
+program). Dekallar düz levha değil, kaplamaya ışınla oturtulmuş ızgaralardır. Düşük görünürlüklü
+bakım işaretleri tek atlastadır (tek çizim): fırlatma koltuğu uyarısı, hava alığı tehlike
+uyarısı, NO STEP, kriko noktaları, kurtarma oku, veri bloğu, yakıt bilgisi, topraklama noktası.
+USAF amblemi tek bir kesit fasetine taşındı (iki fasetin kırık çizgisinde ortadan kırık
+görünüyordu). Kuyruk kodu ve seri numarası kuyruk profiline oturtuldu (seri numarası profilin
+içinde kalıyor, yalnızca bir iki harfi görünüyordu).
+
+**Donanma işaretleri.** Ulusal amblem ön gövde yanında, hava alığının hemen arkasındadır
+(F/A-18 ve F-35C ile aynı yer) ve kaplamaya oturtulmuştur. Arka gövdede alçak görünürlüklü NAVY
+yazısı, burunda modex numarası, kuyrukta kod ve NAVY seri numarası. Amblem yüksek çözünürlüklü,
+ince kenar çizgili ve düşük kontrastlıdır.
+
+**Formasyon ışıkları.** Eski düz levhalar (biri kanadın altında havada, biri burunda kaplamaya
+gömülü, biri kuyrukta kod yazısının üstünde) kaldırıldı. Yerine kaplamaya oturtulmuş
+elektrolüminesan şeritler geldi: koyu, yuvarlak uçlu gövde çerçevesi içinde keskin kenarlı
+mercek (merkezde açık yeşil-beyaz, kenarda doygun yeşil) ve kaplamaya çok hafif taşan katkılı
+hale. Hale merceğin 4 mm altındadır (aynı yükseklikte olunca eğri kaplamada yer yer merceğin
+önüne geçip onu beyaza boyuyordu). Yerleşim: her iki yanda gövde omzu (kokpitin gerisi) ve dikey
+kuyrukların dış yüzünde hücum kenarına paralel. Yalnızca 2 çizim çağrısı.
+
+**Maliyet.** Uçak 17 702 → 28 162 üçgen (artışın çoğu takımdadır; takım toplanınca çizilmez),
+çizim çağrısı 66 → 65 (Navy 67). Kapakları, yuvaları ve dekalları kaplamaya oturtan kurulum
+ışınları yalnızca ilgili bölgenin üçgenlerini tarar (sonuç birebir aynı; geometri sağlama
+toplamıyla doğrulandı; dekal ışınları ~5, takım ışınları ~2 kat hızlandı): uçağın soğuk kurulumu v3.0.0'a göre yalnızca
+~35 ms uzun. Yeni gölgelendirici programı yok (`hitch`).
 
 ## Dünya ve havaalanları
 

@@ -2,7 +2,7 @@
 // Eksenler: burun -Z, üst +Y, sağ kanat +X. Uzunluk 15.7 m, açıklık 10.7 m, yükseklik 4.4 m.
 import * as THREE from 'three';
 import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
-import { makeStealthPanelTexture, makeRoughnessTexture, makeMilInsigniaTexture, makeTextTexture, makeCockpitDisplayTexture, makeFlameNoiseTexture, makeGlowTexture } from './textures.js';
+import { makeStealthPanelTexture, makeRoughnessTexture, makeMilInsigniaTexture, makeTextTexture, makeCockpitDisplayTexture, makeFlameNoiseTexture, makeGlowTexture, makeGearBayTexture, makeMacroNoiseTexture, makeStencilAtlas, STENCIL_ATLAS, makeStripLightTexture, makeStripGlowTexture } from './textures.js';
 import { getLivery } from './liveries.js';
 
 const DEG = Math.PI / 180;
@@ -113,6 +113,43 @@ export function bottomSurfaceY(s, x) {
   let wx = -Infinity, wy = profileAt(s).ybot;
   for (let i = 4; i < pts.length; i++) if (pts[i].x > wx) { wx = pts[i].x; wy = pts[i].y; }
   return wy;
+}
+// Gövde kaplamasının loft istasyonları (buildFuselage). Alt şerit 4.5'ten doğrudan 5.4'e geçer.
+const FORE_S = [0.0, 0.10, 0.22, 0.35, 0.52, 0.7, 0.95, 1.2, 1.5, 1.8, 2.1, 2.4, 2.65, 2.9, 3.1, 3.3, 3.6, 3.85, 4.1, 4.3, 4.5];
+const MAIN_S = [5.0, 5.4, 5.8, 6.2, 6.6, 7.1, 7.6, 8.2, 8.8, 9.4, 10.0, 10.6, 11.2, 11.8, 12.4, 12.9, 13.4, 13.8, 14.2, 14.6];
+const HULL_S = [...FORE_S, ...MAIN_S.slice(1)];
+// GERÇEK kaplamanın alt yüzeyi: istasyonlar arasında doğrusal (loft böyle bağlar). bottomSurfaceY
+// profili istasyonlar arasında smoothstep ile enterpole eder; kaplamayla birkaç cm farklı olabilir
+// ve yüzeye yapışık paneller (takım yuvaları, kapaklar) yer yer kaplamanın içine gömülüp
+// tırtıklı kenar bırakıyordu.
+const _gearYawQ = new THREE.Quaternion(), _Y_AXIS = new THREE.Vector3(0, 1, 0);
+export function hullBottomY(s, x) {
+  const S = HULL_S;
+  if (s <= S[0]) return bottomSurfaceY(S[0], x);
+  for (let i = 0; i < S.length - 1; i++) {
+    if (s <= S[i + 1]) { const t = (s - S[i]) / (S[i + 1] - S[i]); return bottomSurfaceY(S[i], x) * (1 - t) + bottomSurfaceY(S[i + 1], x) * t; }
+  }
+  return bottomSurfaceY(S[S.length - 1], x);
+}
+// Kurulum ışınları için bölgesel ağ: kutuyla (min/max) çakışan kaplama üçgenlerinden geçici
+// bir ağ. Her dekal/kapak ışını tüm gövde üçgenlerini değil yalnızca bunları tarar; sonuç
+// aynıdır (isabet her zaman kutunun içindedir), kurulum birkaç kat hızlanır.
+function regionMesh(geos, min, max, material) {
+  const out = [];
+  for (const g of geos) {
+    const p = g.attributes.position.array, idx = g.index ? g.index.array : null;
+    const n = idx ? idx.length : p.length / 3;
+    for (let i = 0; i < n; i += 3) {
+      const a = 3 * (idx ? idx[i] : i), b = 3 * (idx ? idx[i + 1] : i + 1), c = 3 * (idx ? idx[i + 2] : i + 2);
+      if (Math.max(p[a], p[b], p[c]) < min.x || Math.min(p[a], p[b], p[c]) > max.x) continue;
+      if (Math.max(p[a + 1], p[b + 1], p[c + 1]) < min.y || Math.min(p[a + 1], p[b + 1], p[c + 1]) > max.y) continue;
+      if (Math.max(p[a + 2], p[b + 2], p[c + 2]) < min.z || Math.min(p[a + 2], p[b + 2], p[c + 2]) > max.z) continue;
+      out.push(p[a], p[a + 1], p[a + 2], p[b], p[b + 1], p[b + 2], p[c], p[c + 1], p[c + 2]);
+    }
+  }
+  const bg = new THREE.BufferGeometry();
+  bg.setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+  return new THREE.Mesh(bg, material);
 }
 // Üst yüzeyin (güverte + omuz) verilen |x| için y değeri – kaplama loft'unun kullandığı 5 noktalı kırık çizgi üzerinden
 export function topSurfaceY(s, x) {
@@ -272,14 +309,42 @@ export function airfoilPoints(K, chord, thickFrac, tStart = 0, tEnd = 1, cutStar
   return pts;
 }
 
+// Boya detayı (gölgelendirici eki): döşenen panel dokusunun üstüne NESNE uzayında büyük ölçekli
+// ton değişimi, akış yönünde (boyuna) uzamış çok hafif kir izleri, alt yüzeyde hafif kirlenme ve
+// egzoz çevresinde is. Döşeme tekrarını kırar; boya, dekal ve işaretlerde AYNI hesap çalışır,
+// böylece işaretler kaplamanın üstüne yapıştırılmış çıkartma gibi değil boyanın parçası gibi
+// görünür. Tek doku okuması x3, ışık sayısından bağımsız.
+function applyPaintDetail(mat, macro) {
+  if (!mat || !macro) return mat;
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uMacro = { value: macro };
+    sh.vertexShader = 'varying vec3 vObjPos;\nvarying vec3 vObjN;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vObjPos = position; vObjN = normal;');
+    sh.fragmentShader = 'uniform sampler2D uMacro;\nvarying vec3 vObjPos;\nvarying vec3 vObjN;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+  {
+    float mA = texture2D(uMacro, vObjPos.xz * 0.045 + vec2(vObjPos.y * 0.03)).r;
+    float mB = texture2D(uMacro, vObjPos.zy * 0.13 + vec2(0.37, vObjPos.x * 0.05)).g;
+    float streak = texture2D(uMacro, vec2(vObjPos.x * 0.42 + vObjPos.y * 0.3, vObjPos.z * 0.016)).b;
+    float tone = 0.94 + 0.09 * mA + 0.05 * (mB - 0.5) - 0.045 * smoothstep(0.55, 0.85, streak);
+    float under = smoothstep(0.15, -0.7, normalize(vObjN).y);
+    float soot = smoothstep(4.2, 7.4, vObjPos.z) * smoothstep(1.5, 0.3, abs(vObjPos.x)) * smoothstep(1.0, 0.2, vObjPos.y);
+    tone *= 1.0 - 0.04 * under * (0.6 + 0.8 * mB) - 0.16 * soot * (0.55 + 0.45 * mB);
+    diffuseColor.rgb *= tone;
+  }`);
+  };
+  mat.customProgramCacheKey = () => 'f35paintDetail';
+  return mat;
+}
+
 // Paylaşılan malzemeler (oyuncu uçağı + apronda park halindekiler)
 let SHARED = null;
 export function getSharedMaterials() {
   if (SHARED) return SHARED;
   const panel = makeStealthPanelTexture(1024);
   const rough = makeRoughnessTexture(512);
+  const macro = makeMacroNoiseTexture(256);
   SHARED = {
-    disposables: [panel, rough],
+    disposables: [panel, rough, macro],
+    macro,
     paint: new THREE.MeshStandardMaterial({ color: 0xdfe3e8, map: panel, roughnessMap: rough, roughness: 0.72, metalness: 0.25, envMapIntensity: 0.7 }),
     paintDark: new THREE.MeshStandardMaterial({ color: 0x8b9096, map: panel, roughness: 0.8, metalness: 0.2 }),
     dark: new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.9, metalness: 0.1 }),
@@ -303,8 +368,9 @@ export function getSharedMaterials() {
     pilot: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, vertexColors: true }),   // renkler köşe renginde
     helmet: new THREE.MeshStandardMaterial({ color: 0x60666d, roughness: 0.32, metalness: 0.25 }),
     glass: new THREE.MeshPhysicalMaterial({ color: 0x0a0c10, roughness: 0.05, metalness: 0.6, clearcoat: 1, envMapIntensity: 1.2 }),
-    formLight: new THREE.MeshBasicMaterial({ color: 0x9fc9a0, transparent: true, opacity: 0.75 }),
   };
+  applyPaintDetail(SHARED.paint, macro);
+  applyPaintDetail(SHARED.paintDark, macro);
   SHARED.disposables.push(...Object.values(SHARED).filter((m) => m && m.isMaterial));
   return SHARED;
 }
@@ -334,6 +400,7 @@ export class F35A {
     this.buildDetails();
     this.buildLights();
     this.buildMarkings();
+    this._hull = null; this._skinTop = null; this._fins = null;   // yalnızca kurulumda gereken ışın yüzeyleri
     this.finalize();
   }
 
@@ -353,10 +420,10 @@ export class F35A {
     paint.color.setHex(liv.paint);
     if (liv.roughness !== undefined) paint.roughness = liv.roughness;
     if (liv.metalness !== undefined) paint.metalness = liv.metalness;
-    m.paint = paint;
+    m.paint = applyPaintDetail(paint, shared.macro);   // clone() gölgelendirici ekini taşımaz
     const dark = this.track(shared.paintDark.clone());
     dark.color.setHex(liv.paintDark);
-    m.paintDark = dark;
+    m.paintDark = applyPaintDetail(dark, shared.macro);
     if (liv.metalTint !== undefined) {
       const mt = this.track(shared.metal.clone());
       mt.color.setHex(liv.metalTint);
@@ -372,8 +439,7 @@ export class F35A {
   }
 
   buildFuselage() {
-    const foreS = [0.0, 0.10, 0.22, 0.35, 0.52, 0.7, 0.95, 1.2, 1.5, 1.8, 2.1, 2.4, 2.65, 2.9, 3.1, 3.3, 3.6, 3.85, 4.1, 4.3, 4.5];
-    const mainS = [5.0, 5.4, 5.8, 6.2, 6.6, 7.1, 7.6, 8.2, 8.8, 9.4, 10.0, 10.6, 11.2, 11.8, 12.4, 12.9, 13.4, 13.8, 14.2, 14.6];
+    const foreS = FORE_S, mainS = MAIN_S;
     const fore = foreS.map((s) => this.sectionPoints(s));
     const main = mainS.map((s) => this.sectionPoints(s));
     const mirror = (pt) => ({ x: -pt.x, y: pt.y, z: pt.z });
@@ -383,20 +449,25 @@ export class F35A {
     const allS = [...foreS, ...mainS];
     const skipQuad = (i, k) => (k === 3 || k === 4) && allS[i] >= 3.25 && allS[i + 1] <= 6.7;
     this.paintGeos.push(ensureOutward(loft(topRows, { uScale: 3, vScale: 1, skipQuad }), bodyAxisRef));
+    this._skinTop = this.paintGeos[this.paintGeos.length - 1];
     // Alt şerit: ön gövde + ana gövde (alt köşeden alt köşeye)
     const botRows = [...fore, ...main.slice(1)].map((h) => [mirror(h[8]), mirror(h[9]), mirror(h[10]), h[11], h[10], h[9], h[8]]);
     // hava alığı alt dudağı: 5.4 istasyonu ana profilden (eğik alt dudak)
+    this._hull = [];   // alt/yan kaplama: takım yuvaları ve kapaklar bu yüzeye ışınla oturtulur
     this.paintGeos.push(ensureOutward(loft(botRows, { uScale: 3, vScale: 1 }), bodyAxisRef));
+    this._hull.push(this.paintGeos[this.paintGeos.length - 1]);
     // Yan şeritler: ön gövde (ayrı) ve ana gövde (ağızdan itibaren, süpürülmüş dudak halkası)
     const lipProfile = lerpProfile(MAIN_PROFILES, 5.0);
     const lipHalf = halfSection(lipProfile);
     for (const side of [-1, 1]) {
       const sideRowsFore = fore.map((h) => h.slice(4, 9).map((q) => ({ x: side * q.x, y: q.y, z: q.z })));
       this.paintGeos.push(ensureOutward(loft(sideRowsFore, { uScale: 1, vScale: 0.5 }), bodyAxisRef));
+      this._hull.push(this.paintGeos[this.paintGeos.length - 1]);
       // Dudak halkası: chine 4.55'te, alt köşe 5.7'de (süpürülmüş)
       const lipRing = lipHalf.slice(4, 9).map((q, k) => ({ x: side * q.x, y: q.y, z: st(4.55 + (k / 4) * 1.15) }));
       const sideRowsMain = [lipRing, ...main.slice(1).map((h) => h.slice(4, 9).map((q) => ({ x: side * q.x, y: q.y, z: q.z })))];
       this.paintGeos.push(ensureOutward(loft(sideRowsMain, { uScale: 2.5, vScale: 0.5 }), bodyAxisRef));
+      this._hull.push(this.paintGeos[this.paintGeos.length - 1]);
       // Hava alığı: ağız halkası = DIŞ dudak zinciri (süpürülmüş) + İÇ duvar zinciri (ön
       // gövde yan duvarı, 4.5 istasyonu; ön gövde yan şeridiyle aynı noktalar, yarık yok).
       const ringA = fore[fore.length - 1].slice(4, 9).map((q) => ({ x: side * q.x, y: q.y, z: q.z }));
@@ -1050,6 +1121,7 @@ export class F35A {
         return rows;
       };
       this.paintGeos.push(closedLoft(mkRows(0, V.hinge), { uScale: 1.5, vScale: 1 }));
+      (this._fins || (this._fins = [])).push({ geo: this.paintGeos[this.paintGeos.length - 1], side, up, nrm, V });
       const hingeRoot = V.rootLE + (V.rootTE - V.rootLE) * V.hinge;
       const hingeTip = V.tipLE + (V.tipTE - V.tipLE) * V.hinge;
       const local = { x: side * V.rootX, y: V.rootY, dz: (f) => st(hingeRoot + (hingeTip - hingeRoot) * f) - st(hingeRoot) };
@@ -1062,12 +1134,6 @@ export class F35A {
       this.group.add(rud);
       this.parts.rudders[side < 0 ? 'left' : 'right'] = rud;
       this.parts['tailTip' + side] = new THREE.Vector3(side * V.rootX, V.rootY, 0).addScaledVector(up, V.height);
-      // Kuyruk ucu formasyon ışığı
-      const fl = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.5, 0.06)), this.m.formLight);
-      fl.position.copy(new THREE.Vector3(side * V.rootX, V.rootY, st(13.6)).addScaledVector(up, 1.6).addScaledVector(nrm, 0.05));
-      fl.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -side), up, nrm));
-      fl.userData.decal = true;
-      this.group.add(fl);
     }
   }
 
@@ -1259,84 +1325,258 @@ export class F35A {
     this.abFlash = 0;
   }
 
+  /**
+   * İniş takımı (v3.1). Her bacak: gövdeye bağlı pivot (geri çekme dönüşü) -> bacak çerçevesi
+   * (sabit eğim) -> sabit parçalar + amortisörle kayan grup -> tekerlek (dönüş). Bacak geometrisi
+   * pivot ile tekerlek merkezinden TÜRETİLİR: tekerlek tabanı fizik geometrisiyle (wheelBottomY,
+   * noseGearZ, mainGearZ, mainGearX) birebir aynı yerde kalır.
+   *   - Burun takımı: öne ~23° eğik bacak, direksiyon bileziği, krom piston, çatal, arkaya giden
+   *     katlanır sürükleme dikmesi, bacak önünde iki iniş/taksi lambası; ÖNE katlanır.
+   *   - Ana takımlar: dikmeye yakın bacak, rakor bileziği, krom piston, makas (tork) kolları,
+   *     hidrolik hatlar, gövdeye giden katlanır yan dikme, dışa ofsetli aks; ÖNE katlanır.
+   *   - Lastikler profilli (yuvarlak omuz, iki diş oluğu), jantlar çanak biçimli (cıvata dairesi,
+   *     iç yüzde fren diski).
+   *   - Kapaklar gövde altının eğrisini izleyen ince kabuk paneller; menteşe çizgisi etrafında
+   *     döner, iç yüzde kaburga ve aktüatör kolu. Yuvaların içi açık gri yapı dokusudur.
+   * Çizim: bacak başına sabit + kayan + lastik + jant (4), kapak başına 2.
+   */
   buildGear() {
-    const wheelBottom = F35.wheelBottomY;
+    const m = this.m;
     this.parts.gear = {};
-    const strutMat = this.m.metalSmooth;
+    const gearMat = this.track(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.34, metalness: 0.5, vertexColors: true }));
+    const WHITE = 0xdfe2e5, CHROME = 0xf4f7fa, GREY = 0x9aa0a6, DARK = 0x3a3e43, HUB = 0xc2c6ca, BRAKE = 0x4a4d51, LENS = 0xfff4dc;
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const yAxis = V(0, 1, 0), qq = new THREE.Quaternion();
+    const add = (list, g, hex) => { list.push(paintVC(g.index ? g.toNonIndexed() : g, hex)); return g; };
+    const rod = (list, a, b, r, hex, seg = 10) => {
+      const d = b.clone().sub(a), len = d.length();
+      const g = new THREE.CylinderGeometry(r, r, len, seg, 1);
+      g.applyQuaternion(qq.setFromUnitVectors(yAxis, d.normalize()));
+      const c = a.clone().add(b).multiplyScalar(0.5); g.translate(c.x, c.y, c.z);
+      return add(list, g, hex);
+    };
+    const taper = (list, y0, y1, r0, r1, hex, seg = 14) => {
+      const g = new THREE.CylinderGeometry(r0, r1, Math.abs(y1 - y0), seg, 1);
+      g.translate(0, (y0 + y1) / 2, 0);
+      return add(list, g, hex);
+    };
+    const box = (list, w, h, d, x, y, z, hex) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); return add(list, g, hex); };
+    const ball = (list, r, p, hex) => { const g = new THREE.SphereGeometry(r, 10, 8); g.translate(p.x, p.y, p.z); return add(list, g, hex); };
+    const merged = (list, mat) => { const mesh = new THREE.Mesh(this.track(mergeGeometries(list, false)), mat); mesh.castShadow = true; return mesh; };
+    // Profilli lastik ve çanak jant: aks +y boyunca kurulur, sonra +x'e çevrilir
+    const lathe = (pts, seg, flip) => {
+      let p = pts.map(([a, b]) => new THREE.Vector2(a, flip ? -b : b));
+      if (flip) p = p.reverse();
+      return new THREE.LatheGeometry(p, seg);
+    };
     const mkWheel = (r, w) => {
-      const g = new THREE.Group();
-      const tire = new THREE.CylinderGeometry(r, r, w, 18); tire.rotateZ(Math.PI / 2);
-      const rim = new THREE.CylinderGeometry(r * 0.58, r * 0.58, w + 0.02, 12); rim.rotateZ(Math.PI / 2);
-      const hub = new THREE.CylinderGeometry(r * 0.2, r * 0.2, w + 0.06, 8); hub.rotateZ(Math.PI / 2);
-      g.add(new THREE.Mesh(this.track(tire), this.m.tire));
-      g.add(new THREE.Mesh(this.track(rim), this.m.metalSmooth));
-      g.add(new THREE.Mesh(this.track(hub), this.m.dark));
+      const hw = w / 2, rr = r * 0.63;
+      const tire = lathe([[rr, -hw * 0.9], [r * 0.82, -hw], [r * 0.95, -hw * 0.9], [r, -hw * 0.6], [r, -hw * 0.3], [r * 0.985, -hw * 0.22], [r, -hw * 0.14],
+        [r, hw * 0.14], [r * 0.985, hw * 0.22], [r, hw * 0.3], [r, hw * 0.6], [r * 0.95, hw * 0.9], [r * 0.82, hw], [rr, hw * 0.9]], 26, false);
+      tire.rotateZ(-Math.PI / 2);
+      const hub = [];
+      const barrel = new THREE.CylinderGeometry(rr, rr, w * 0.88, 22, 1, true); add(hub, barrel, HUB);
+      for (const flip of [false, true]) {
+        add(hub, lathe([[rr + 0.004, hw * 0.9], [rr * 0.94, hw * 0.78], [r * 0.42, hw * 0.5], [r * 0.27, hw * 0.58], [r * 0.16, hw * 0.82], [0.001, hw * 0.86]], 20, flip), flip ? GREY : HUB);
+      }
+      // Cıvata dairesi (dış yüz) ve fren diski (iç yüz)
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2, b = new THREE.CylinderGeometry(r * 0.03, r * 0.03, 0.03, 6);
+        b.translate(Math.cos(a) * r * 0.22, hw * 0.74, Math.sin(a) * r * 0.22); add(hub, b, DARK);
+      }
+      const disc = new THREE.CylinderGeometry(r * 0.52, r * 0.52, 0.025, 22); disc.translate(0, -hw * 0.6, 0); add(hub, disc, BRAKE);
+      const hubG = mergeGeometries(hub, false); hubG.rotateZ(-Math.PI / 2);
+      const grp = new THREE.Group();
+      const tm = new THREE.Mesh(this.track(tire), m.tire); tm.castShadow = true;
+      const hm = new THREE.Mesh(this.track(hubG), gearMat); hm.castShadow = true;
+      grp.add(tm, hm);
+      return grp;
+    };
+    // Bacak: pivot P, tekerlek merkezi W (takım inik, amortisör serbest), aks ofseti W.x - P.x
+    const mkLeg = (P, W, r, w, build) => {
+      const pivot = new THREE.Group(); pivot.position.copy(P);
+      const dy = W.y - P.y, dz = W.z - P.z, L = Math.hypot(dy, dz);
+      const rake = Math.atan2(-dz, -dy);
+      const leg = new THREE.Group(); leg.rotation.x = rake; pivot.add(leg);
+      const slide = new THREE.Group(); leg.add(slide);
+      const fixedG = [], slideG = [];
+      const extra = build({ L, rake, fixedG, slideG });
+      leg.add(merged(fixedG, gearMat));
+      slide.add(merged(slideG, gearMat));
+      const wheel = mkWheel(r, w);
+      wheel.position.set(W.x - P.x, -L, 0);
+      if (W.x - P.x < 0) wheel.rotation.y = Math.PI;   // jantın dış yüzü dışarı baksın
+      slide.add(wheel);
+      this.group.add(pivot);
+      return { pivot, leg, slide, wheel, L, rake, baseY: P.y, cosRake: Math.cos(rake), radius: r, extra, rest: V(0, dy, dz).normalize() };
+    };
+    // Gövde altını izleyen kapak: menteşe x0'da, serbest kenar x1'de; s0..s1 boyunca
+    const mkDoor = (x0, x1, s0, s1) => {
+      useRegion(x0, x1, s0, s1);
+      const off = 0.011, th = 0.024, NX = 7, NS = 12;   // sık örnek: dışbükey kaplamada düz kirişler kaplamanın altına girmesin
+      const rows = [];
+      for (let j = 0; j <= NS; j++) {
+        const sv = s0 + (s1 - s0) * (j / NS), row = [];
+        for (let i = 0; i <= NX; i++) { const x = x0 + (x1 - x0) * (i / NX); row.push({ x, y: hullY(sv, x) - off, z: st(sv) }); }
+        rows.push(row);
+      }
+      const h0 = V(x0, hullY(s0, x0) - off, st(s0)), h1 = V(x0, hullY(s1, x0) - off, st(s1));
+      const mid = h0.clone().add(h1).multiplyScalar(0.5);
+      const panel = closedLoft(rows.map((row) => [...row, ...row.slice().reverse().map((q) => ({ x: q.x, y: q.y + th, z: q.z }))]), { uScale: 1, vScale: 1 });
+      panel.translate(-mid.x, -mid.y, -mid.z);
+      // İç yüz donanımı: iki boyuna kaburga, menteşe kulakları, aktüatör kolu
+      const fit = [];
+      // Kaburgalar kaplamanın eğrisini izler (düz çubuk, burnun yükselen altında kaplamadan dışarı taşıyordu)
+      for (const f of [0.35, 0.7]) {
+        const x = x0 + (x1 - x0) * f, NSR = 6;
+        const pts = [];
+        for (let j = 0; j <= NSR; j++) { const sv = s0 + 0.07 + (s1 - s0 - 0.14) * (j / NSR); pts.push(V(x - mid.x, hullY(sv, x) - off + th + 0.016 - mid.y, st(sv) - mid.z)); }
+        for (let j = 0; j < NSR; j++) rod(fit, pts[j], pts[j + 1], 0.011, GREY, 6);
+      }
+      for (const f of [0.12, 0.5, 0.88]) {
+        const sv = s0 + (s1 - s0) * f, g = new THREE.CylinderGeometry(0.018, 0.018, 0.09, 8);
+        g.rotateX(Math.PI / 2); g.translate(x0 - mid.x, hullY(sv, x0) - off + th + 0.02 - mid.y, st(sv) - mid.z); add(fit, g, DARK);   // kapalıyken kaplamanın içinde
+      }
+      { const x = x0 + (x1 - x0) * 0.6, sv = (s0 + s1) / 2, y = hullY(sv, x) - off + th - mid.y;
+        rod(fit, V(x - mid.x, y, st(sv) - mid.z), V(x - mid.x - (x1 - x0) * 0.35, y + 0.2, st(sv) - mid.z), 0.016, GREY, 8); }
+      const grp = new THREE.Group(); grp.position.copy(mid);
+      const pm = new THREE.Mesh(this.track(panel), m.paint); pm.castShadow = true;
+      grp.add(pm, merged(fit, gearMat));
+      this.group.add(grp);
+      // Açılış açısı: kapak, kapalı eğiminden bağımsız olarak DİKEY (hafifçe menteşenin dışına
+      // eğik) asılı kalacak kadar döner. Sabit 95° yan yüzeyin eğimli kısmında kapağı dışa
+      // doğru yatık bırakıyordu.
+      const axis = h1.clone().sub(h0).normalize();
+      const free = V(x1, hullY((s0 + s1) / 2, x1) - off, st((s0 + s1) / 2)).sub(mid);
+      const phiC = Math.atan2(free.y, free.x);
+      const phiT = -Math.PI / 2 + Math.sign(x0 - x1) * 6 * DEG;   // aşağı, menteşe tarafına 6° yatık
+      let d = phiT - phiC; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+      return { grp, axis, ang: d * Math.sign(axis.z || 1) };
+    };
+    // Yuva içi: açık gri yapı dokusu, kaplamanın 6 mm dışında (kapak kapalıyken 12 mm'deki kapak örter)
+    // Çift yüzlü: yuva kaplamanın 6 mm dışında durduğundan önden/yandan neredeyse yatay bakışta
+    // aradaki boşluktan yuvanın üst yüzü görünür; tek yüzlüyken orada gökyüzü (delik) görünüyordu.
+    const bayMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeGearBayTexture()), roughness: 0.75, metalness: 0.15, side: THREE.DoubleSide }));
+    const mkBay = (x0, x1, s0, s1) => {
+      useRegion(x0, x1, s0, s1);
+      const rows = [];
+      for (let j = 0; j <= 12; j++) { const sv = s0 + (s1 - s0) * (j / 12), row = []; for (let i = 0; i <= 8; i++) { const x = x0 + (x1 - x0) * (i / 8); row.push({ x, y: hullY(sv, x) - 0.006, z: st(sv) }); } rows.push(row); }
+      const g = ensureOutward(loft(rows, { uScale: 1, vScale: 1 }), (v, o) => o.set(v.x, v.y + 1, v.z));
+      // uv: u enine, v boyuna (loft: u satır = boyuna, v sütun = enine) -> yer değiştir
+      const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) { const a = uv.getX(i), b = uv.getY(i); uv.setXY(i, b, a); }
+      this.group.add(new THREE.Mesh(this.track(g), bayMat));
+    };
+    const wb = F35.wheelBottomY;
+    // Kaplamanın GERÇEK alt yüzeyi: alt/yan loft üçgenlerine aşağıdan dikey ışın. Analitik yüzey
+    // (dörtgenlerin üçgenlenmesini bilmez) birkaç mm sapıyor ve yuva kenarı yer yer kaplamaya
+    // gömülüp tırtıklı görünüyordu.
+    const hullMat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+    const rc = new THREE.Raycaster(), upDir = V(0, 1, 0), org = V();
+    // Işınlar yalnızca o anki kapak/yuva bölgesinin üçgenlerini tarar (bkz. regionMesh)
+    let hullRegion = null;
+    const useRegion = (xa, xb, sa, sb) => {
+      hullRegion = [regionMesh(this._hull, V(Math.min(xa, xb) - 0.05, -10, st(Math.min(sa, sb)) - 0.05), V(Math.max(xa, xb) + 0.05, 10, st(Math.max(sa, sb)) + 0.05), hullMat)];
+    };
+    const hullY = (sv, x) => {
+      rc.set(org.set(x, -6, st(sv)), upDir);
+      const hit = rc.intersectObjects(hullRegion, false);
+      return hit.length ? hit[0].point.y : hullBottomY(sv, x);
+    };
+    // Toplanma: bacağın dinlenme yönünü hedef yöne çeviren eksen ve açı (pivot çerçevesinde)
+    const stowTo = (g, target) => {
+      const t = target.clone().normalize();
+      g.retAxis = g.rest.clone().cross(t).normalize();
+      g.stow = Math.acos(Math.min(1, Math.max(-1, g.rest.dot(t))));
       return g;
     };
-    // Burun takımı: öne katlanır
+
+    // ---------------- Burun takımı ----------------
     {
-      const pivot = new THREE.Group();
-      const s = F35.cgStation + F35.noseGearZ;
-      const topY = bottomSurfaceY(s, 0) + 0.05;
-      pivot.position.set(0, topY, F35.noseGearZ);
-      const r = 0.27;
-      const strutLen = topY - (wheelBottom + r);
-      const strut = new THREE.CylinderGeometry(0.07, 0.08, strutLen * 0.6, 10); strut.translate(0, -strutLen * 0.3, 0);
-      pivot.add(new THREE.Mesh(this.track(strut), strutMat));
-      const oleo = new THREE.CylinderGeometry(0.05, 0.05, strutLen * 0.5, 10); oleo.translate(0, -strutLen * 0.75, 0);
-      const oleoMesh = new THREE.Mesh(this.track(oleo), this.track(new THREE.MeshStandardMaterial({ color: 0xd8dadc, roughness: 0.2, metalness: 0.9 })));
-      pivot.add(oleoMesh);
-      const fork = new THREE.BoxGeometry(0.24, 0.32, 0.1); fork.translate(0, -strutLen + 0.1, 0);
-      const forkMesh = new THREE.Mesh(this.track(fork), strutMat);
-      pivot.add(forkMesh);
-      const drag = new THREE.CylinderGeometry(0.03, 0.03, strutLen * 0.7, 6); drag.rotateX(0.5); drag.translate(0, -strutLen * 0.4, 0.25);
-      pivot.add(new THREE.Mesh(this.track(drag), strutMat));
-      const wheel = mkWheel(r, 0.2); wheel.position.set(0, -strutLen, 0);
-      pivot.add(wheel);
-      const lamp = new THREE.Mesh(this.track(new THREE.SphereGeometry(0.06, 8, 6)), this.track(new THREE.MeshBasicMaterial({ color: 0xffffff })));
-      lamp.position.set(0, -strutLen * 0.45, -0.1);
-      pivot.add(lamp);
-      pivot.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-      this.group.add(pivot);
-      // Kapaklar (gövdeye bağlı, takımla açılır)
-      const doors = [];
-      for (const side of [-1, 1]) {
-        const dp = new THREE.Group();
-        dp.position.set(side * 0.34, bottomSurfaceY(s, 0.34) + 0.02, F35.noseGearZ + 0.2);
-        const door = new THREE.Mesh(this.track(new THREE.BoxGeometry(0.03, 0.62, 1.7)), this.m.paint);
-        door.position.set(0, -0.31, 0);
-        dp.add(door);
-        this.group.add(dp);
-        doors.push({ pivot: dp, sign: side });
-      }
-      this.parts.gear.nose = { pivot, wheel, retractAxis: 'x', retractSign: -1, doors, radius: r, slide: [oleoMesh, forkMesh, wheel], wheelY: -strutLen };
+      const r = 0.28, w = 0.17;
+      // Muylu yuvanın arka ucunda: tekerleğin katlanırken öne süpürdüğü yay kısalır (EOTS'a varmaz)
+      const P = V(0, bottomSurfaceY(4.45, 0) + 0.20, st(4.45));
+      const W = V(0, wb + r, F35.noseGearZ);
+      const g = mkLeg(P, W, r, w, ({ L, rake, fixedG, slideG }) => {
+        rod(fixedG, V(-0.15, 0, 0), V(0.15, 0, 0), 0.06, WHITE, 12);                     // muylu
+        taper(fixedG, 0, -0.50 * L, 0.085, 0.078, WHITE);                                // dış silindir
+        taper(fixedG, -0.47 * L, -0.53 * L, 0.104, 0.104, GREY);                         // direksiyon bileziği
+        box(fixedG, 0.06, 0.08, 0.10, 0.09, -0.50 * L, 0.04, DARK);                      // direksiyon eyleyicisi
+        rod(fixedG, V(0.05, -0.04, 0.06), V(0.05, -0.46 * L, 0.06), 0.011, DARK, 6);     // hidrolik hat
+        // Sürükleme dikmesi: bacağın ÖNÜNDEN öne-yukarı yuva tavanına (dizli). Öne toplanan
+        // takımda dikme öndedir; eskiden arkaya gidip yuvanın arka kenarının gerisinde
+        // kaplamayı deliyordu. Gövde ucu muyluya yakın: katlanınca gövdenin içinde kalır.
+        const toLeg = (y, z) => V(0, y * Math.cos(rake) + z * Math.sin(rake), -y * Math.sin(rake) + z * Math.cos(rake));
+        const a = V(0, -0.42 * L, -0.07), b = toLeg(0.10, -0.42), k = a.clone().lerp(b, 0.5).add(V(0, -0.02, -0.10));
+        rod(fixedG, a, k, 0.032, WHITE); rod(fixedG, k, b, 0.032, WHITE); ball(fixedG, 0.045, k, DARK);
+        // Lambalar: bacak önünde braket + iki mercek (ileri bakar)
+        const lp = V(0, -0.60 * L, -0.12);
+        box(fixedG, 0.16, 0.10, 0.07, 0, lp.y, lp.z + 0.03, GREY);
+        for (const x of [-0.045, 0.045]) {
+          const lens = new THREE.CylinderGeometry(0.036, 0.036, 0.03, 12);
+          lens.rotateX(Math.PI / 2 - rake); lens.translate(x, lp.y, lp.z - 0.01); add(fixedG, lens, LENS);
+        }
+        // Kayan grup: krom piston, çatal tacı, çatal plakaları, aks, tork kolları
+        const yc = -L + r + 0.07;
+        taper(slideG, -0.48 * L, yc, 0.056, 0.056, CHROME);
+        box(slideG, w + 0.13, 0.06, 0.15, 0, yc, 0, WHITE);
+        for (const x of [-(w / 2 + 0.035), w / 2 + 0.035]) box(slideG, 0.03, r + 0.08, 0.10, x, -L + (r + 0.07) / 2 - 0.01, 0, WHITE);
+        rod(slideG, V(-(w / 2 + 0.06), -L, 0), V(w / 2 + 0.06, -L, 0), 0.028, GREY, 10);
+        rod(fixedG, V(0, -0.53 * L, -0.07), V(0, -0.62 * L, -0.15), 0.016, GREY, 6);
+        rod(slideG, V(0, -0.62 * L, -0.15), V(0, yc + 0.02, -0.07), 0.016, GREY, 6);
+        return { lamp: V(0, lp.y, lp.z - 0.03) };
+      });
+      // Pivot çerçevesinde lamba konumu (takım inik)
+      const lampP = g.extra.lamp.clone().applyAxisAngle(V(1, 0, 0), g.rake);
+      // Öne ve hafifçe yukarı katlanır (yuvanın içine)
+      stowTo(g, V(0, 0.10, -1));
+      this.parts.gear.nose = Object.assign(g, {
+        lift: 0.22, flat: 0, lampLocal: lampP,
+        // Yuva, tekerleğin ön kenarının süpürdüğü yay kadar öne uzar (EOTS 2,46'da biter)
+        doors: [mkDoor(-0.30, -0.006, 2.48, 4.50), mkDoor(0.30, 0.006, 2.48, 4.50)],
+      });
+      mkBay(-0.30, 0.30, 2.48, 4.50);
     }
-    // Ana takımlar: içe katlanır
+    // ---------------- Ana takımlar ----------------
     for (const side of [-1, 1]) {
-      const pivot = new THREE.Group();
-      const s = F35.cgStation + F35.mainGearZ;
-      const topY = bottomSurfaceY(s, F35.mainGearX) + 0.06;
-      pivot.position.set(side * F35.mainGearX, topY, F35.mainGearZ);
-      const r = 0.37;
-      const strutLen = topY - (wheelBottom + r);
-      const strut = new THREE.CylinderGeometry(0.09, 0.1, strutLen * 0.62, 10); strut.translate(0, -strutLen * 0.31, 0);
-      pivot.add(new THREE.Mesh(this.track(strut), strutMat));
-      const oleo = new THREE.CylinderGeometry(0.06, 0.06, strutLen * 0.5, 10); oleo.translate(0, -strutLen * 0.75, 0);
-      const oleoMesh = new THREE.Mesh(this.track(oleo), this.track(new THREE.MeshStandardMaterial({ color: 0xd8dadc, roughness: 0.2, metalness: 0.9 })));
-      pivot.add(oleoMesh);
-      const brace = new THREE.CylinderGeometry(0.04, 0.04, strutLen * 0.85, 6); brace.rotateZ(side * 0.55); brace.translate(side * -0.22, -strutLen * 0.42, 0.06);
-      pivot.add(new THREE.Mesh(this.track(brace), strutMat));
-      const wheel = mkWheel(r, 0.3); wheel.position.set(side * 0.12, -strutLen, 0);
-      pivot.add(wheel);
-      pivot.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-      this.group.add(pivot);
-      const dp = new THREE.Group();
-      dp.position.set(side * (F35.mainGearX - 0.5), bottomSurfaceY(s, F35.mainGearX - 0.5) + 0.02, F35.mainGearZ);
-      const door = new THREE.Mesh(this.track(new THREE.BoxGeometry(0.03, 0.9, 1.5)), this.m.paint);
-      door.position.set(0, -0.45, 0);
-      dp.add(door);
-      this.group.add(dp);
-      this.parts.gear[side < 0 ? 'left' : 'right'] = { pivot, wheel, retractAxis: 'z', retractSign: side, doors: [{ pivot: dp, sign: -side }], radius: r, slide: [oleoMesh, wheel], wheelY: -strutLen };
+      const r = 0.37, w = 0.29;
+      const legX = 1.60, bx0 = 1.36, bx1 = 1.72;   // yuva alt fasette kalır (dış kenar gövdenin en geniş yerine taşmaz)
+      const P = V(side * legX, bottomSurfaceY(8.95, legX) + 0.28, st(8.95));
+      const W = V(side * F35.mainGearX, wb + r, F35.mainGearZ);
+      const g = mkLeg(P, W, r, w, ({ L, rake, fixedG, slideG }) => {
+        rod(fixedG, V(0, 0, -0.19), V(0, 0, 0.19), 0.075, WHITE, 12);                     // muylu (x ekseni dönüşü için z boyunca gövdeye bağlı)
+        rod(fixedG, V(-side * 0.17, 0, 0), V(side * 0.07, 0, 0), 0.06, WHITE, 12);       // dışa kısa: yuva kenarında (1,72) yan kaplamadan dışarı taşmasın
+        taper(fixedG, 0, -0.58 * L, 0.106, 0.095, WHITE);                                 // dış silindir
+        taper(fixedG, -0.555 * L, -0.605 * L, 0.118, 0.118, GREY);                        // rakor bileziği
+        rod(fixedG, V(side * 0.07, -0.04, 0.08), V(side * 0.07, -0.56 * L, 0.08), 0.012, DARK, 6);   // hidrolik hatlar
+        rod(fixedG, V(side * 0.03, -0.04, 0.105), V(side * 0.03, -0.56 * L, 0.09), 0.010, 0x7a5a2a, 6);
+        // Yan dikme: bacak ortasından içe-yukarı gövdeye (dizli); gövde ucu yuva tavanında,
+        // böylece dikme kapak menteşesinin (1,36) içinden değil yuvanın içinden geçer
+        const a = V(0, -0.44 * L, 0.04), b = V(-side * 0.40, 0.16, 0.10), k = a.clone().lerp(b, 0.48).add(V(0, -0.08, 0.02));
+        rod(fixedG, a, k, 0.036, WHITE); rod(fixedG, k, b, 0.036, WHITE); ball(fixedG, 0.05, k, DARK);
+        // Tork (makas) kolları: üst sabit, alt kayan
+        rod(fixedG, V(0, -0.60 * L, -0.10), V(0, -0.72 * L, -0.20), 0.02, GREY, 6);
+        rod(slideG, V(0, -0.72 * L, -0.20), V(0, -L + 0.13, -0.10), 0.02, GREY, 6);
+        ball(slideG, 0.028, V(0, -0.72 * L, -0.20), DARK);
+        // Kayan grup: krom piston, aks gövdesi, aks, fren kaliperi
+        taper(slideG, -0.56 * L, -L + 0.08, 0.072, 0.072, CHROME);
+        box(slideG, 0.17, 0.19, 0.20, 0, -L, 0, WHITE);
+        const ox = W.x - P.x;
+        rod(slideG, V(0, -L, 0), V(ox * 1.02, -L, 0), 0.05, GREY, 10);
+        box(slideG, 0.05, 0.12, 0.10, ox - Math.sign(ox) * (w * 0.32), -L + r * 0.42, -0.06, DARK);
+        return null;
+      });
+      // Öne katlanır; tekerlek yuvaya DİK (bıçak gibi) girer: 0,74 m çaplı tekerlek ancak
+      // 0,29 m genişliğiyle 0,36 m'lik ağızdan geçer. Ağızdan geçerken içe kayma çok az
+      // (3,5°), tekerlek gövde içine girdikten sonra (katlanmanın son %40'ı) 7,5° merkeze
+      // döner ki dış yüzü gövdenin dik yan duvarından taşmasın. Yuva tekerleğin ön kenarının
+      // süpürdüğü yaya göre öne uzar (7,05). Parametreler, takım kenarlarının kaplamayı yuva
+      // ağzı dışında hiç kesmediği bölgenin ortasından seçildi (geçiş sırasında 0 kesişme).
+      stowTo(g, V(-side * Math.sin(3.5 * DEG), 0.08, -Math.cos(3.5 * DEG)));
+      this.parts.gear[side < 0 ? 'left' : 'right'] = Object.assign(g, {
+        lift: 0.22, flat: 0, yaw: side * 7.5 * DEG, yawFrom: 0.6,
+        doors: [mkDoor(side * bx0, side * (bx1 - 0.006), 7.05, 9.15)],
+      });
+      mkBay(side * bx0, side * bx1, 7.05, 9.15);
     }
   }
 
@@ -1383,9 +1623,7 @@ export class F35A {
         gapGeos.push(bellyShell(side * (x0 - 0.03), side * (x1 + 0.03), 6.71, 10.59, 4, 9, 0.005));
       }
     }
-    // İniş takımı yuva ağızları (koyu): burun ve ana takımlar; kapaklar kapalıyken örtülür
-    gapGeos.push(bellyShell(-0.30, 0.30, 2.95, 4.5, 3, 5, 0.004));
-    for (const side of [-1, 1]) gapGeos.push(bellyShell(side * 1.26, side * 1.72, 8.0, 9.6, 3, 5, 0.004));
+    // İniş takımı yuvaları buildGear'da (dokulu iç yüz + kapaklar)
     this.group.add(new THREE.Mesh(this.track(mergeGeometries(gapGeos.map((g) => (g.index ? g.toNonIndexed() : g)), false)), gapMat));
     // Kuyruk kancası kaportası (gövde altı, orta hat) ve kanca
     const hookFair = new THREE.BoxGeometry(0.26, 0.20, 1.7);
@@ -1401,20 +1639,7 @@ export class F35A {
     rec.rotation.x = -Math.PI / 2;
     rec.userData.decal = true;
     this.group.add(rec);
-    // Formasyon ışık şeritleri (gövde yanları)
-    for (const side of [-1, 1]) {
-      const fl = new THREE.Mesh(this.track(new THREE.PlaneGeometry(1.2, 0.07)), m.formLight);
-      fl.position.set(side * (sideSurfaceX(9.4, -0.2) + 0.012), -0.2, st(9.4));
-      fl.rotation.y = side * Math.PI / 2;
-      fl.userData.decal = true;
-      this.group.add(fl);
-      const fl2 = new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.06, 0.6)), m.formLight);
-      fl2.position.set(side * 0.45, bodyTop(2.0) - 0.02, st(2.6));
-      fl2.rotation.x = -Math.PI / 2;
-      fl2.rotation.z = side * 0.3;
-      fl2.userData.decal = true;
-      this.group.add(fl2);
-    }
+    // Formasyon ışık şeritleri: buildMarkings (kaplamaya oturtulur)
     // Antenler
     const ant1 = new THREE.BoxGeometry(0.03, 0.18, 0.4); ant1.translate(0.3, bodyBottom(6.2) - 0.09, st(6.2));
     this.paintGeos.push(ant1);
@@ -1460,15 +1685,16 @@ export class F35A {
     // bağlanır: takım içeri alınınca pivot GİZLENİR ve ona bağlı bir ışık sahnenin
     // ışık sayısını değiştirip tüm gölgelendiricileri yeniden derletirdi.
     noseGear.updateMatrix();
-    spot.position.set(0, -0.45, -0.12).applyMatrix4(noseGear.matrix);
+    const lampL = this.parts.gear.nose.lampLocal;
+    spot.position.copy(lampL).applyMatrix4(noseGear.matrix);
     const target = new THREE.Object3D();
-    target.position.set(0, -6.0, -40).applyMatrix4(noseGear.matrix);
+    target.position.copy(lampL).add(new THREE.Vector3(0, -6.0, -40)).applyMatrix4(noseGear.matrix);
     this.group.add(spot); this.group.add(target);
     spot.target = target;
     this.landingSpot = spot;
     this.landingLens = new THREE.Sprite(this.track(new THREE.SpriteMaterial({ map: glowTex, color: 0xfff4e0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
     this.landingLens.scale.set(0.5, 0.5, 1);
-    this.landingLens.position.set(0, -0.45, -0.16);
+    this.landingLens.position.copy(lampL).add(new THREE.Vector3(0, 0, -0.03));
     this.landingLens.visible = false;
     noseGear.add(this.landingLens);
     this.landingLightsOn = false;
@@ -1479,20 +1705,58 @@ export class F35A {
   buildMarkings() {
     const P = this.wingPlanform();
     const L = this.livery || {};
-    const insig = this.track(makeMilInsigniaTexture(L.insignia || 'starbar', 256));
-    const mat = this.track(new THREE.MeshStandardMaterial({ map: insig, transparent: true, roughness: 0.7, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -1 }));
+    const macro = this.m.macro || getSharedMaterials().macro;
+    const decalMat = (map, extra = {}) => applyPaintDetail(this.track(new THREE.MeshStandardMaterial(Object.assign({ map, transparent: true, roughness: 0.72, metalness: 0.2, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }, extra))), macro);
+    const insig = this.track(makeMilInsigniaTexture(L.insignia || 'starbar', 512));
+    const mat = decalMat(insig);
+    // Kaplamaya OTURAN dekal: teğet düzlemde ızgara kurulur, her köşe dış normal boyunca
+    // gövde kaplamasına ışınla izdüşürülür ve 5 mm dışarı alınır. Düz levha dekallar eğri
+    // gövdede kenarlarından havaya kalkıp "üstüne yapıştırılmış çıkartma" gibi duruyordu.
+    const skinMat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+    const skin = [...(this._hull || []), this._skinTop].filter(Boolean).map((g) => new THREE.Mesh(g, skinMat));
+    const rc = new THREE.Raycaster(), tmp = new THREE.Vector3(), dirV = new THREE.Vector3();
+    const conform = (material, center, nOut, upHint, w, h, uvRect = null, nx = 10, ny = 6, targets = skin, off = 0.005) => {
+      const n = nOut.clone().normalize();
+      const u = upHint.clone().sub(n.clone().multiplyScalar(upHint.dot(n))).normalize();
+      const r = u.clone().cross(n);
+      const g = new THREE.PlaneGeometry(w, h, nx, ny);
+      const pa = g.attributes.position, uv = g.attributes.uv;
+      // Işın parçası düzlemin 0,8 m dışından 1 m içine: bu hacmi kapsayan üçgenler yeterli
+      const bb = new THREE.Box3();
+      for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const q = center.clone().addScaledVector(r, a * w / 2).addScaledVector(u, b * h / 2);
+        bb.expandByPoint(q.clone().addScaledVector(n, 0.8)).expandByPoint(q.addScaledVector(n, -1.0));
+      }
+      bb.expandByScalar(0.02);
+      const region = [regionMesh(targets.map((t) => t.geometry), bb.min, bb.max, skinMat)];
+      for (let i = 0; i < pa.count; i++) {
+        const p = center.clone().addScaledVector(r, pa.getX(i)).addScaledVector(u, pa.getY(i));
+        rc.set(tmp.copy(p).addScaledVector(n, 0.8), dirV.copy(n).negate());
+        const hit = rc.intersectObjects(region, false)[0];
+        if (hit) {
+          const hn = hit.face.normal.clone(); if (hn.dot(n) < 0) hn.negate();
+          p.copy(hit.point).addScaledVector(hn, off);
+        }
+        pa.setXYZ(i, p.x, p.y, p.z);
+        if (uvRect) { const [u0, v0, u1, v1] = uvRect; uv.setXY(i, u0 + uv.getX(i) * (u1 - u0), 1 - v1 + uv.getY(i) * (v1 - v0)); }
+      }
+      g.computeVertexNormals();
+      const mesh = new THREE.Mesh(this.track(g), material);
+      mesh.userData.decal = true;
+      this.group.add(mesh);
+      return mesh;
+    };
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
     const size = 1.5;
-    // Yıldız-çubuk amblemi geniştir (1,9:1), demir haçı ise KAREdir. Dekal düzlemi
-    // amblemin kendi en-boy oranına göre kurulur, aksi halde haç yayvan görünür.
-    const insigW = L.insigniaSquare ? size : size * 1.9;
+    // Yıldız-çubuk 2:1 (gerçek oran 4R x 2R), demir haçı kare.
+    const insigW = L.insigniaSquare ? size : size * 2;
+    // Kanat amblemi: sol kanat ÜSTÜ ve sağ kanat ALTI (ABD hava kuvvetleri ve donanmasının
+    // ortak yerleşimi); kanat profiline oturtulur.
     for (const [side, up] of [[-1, 1], [1, -1]]) {
       const x = side * 3.4;
       const f = (3.4 - P.rootX) / (P.tipX - P.rootX);
       const le = P.leRoot + (P.leTip - P.leRoot) * f, te = P.teRoot + (P.teTip - P.teRoot) * f;
       const sMid = le + (te - le) * 0.42;
-      // Kanada YAPIŞIK amblem: düz levha kanat profilinin en kalın noktasının üstünde
-      // duruyordu ve hücum/firar kenarına doğru yüzeyden ~10 cm ayrılıp havada
-      // asılı görünüyordu. Izgara levhanın her köşesi profil yüzeyine oturtulur.
       const g = new THREE.PlaneGeometry(insigW, size, 14, 8);
       const o = new THREE.Object3D();
       o.position.set(x, P.y, st(sMid));
@@ -1513,28 +1777,98 @@ export class F35A {
       mesh.userData.decal = true;
       this.group.add(mesh);
     }
+    const navy = L.insignia === 'navy';
+    const markColor = L.markColor || '#9aa0a8';
     for (const side of [-1, 1]) {
-      const mesh = new THREE.Mesh(this.track(new THREE.PlaneGeometry(L.insigniaSquare ? 0.5 : 0.9, 0.5)), mat);
-      mesh.position.set(side * (sideSurfaceX(10.6, 0.3) + 0.02), 0.3, st(10.6));
-      mesh.rotation.y = side * Math.PI / 2;
-      mesh.rotation.x = side * -0.45;
-      mesh.userData.decal = true;
-      this.group.add(mesh);
+      if (navy) {
+        // DONANMA: ulusal amblem ön gövde yanında, hava alığının hemen arkasında (F/A-18 ve
+        // F-35C ile aynı yer); arka gövdede alçak görünürlüklü "NAVY" yazısı.
+        conform(mat, V(side * 1.62, -0.50, st(6.35)), V(side, -0.12, 0), V(0, 1, 0), 0.92, 0.46);
+      } else {
+        // USAF / Luftwaffe: amblem arka gövde yanında, kanat kökünün hemen üstünde. Tümüyle
+        // TEK bir kesit fasetinin üzerinde durur (chine ile üst omuz arasındaki dik faset);
+        // eskiden iki fasetin kırık çizgisine biniyor, yıldız ortadan kırılmış görünüyordu.
+        conform(mat, V(side * 1.62, 0.15, st(10.6)), V(side, 0.34, 0), V(0, 1, 0), L.insigniaSquare ? 0.4 : 0.8, 0.4);
+      }
     }
-    const cant = 22 * DEG;
-    const txtMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeTextTexture(L.tailCode || 'LF', { w: 256, h: 128, font: 'bold 96px Arial', color: L.markColor || '#9aa0a8' })), transparent: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -1 }));
-    const serialMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeTextTexture(L.serial || 'AF 15-5108', { w: 512, h: 128, font: 'bold 70px Arial', color: L.markColor || '#9aa0a8' })), transparent: true, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -1 }));
+    if (navy) {
+      const navyTxt = decalMat(this.track(makeTextTexture('NAVY', { w: 512, h: 128, font: 'bold 104px Arial', color: markColor })));
+      const modex = decalMat(this.track(makeTextTexture(L.modex || '100', { w: 256, h: 128, font: 'bold 104px Arial', color: markColor })));
+      for (const side of [-1, 1]) {
+        conform(navyTxt, V(side * 1.45, 0.22, st(10.75)), V(side, 0.75, 0), V(0, 1, 0), 1.0, 0.25, null, 12, 4);
+        conform(modex, V(side * 0.86, -0.13, st(2.15)), V(side, -0.25, 0), V(0, 1, 0), 0.46, 0.23, null, 8, 4);
+      }
+    }
+    // Bakım ve uyarı işaretleri (düşük görünürlüklü koyu gri; tek atlas, tek çizim)
+    const sten = decalMat(this.track(makeStencilAtlas()), { roughness: 0.75 });
+    const A = STENCIL_ATLAS;
+    const fwd = V(0, 0, -1);
     for (const side of [-1, 1]) {
-      const up = new THREE.Vector3(side * Math.sin(cant), Math.cos(cant), 0);
-      const nrm = new THREE.Vector3(Math.cos(cant) * side, -Math.sin(cant), 0);
-      const place = (mesh, hFrac, s, out) => {
-        mesh.position.copy(new THREE.Vector3(side * 0.66, 0.42, st(s)).addScaledVector(up, 2.2 * hFrac).addScaledVector(nrm, out));
-        mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -side), up, nrm));
-        mesh.userData.decal = true;
-        this.group.add(mesh);
+      // Fırlatma koltuğu uyarı üçgeni: kanopi eşiğinin dışında
+      conform(sten, V(side * 0.78, topSurfaceY(4.25, 0.78), st(4.25)), V(side * 0.55, 1, 0), fwd, 0.13, 0.13, A.warn, 4, 4);
+      // Hava alığı uyarısı: dudağın önünde, chine altında
+      conform(sten, V(side * 0.97, -0.10, st(3.9)), V(side, -0.1, 0), V(0, 1, 0), 0.32, 0.16, A.intake, 6, 4);
+      // NO STEP: flaperon menteşesinin önünde, kanat üstü
+      { const x = 2.45, f = (x - P.rootX) / (P.tipX - P.rootX), le = P.leRoot + (P.leTip - P.leRoot) * f, te = P.teRoot + (P.teTip - P.teRoot) * f, sv = le + (te - le) * 0.66;
+        const g = conform(sten, V(side * x, P.y + 0.06, st(sv)), V(0, 1, 0), fwd, 0.36, 0.09, A.nostep, 4, 2);
+        // kanat yüzeyine oturt (gövde ışın listesinde kanat yok): profil üst yüzeyi
+        const pa = g.geometry.attributes.position;
+        for (let i = 0; i < pa.count; i++) {
+          const vx = Math.abs(pa.getX(i)), s2 = pa.getZ(i) + F35.cgStation, ff = (vx - P.rootX) / (P.tipX - P.rootX);
+          const l = P.leRoot + (P.leTip - P.leRoot) * ff, t = P.teRoot + (P.teTip - P.teRoot) * ff, ch = t - l, th = P.thickRoot + (P.thickTip - P.thickRoot) * ff;
+          pa.setY(i, P.y + naca((s2 - l) / ch, th) * ch + 0.005);
+        }
+        pa.needsUpdate = true; g.geometry.computeVertexNormals(); }
+      // Kriko noktası: ana takım yuvasının önünde, gövde altı
+      conform(sten, V(side * 1.15, bottomSurfaceY(7.2, 1.15), st(7.2)), V(0, -1, 0), fwd, 0.09, 0.13, A.jack, 2, 2);
+    }
+    // Kurtarma oku (sol, kanopiyi gösterir), veri bloğu (sol ön gövde), yakıt bilgisi (sırt, ikmal kapağının arkası)
+    conform(sten, V(-0.86, topSurfaceY(3.7, 0.86), st(3.7)), V(-0.6, 1, 0), fwd, 0.48, 0.16, A.rescue, 6, 3);
+    conform(sten, V(-0.92, -0.16, st(3.2)), V(-1, -0.2, 0), V(0, 1, 0), 0.34, 0.11, A.data, 6, 3);
+    conform(sten, V(0, bodyTop(7.95), st(7.95)), V(0, 1, 0), V(1, 0, 0), 0.30, 0.075, A.fuel, 4, 2);
+    conform(sten, V(0.9, -0.2, st(3.25)), V(1, -0.2, 0), V(0, 1, 0), 0.22, 0.055, A.ground, 4, 2);
+
+    // Dikey kuyruk (sabit kısım) ışın hedefi: kuyruk işaretleri ve ışıkları yalnızca ona
+    // oturtulur (gövde ışını kökte kuyruktan önce gövdeye çarpabilir).
+    const finMesh = (fin) => fin.mesh || (fin.mesh = new THREE.Mesh(fin.geo, skinMat));
+    // Formasyon şerit ışıkları (F-35 yerleşimi): her iki yanda kokpitin arkasında gövde
+    // omzunda, ve dikey kuyrukların dış yüzünde uca yakın, veter boyunca. Keskin kenarlı
+    // mercek + yüzeye taşan çok hafif hale; ikisi de kaplamaya oturtulur. Eskiden düz
+    // levhalar kanadın altında havada, burunda kaplamaya gömülü ve kuyrukta kod yazısının
+    // üstündeydi.
+    {
+      const lensMat = this.track(new THREE.MeshBasicMaterial({ map: this.track(makeStripLightTexture()), transparent: true, alphaTest: 0.04, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+      const haloMat = this.track(new THREE.MeshBasicMaterial({ map: this.track(makeStripGlowTexture()), color: 0x63f57f, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      const strip = (center, n, upv, len, wid, targets = skin) => {
+        // hale merceğin 4 mm altında: aynı yükseklikte olunca eğri kaplamada üçgenleri
+        // yer yer merceğin önüne geçip onu beyaza boyuyordu
+        conform(lensMat, center, n, upv, len, wid, null, 12, 1, targets, 0.007);
+        conform(haloMat, center, n, upv, len * 1.5, wid * 6, null, 12, 4, targets, 0.003);
       };
-      place(new THREE.Mesh(this.track(new THREE.PlaneGeometry(0.7, 0.35)), txtMat), 0.74, 13.3, 0.045);
-      place(new THREE.Mesh(this.track(new THREE.PlaneGeometry(1.2, 0.3)), serialMat), 0.24, 12.6, 0.05);
+      for (const side of [-1, 1]) {
+        // Gövde omzu: chine üstündeki dik faset, 7.0–7.9 istasyonları
+        strip(V(side * 1.56, 0.17, st(7.45)), V(side, 0.33, 0), V(0, 1, 0), 0.85, 0.045);
+        // Dikey kuyruk dış yüzü: hücum kenarına paralel, kenarın 0,32 m gerisinde, yükseklik
+        // kesri ~0,58 (kuyruk kodu ile seri numarasının arasında, ikisine de değmez).
+        const fin = (this._fins || []).find((f) => f.side === side);
+        if (fin) {
+          const FV = fin.V, hF = 0.58;
+          const leDir = fin.up.clone().multiplyScalar(FV.height).add(V(0, 0, FV.tipLE - FV.rootLE)).normalize();
+          const c = V(side * FV.rootX, FV.rootY, st(FV.rootLE + (FV.tipLE - FV.rootLE) * hF + 0.32)).addScaledVector(fin.up, FV.height * hF);
+          strip(c, fin.nrm.clone(), fin.nrm.clone().cross(leDir), 0.58, 0.045, [finMesh(fin)]);
+        }
+      }
+    }
+
+    // Kuyruk kodu ve seri numarası: kuyruk profiline oturtulur. Eskiden düz levhalar sabit
+    // 4,5–5 cm dışarıdaydı; kökte profil daha kalın olduğundan seri numarası kuyruğun içinde
+    // kalıp yalnızca bir iki harfi görünüyordu. İkisi de dümen menteşesinin önünde kalır.
+    const txtMat = decalMat(this.track(makeTextTexture(L.tailCode || 'LF', { w: 256, h: 128, font: 'bold 96px Arial', color: markColor })));
+    const serialMat = decalMat(this.track(makeTextTexture(L.serial || 'AF 15-5108', { w: 512, h: 128, font: 'bold 70px Arial', color: markColor })));
+    for (const fin of this._fins || []) {
+      const at = (h, s) => V(fin.side * fin.V.rootX, fin.V.rootY, st(s)).addScaledVector(fin.up, h);
+      conform(txtMat, at(1.63, 13.3), fin.nrm, fin.up, 0.7, 0.35, null, 8, 4, [finMesh(fin)]);
+      conform(serialMat, at(0.53, 12.5), fin.nrm, fin.up, 1.2, 0.3, null, 12, 3, [finMesh(fin)]);
     }
   }
 
@@ -1658,23 +1992,27 @@ export class F35A {
     const rud = sm.r * 25 * DEG, toe = sm.toe * 14 * DEG;
     setHinge(p.rudders.right, rud - toe);
     setHinge(p.rudders.left, rud + toe);
-    // İniş takımı ve kapaklar
+    // İniş takımı ve kapaklar — sıralı ve yumuşak: indirmede önce kapaklar açılır
+    // (gear 0 -> 0,22), takım görünür olur ve son evrede gövdeden aşağı iner, sonra
+    // yumuşak hızlanma/yavaşlamayla (smoothstep) öne katlı konumdan dikey konuma döner
+    // (0,26 -> 0,97). Toplamada aynı sıra tersten işler: takım katlanıp gövdeye çekilir,
+    // EN SON kapaklar kapanır. Eskiden kapak ve bacak aynı doğrusal açıyla dönüyordu.
     this.wheelSpin += (groundSpeed / 0.35) * dt;
+    const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    const doorT = ss(0.0, 0.22, gear), swing = ss(0.26, 0.97, gear), lift = 1 - ss(0.22, 0.42, gear);
     for (const key of ['nose', 'left', 'right']) {
       const g = p.gear[key];
-      const a = (1 - gear) * Math.PI / 2 * g.retractSign;
-      g.pivot.rotation.set(0, 0, 0);
-      if (g.retractAxis === 'x') g.pivot.rotation.x = a; else g.pivot.rotation.z = a;
-      g.pivot.visible = gear > 0.001;
+      g.pivot.visible = gear > 0.235;
+      g.pivot.quaternion.setFromAxisAngle(g.retAxis, (1 - swing) * g.stow);
+      // Geç sapma: tekerlek yuva ağzından geçtikten SONRA gövde içinde merkeze doğru döner
+      if (g.yaw) g.pivot.quaternion.premultiply(_gearYawQ.setFromAxisAngle(_Y_AXIS, g.yaw * ss(g.yawFrom, 1, 1 - swing)));
+      g.slide.rotation.y = (1 - swing) * g.flat;
+      g.pivot.position.y = g.baseY + lift * g.lift;
       g.wheel.rotation.x = this.wheelSpin * 0.35 / g.radius;
-      // Amortisör: tekerlek, çatal ve piston gövdeye doğru kayar (tekerlek yerde kalır,
-      // gövde aynı miktarda alçalır — bkz. main.js syncAircraft)
-      if (g.slide) {
-        if (!g.slideBase) g.slideBase = g.slide.map((o) => o.position.y);
-        for (let i = 0; i < g.slide.length; i++) g.slide[i].position.y = g.slideBase[i] + gearComp;
-      }
-      const doorOpen = Math.min(1, gear * 1.4);
-      for (const d of g.doors) d.pivot.rotation.z = d.sign * (Math.PI / 2) * (1 - doorOpen) + d.sign * 0.35 * doorOpen;
+      // Amortisör: kayan grup bacak ekseni boyunca; düşey bileşeni gearComp (main.js
+      // syncAircraft gövdeyi aynı miktarda alçaltır, tekerlek yerde kalır)
+      g.slide.position.y = gearComp / g.cosRake;
+      for (const d of g.doors) d.grp.quaternion.setFromAxisAngle(d.axis, d.ang * doorT);
     }
     // Değişken alanlı nozul: rölantide açık, askeri güçte kısılı, AB'de tam açık
     // (motor modelinin nozul durumu; yoksa gaz kolundan türetilir)
