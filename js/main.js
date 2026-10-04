@@ -11,6 +11,7 @@ import { CameraRig, CAMERA_NAMES, CAMERA_LABELS } from './cameras.js';
 import { liveriesFor, defaultLiveryId } from './liveries.js';
 import { UI, isStandalone, isIOS, loadSettings, saveSettings } from './ui.js';
 import { AdaptiveQuality, perfMultipliers } from './perf.js';
+import { WeaponSystem } from './weapons.js';
 
 // ---------------------------------------------------------------------------
 // Yükleme ilerlemesi. Yüzde ZAMANA bağlı değildir: yalnızca bir iş (ya da arazi
@@ -110,6 +111,7 @@ class App {
     this.state = 'loading'; // loading | start | running | paused | crashed
     this.pausedByOrientation = false;
     this.accumulator = 0;
+    this._weaponsT = null;   // silah saati: çizilen poz saati (fizik zamanı + artık), bkz. loop
     this.lastTime = 0;
     this.frameCount = 0; this.fpsTime = 0;
     // 60 fps kilidi: hedef kare zamanı (sürüklenmesiz), uyarlanabilir çözünürlük durumu
@@ -193,12 +195,19 @@ class App {
       onSound: () => this.toggleSound(),
       onPause: () => this.togglePause(),
       onLights: () => this.toggleLights(),
+      onFire: () => this.fireMissile(),
       onPhysDebug: () => this.togglePhysDebug(),
       onMenu: () => this.ui.toggleMenu(),
       onMenuActivity: () => this.ui.menuActivity(),
       onViewDrag: (dx, dy) => this.cameraRig.drag(dx, dy),
       onViewPinch: (f) => this.cameraRig.zoom(f),
       onViewRecenter: () => this.cameraRig.recenterLook(),
+    });
+    // Silah sistemi: füze havuzu, iz şeritleri ve efekt malzemeleri burada (yükleme ekranında)
+    // sahneye eklenir; gölgelendiricileri aşağıdaki ön derlemeye girer, uçuşta takılma olmaz.
+    this.weapons = new WeaponSystem(this.scene, this.world, this.audio, this.cameraRig, {
+      onState: (i) => this.updateFireButton(i),
+      message: (t) => this.ui.message(t, 1600),
     });
     this.bindUI();
     this.bindSystem();
@@ -292,6 +301,21 @@ class App {
    */
   warmupFrame() {
     try { this.renderer.render(this.scene, this.camera); } catch (e) { console.warn('Warm-up frame skipped', e); }
+    this.needsRender = true;
+  }
+  /**
+   * Silah efektlerinin (füze, alev, iz, parçacıklar, yer izi) ilk ÇİZİMİ de yükleme ekranında
+   * yapılır. Uçuş sahnesinde yapılmalıdır: uçağın iniş ışığı sahnenin ışık kümesini değiştirir
+   * ve GPU boru hattı durumları uçuş sahnesine özgüdür (hangar sahnesinde ısıtmak yetmiyordu,
+   * ilk atışta takılma kalıyordu). Ardından temiz bir kare çizilir: aynı görev içinde olduğu için
+   * ekrana yalnızca o gider, ısıtma nesneleri hiç görünmez.
+   */
+  weaponsWarmup() {
+    if (!this.weapons) return;
+    try {
+      this.weapons.warmup(this.renderer, this.scene, this.camera);
+      this.renderer.render(this.scene, this.camera);
+    } catch (e) { console.warn('Weapons warm-up skipped', e); }
     this.needsRender = true;
   }
 
@@ -657,6 +681,7 @@ class App {
     // hangi modele bakılacağı güncellenir ve geçerli kip yeniden uygulanır.
     this.cameraRig.aircraft = ac;
     this.cameraRig.applyMode();
+    this.weapons.attach(ac, this.physics);   // envanter (atılmış füzeler) yeni modele uygulanır
     if (ac.setLandingLights) ac.setLandingLights(this.lightsOn);
     if (this.physics) this.syncAircraft(0);
     // Yeni boya malzemeleri: seçim ekranındayken arka planda derlenir
@@ -667,6 +692,7 @@ class App {
   showSelect() {
     if (this.state === 'running') this.controls.setEnabled(false);
     this.state = 'select';
+    if (this.weapons) this.weapons.reset();
     this.ui.setMenu(false);
     this.ui.hide('touch'); this.ui.hide('pause'); this.ui.hide('settings'); this.ui.hide('crash'); this.ui.hide('guide');
     this.buildSelectGrid();
@@ -699,6 +725,7 @@ class App {
         // yeni program ister. Bu yüzden yalnızca uçak değil tüm sahne derlenir.
         await this.precompile(this.scene);
         this.warmupFrame();
+        this.weaponsWarmup();
         prog.finish('Ready');
         await this.ui.progressSettled();
         prog.save();
@@ -706,6 +733,7 @@ class App {
       } else {
         this.physics.reset(spawnPose(this.settings.spawn));
         this.cameraRig.reset();
+        this.weapons.reset(); this._weaponsT = null;
       }
       this.settings.aircraft = id;
       saveSettings(this.settings);
@@ -732,6 +760,8 @@ class App {
     this.physics = new FlightModel(this.world, cfg);
     this.physics.reset(spawnPose(this.settings.spawn));
     this.cameraRig.setAircraft(this.aircraft, cfg);
+    this.weapons.attach(this.aircraft, this.physics);
+    this.weapons.reset(); this._weaponsT = null;
     this.cameraRig.modeIndex = 0;
     this.cameraRig.reset();
     this.cameraRig.applyMode();
@@ -817,6 +847,7 @@ class App {
   }
   restart() {
     this.physics.reset(spawnPose(this.settings.spawn));
+    this.weapons.reset(); this._weaponsT = null;
     this.lightsOn = false; this.aircraft.setLandingLights(false); this.ui.setToggle(this.ui.el.btnLights, false);
     this.controls.resetLever(0);
     this.controls.setEnabled(true);
@@ -872,6 +903,23 @@ class App {
     this.ui.setToggle(this.ui.el.btnLights, this.lightsOn);
     this.ui.message(this.lightsOn ? 'Landing lights on' : 'Landing lights off', 1200);
   }
+  fireMissile() {
+    if (this.state !== 'running') return;
+    this.weapons.fire();
+  }
+  updateFireButton(i) {
+    const b = this.ui.el.btnFire || (this.ui.el.btnFire = document.getElementById('btn-fire'));
+    if (!b) return;
+    const inhibit = !!(this.physics && (this.physics.onGround || this.physics.crashed));
+    b.classList.toggle('busy', i.busy);
+    b.classList.toggle('queued', i.pending);
+    b.classList.toggle('empty', i.count === 0);
+    b.classList.toggle('inhibit', inhibit && i.count > 0);
+    b.style.setProperty('--cd', i.cooldown.toFixed(2));
+    const c = this._fireCount || (this._fireCount = document.getElementById('fire-count'));
+    const txt = i.pending ? 'QUEUED' : 'AIM-120 ×' + i.count;
+    if (c && c.textContent !== txt) c.textContent = txt;
+  }
   cycleCamera() {
     this.cameraRig.next();
     this.ui.message('Camera: ' + (CAMERA_LABELS[this.cameraRig.mode] || CAMERA_NAMES[this.cameraRig.mode]), 1200);
@@ -902,6 +950,7 @@ class App {
     this.world = world;
     this.physics.world = world;
     this.cameraRig.world = world;
+    this.weapons.world = world;
     this.aq.set(0); this.aq.reset();      // yeni kalite ön ayarı: uyarlanabilir kademe baştan
     this.renderScale = 1;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, preset.pixelRatio));
@@ -915,6 +964,7 @@ class App {
     await this.breathe();
     await this.precompile(this.scene);
     this.warmupFrame();
+    this.weaponsWarmup();
     prog.finish('Ready');
     await this.ui.progressSettled();
     prog.save();
@@ -1102,6 +1152,14 @@ class App {
       }
       this.syncAircraft(dt);
       this.cameraRig.update(dt, this.pose);
+      this._wind = this.physics.windAt(this.physics.groundY + 8, this.physics.time);
+      // Silahlar, çizilen uçak pozuyla AYNI saatle ilerler (poz saati = fizik zamanı + artık).
+      // Çok yavaş karede fizik en fazla 12 adım atıp artığı atar; kare dt'si kullanılsaydı
+      // bırakılmış füze o karede uçağa göre bir fizik adımı (~2 m) öne kayardı.
+      const poseT = this.physics.time + this.accumulator;
+      const wdt = this._weaponsT === null ? dt : Math.min(0.1, Math.max(0, poseT - this._weaponsT));
+      this._weaponsT = poseT;
+      this.weapons.update(wdt, this.pose, this.camera, this._wind);
       if (this.physDebug) this.drawPhysDebug();
     }
     if (running || this.needsRender) {

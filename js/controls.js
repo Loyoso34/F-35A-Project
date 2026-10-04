@@ -273,6 +273,8 @@ export class Controls {
     };
     tap('btn-gear', () => this.cb.onGear && this.cb.onGear());
     tap('btn-brake', () => this.cb.onBrake && this.cb.onBrake());
+    // FIRE: tek basış = tek fırlatma isteği (sıra/soğuma silah sisteminde)
+    if (document.getElementById('btn-fire')) tap('btn-fire', () => this.cb.onFire && this.cb.onFire());
     const secondary = (fn) => () => { this.cb.onMenuActivity && this.cb.onMenuActivity(); fn(); };
     tap('btn-menu', () => this.cb.onMenu && this.cb.onMenu());
     tap('btn-camera', secondary(() => this.cb.onCamera && this.cb.onCamera()));
@@ -336,6 +338,7 @@ export class Controls {
         case 'KeyM': this.cb.onSound && this.cb.onSound(); break;
         case 'KeyL': this.cb.onLights && this.cb.onLights(); break;
         case 'KeyR': this.cb.onViewRecenter && this.cb.onViewRecenter(); break;   // bakışı ortala
+        case 'Space': this.cb.onFire && this.cb.onFire(); break;                   // füze (basılı tutmak tekrar ateşlemez)
         case 'KeyP': case 'Escape': this.cb.onPause && this.cb.onPause(); break;
         // Shift+D: geliştirici fizik paneli (§40). Normal oyunda kapalı.
         case 'KeyD': if (e.shiftKey) this.cb.onPhysDebug && this.cb.onPhysDebug(); break;

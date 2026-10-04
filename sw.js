@@ -1,5 +1,5 @@
 /* F-35A Simülatör – Service Worker */
-const CACHE_VERSION = '3.1.0';
+const CACHE_VERSION = '3.2.0';
 const CACHE_NAME = 'f35a-sim-' + CACHE_VERSION;
 const THREE_VERSION = '0.170.0';
 const CDN_BASE = 'https://cdn.jsdelivr.net/npm/three@' + THREE_VERSION + '/';
@@ -29,6 +29,8 @@ const APP_FILES = [
   './js/controls.js',
   './js/hud.js',
   './js/audio.js',
+  './js/weapons.js',
+  './js/fx.js',
   './js/cameras.js',
   './js/ui.js',
 ];

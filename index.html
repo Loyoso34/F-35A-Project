@@ -216,6 +216,13 @@
     #right-col { position: absolute; right: calc(var(--sar) + 70px); bottom: var(--ctl-b); display: flex; flex-direction: column; gap: 6px; }
     #right-col .btn { width: 72px; min-height: 46px; }
     #right-col .btn .l { line-height: 1.05; }
+    /* FIRE: kırmızı, sağ başparmağın altında; soğuma süresi alttan dolan çubukla gösterilir */
+    #btn-fire { position: relative; overflow: hidden; border-color: rgba(255,92,72,0.9); background: rgba(120,20,14,0.45); color: #ffd7cf; }
+    #btn-fire .i { font-size: 13px; font-weight: 900; letter-spacing: 1.6px; }
+    #btn-fire::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--cd, 0) * 100%); background: rgba(255,255,255,0.16); pointer-events: none; }
+    #btn-fire.busy { border-color: rgba(255,190,80,0.95); color: #ffe2b0; }
+    #btn-fire.queued { box-shadow: 0 0 0 2px rgba(255,190,80,0.6) inset; }
+    #btn-fire.empty, #btn-fire.inhibit { opacity: 0.55; border-color: rgba(255,255,255,0.25); background: rgba(10,16,24,0.55); color: #c9d2dc; }
     /* ---- Uçak seçim ekranı ---- */
     #select { background: linear-gradient(160deg, rgba(6,10,16,0.82), rgba(6,10,16,0.94)); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: 24; }
     .sel-wrap { width: min(1100px, 100%); max-height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 10px; }
@@ -473,6 +480,7 @@
     </div>
     <div id="rudder"><div id="rudder-track"></div><div id="rudder-knob"></div></div>
     <div id="right-col">
+      <button class="btn fire" id="btn-fire" aria-label="Fire missile"><span class="i">FIRE</span><span class="l" id="fire-count">AIM-120 ×4</span></button>
       <button class="btn on" id="btn-gear" aria-label="Landing gear"><span class="i">🛬</span><span class="l">Landing Gear</span></button>
       <button class="btn on" id="btn-brake" aria-label="Wheel brakes"><span class="i">🛑</span><span class="l">Brakes</span></button>
     </div>
@@ -502,10 +510,10 @@
         <li><b>Bottom row, left to right:</b> flap lever &rarr; stick &rarr; rudder slider (center)</li>
         <li><b>Rudder slider:</b> drag to yaw; it springs back to center. On the ground it also steers the nosewheel</li>
         <li><b>Flap lever:</b> slide down to extend, up to retract. It snaps to each detent and shows the setting and flap angle</li>
-        <li><b>Landing Gear / Brakes:</b> tap to toggle</li>
+        <li><b>Gear / Brakes:</b> tap to toggle. <b>FIRE</b> (Space): AIM-120, wing stations first, then the internal bays</li>
         <li><b>Takeoff:</b> you start with the brakes released and flaps up &mdash; open the throttle and rotate at about 140 kt</li>
         <li><b>☰ Menu:</b> Pause, <b>Camera</b> (free &rarr; cockpit &rarr; chase &rarr; flyby &rarr; left wing &rarr; right wing &rarr; landing gear), Sound and Lights</li>
-        <li><b>Keyboard:</b> WASD/arrows pitch and roll, Q/E rudder, Shift/Ctrl throttle, G gear, F flaps, B brakes, L lights, C camera, P pause</li>
+        <li><b>Keyboard:</b> WASD/arrows pitch and roll, Q/E rudder, Shift/Ctrl throttle, G gear, F flaps, B brakes, L lights, C camera, Space fire, P pause</li>
         <li><b>Two airports:</b> Anadolu Air Base and Yesilova Airport. Choose your departure airport in the hangar</li>
       </ul>
     </div>

@@ -15,7 +15,10 @@ js/main.js              Uygulama girişi, yükleme hattı ve ilerleme, oyun dön
 js/perf.js              Uyarlanabilir kalite: önce ikincil efektler, en son yumuşak adımlarla çözünürlük
 js/world.js             Arazi, gökyüzü, deniz/göller, ormanlar, iki havaalanı, kasabalar, yollar, köprü
 js/city.js              Şehir üreteci: bölgeleme, yol ağı, bina yerleşimi, yeşil alan, detay, trafik, LOD
-js/aircraft.js          Prosedürel F-35A modeli: gövde, kokpit + pilot, kanopi, hacimsel art yakıcı alevi
+js/aircraft.js          Prosedürel F-35A modeli: gövde, kokpit + pilot, kanopi, hacimsel art yakıcı alevi,
+                        iç silah yuvaları (kapaklar, ray, AIM-120) ve dış istasyonlar (pilon + AIM-120)
+js/weapons.js           Silah sistemi: envanter, ateşleme sırası, yuva dizisi, füze uçuşu ve çarpışma
+js/fx.js                Silah efektleri: GPU parçacıkları, duman izi şeridi, patlama, krater/is izleri
 js/fleet.js             F-35A yapılandırması: aerodinamik veri, kontrol kanunu, sistemler, kamera, ses
 js/liveries.js          Boya şemaları (livery) — YALNIZCA görsel veri; fizik ve sistemlerle bağı yoktur
 js/physics.js           Uçuş dinamiği düzenleyicisi (120 Hz sabit adım): hava verileri, kuvvet/moment
@@ -276,6 +279,100 @@ kuyrukların dış yüzünde hücum kenarına paralel. Yalnızca 2 çizim çağr
 toplamıyla doğrulandı; dekal ışınları ~5, takım ışınları ~2 kat hızlandı): uçağın soğuk kurulumu v3.0.0'a göre yalnızca
 ~35 ms uzun. Yeni gölgelendirici programı yok (`hitch`).
 
+## F-35A: silahlar, ekran ve iniş takımı düzeltmeleri (v3.2.0)
+
+**Ekranın altındaki siyah şerit (iOS, yatay).** Neden: `viewport.js` uygulama yüksekliğini
+`visualViewport.height`'tan alıyordu. iOS Safari ve ana ekran (PWA) kipinde yatayda bu değer
+pencerenin gerçek yüksekliğinden ~60 px kısa gelebiliyor; `#app` bu ölçüyle (`--app-h`)
+boyutlandığı için altta boş, siyah bir şerit kalıyordu. Eski PWA düzeltmesi yalnızca fark ≤ 80 px
+ve tam ekran kipindeyken devreye giriyordu. Şimdi uzun/kısa kenar birden çok kaynağın en
+büyüğüdür (`innerWidth/Height`, ölçek ≈ 1 iken `visualViewport`, `documentElement.client*`,
+`position: fixed; inset: 0` ölçüm öğesi); yön `matchMedia('(orientation: landscape)')` ile (yoksa
+ekran açısıyla) belirlenir; iOS tam ekran iPhone'da ekran boyutu kullanılır. `vpfill` testi: kısa
+bildirilen görsel alan, iOS tam ekran PWA (932×430) ve dikey ↔ yatay döndürmede tuval tüm ekranı
+kaplar, çizim tamponu oranı ekranla aynıdır, tüm kumandalar ekran içindedir. v3.1.0 aynı testte
+hatayı üretir (852×393 ekranda uygulama 852×331).
+
+**Burun iniş takımı.** Muylu 4,30 istasyonundaydı ve bacak ~23° öne yatıktı: takım yandan
+"yamuk" görünüyordu. Muylu 4,0 istasyonuna, gövde altının 0,20 m üstüne alındı; bacak ~12° yatık,
+neredeyse dik. Sürükleme dikmesi yeni bacak geometrisine bağlandı. Katlanırken amortisör önce
+0,30 m kısalır, sonra takım yuvaya girer. Tekerleğin yer teması değişmedi (amortisör sıkışması
+`gearComp` aynen işler). Katlı burun takımı kokpit tabanının en az 12 cm altında kalır.
+
+**Ana iniş takımı katlanma yolu.** Yuvanın ön ucunda gövde daralır ve ağız tekerlekten ancak
+birkaç santim geniştir; v3.1.0'da tekerlek geçiş sırasında hem kaplamaya hem asılı kapağa
+değiyordu (0,01 adımlı taramada 25 kaplama + 51 kapak kesişmesi). Şimdi içe kayma 2°, tekerlek
+katlanırken bacak ekseni etrafında 15° yatar (üstü içe), merkeze dönüş 9,75° ve katlanmanın
+%60'ından sonra başlar; kapak eyleyici çubuğu kısaltıldı (0,2 m'lik çubuk bacağın yoluna
+taşıyordu). Takım inikken bunların hepsi sıfırdır. Sonuç: iki yanda, 0,01 adımlı taramada
+kaplama ve kapak kesişmesi **0** (komşu parametre değerleri de 0).
+
+**Füzeler neden görünmüyordu, şimdi nerede.** AIM-120'ler yalnızca iç silah yuvalarının
+içindeydi: kapaklar kapalıyken görünmezler ve dış istasyon yoktu. Şimdi 2 ve 10 numaralı kanat
+altı istasyonlarında (x = ±2,9 m, sabit kanat kutusu) pilon, LAU tipi ray ve birer AIM-120C
+asılıdır. Pilonun üstü kanadın alt yüzeyine oturtulmuştur (3 cm gömülü); füze, hareketli
+yüzeylerin (LEF, flaperon) her sapmasında onlardan uzak kalır. Füze ağı ve malzemesi iç
+yuvadakilerle paylaşılır (tek geometri, tek malzeme). İç yuvalar kapalıyken kaplamayla aynı
+köşelerden kurulan yamadır; açılınca menteşeli kalın kapaklar, yapılı yuva içi, ray ve rayda füze.
+
+**Silah sistemi (`js/weapons.js`).** FIRE düğmesi (sağ sütunun üstü) ve Space. Envanter 4: önce
+dış istasyonlar, sonra iç yuvalar. Ardışık bırakmalar arası 1,2 s; meşgulken basış tek bir
+sıradaki atış olarak saklanır (her basış yeni füze üretmez); yerde ateşleme engellidir, yerde
+durunca 2 s sonra yeniden yüklenir.
+- Dış istasyon: raydaki AYNI füze gizlenir, havuzdaki füze onun dünya dönüşümüyle (konum +
+  yönelim) başlar, uçağın hızı + 2 m/s aşağı ejektör hızıyla ayrılır, 0,22 s ve 0,7 m düşüşten
+  sonra motor ateşlenir.
+- İç yuva dizisi: kapaklar açılır (0,42 s, yumuşak hızlanma + mekanik oturma salınımı; iç ve dış
+  kapak 50 ms arayla) → ejektör rayı füzeyi iter (0,12 s) → füze bırakılır (4,6 m/s) → yuvanın en
+  az 1,5 m altına düşer → motor ateşlenir → ileri uçar → ray geri çekilir; füzenin kuyruğu yuvanın
+  ön ucunu geçince kapaklar kapanır (0,5 s). Kapaklar, füze kapak süpürme hacmindeyken asla kapanmaz.
+- Işınlanma yok: bırakıldığı karede füze ilerletilmez ve silahların saati çizilen uçak pozunun
+  saatidir (fizik zamanı + artık). Yavaş karede bile füze bırakıldığı noktadan, uçağa göre
+  milimetrik süreklilikle ayrılır.
+- Uçuş: 2,6 s itki (230 m/s²), 3,5 s sürdürme (32 m/s²), yoğunluğa bağlı sürüklenme, yanma bitince
+  yerçekimi; gövde hız vektörüne hizalanır; 16 s sonra havada imha olur. Bırakıldıktan sonra uçağa
+  bağlı değildir.
+
+**Çarpışma.** Her kare kat edilen parça süpürülerek denetlenir (hızlı füze ince engelin içinden
+geçmez): arazi (≤ 4 m adımlar + ikiye bölme), su yüzeyi ve binalar (çarpışma ızgarasındaki
+kutularla parça–kutu kesişimi, `world.segmentHit`).
+
+**Efektler (`js/fx.js`).** GPU'da analitik parçacıklar (iki sistem, iki çizim çağrısı, halka
+tampon; yalnızca yazılan aralık GPU'ya gider): ateş topu, kıvılcım, enkaz, toz ve duman, şok
+halkası, zemin parlaması. Duman izi kameraya dönük bir şerittir; kabarık kenarları döşenebilir
+gürültüyle çizilir. Yer izleri (krater/is) 6'lık havuzdan araziye oturtulur; suda sıçrama ve
+köpük halkası. Ateşleme parlaması ve ejektör tozu. Patlama ışığı sahneye ışık eklemeden
+(`FX_LIGHT` gölgelendirici sabitleri) uçağa vurur: hiçbir malzeme yeniden derlenmez.
+
+**Ses ve kamera.** Kapak motoru, ejektör, roket motoru ve patlama sesi (mesafe/343 s gecikme,
+mesafeyle zayıflama ve alçak geçiren süzgeç). Kamera ateşlemede hafifçe, yakın patlamada (≤ 700 m)
+ses gecikmesiyle sarsılır.
+
+**Ayrıca düzeltilenler.** Silah yuvası sütunlarının karın şeridine eklenmesiyle burun ucu ve
+arka gövde halkasında oluşan T-birleşimi (alttan arkaya bakınca tek piksel delikler) kapatıldı.
+Açık kapaklarda dış kaplama ile iç levha arasındaki 4 mm'lik kenar yarığı bir kenar bandıyla
+kapatıldı. Parçacık atlası ters satırdan okunuyordu (duman halka, parlama enkaz dokusuyla
+çiziliyordu); duman izi artık sabitlenmiş (clamp) atlas yerine döşenebilir gürültü kullanır.
+
+**Maliyet.** Uçak 28 162 → 38 562 üçgen, 65 → 82 ağ (artışın çoğu silah yuvası kapakları, yuva içi
+ve raylardır; yalnızca yuva açıkken çizilir). Seyirde aynı sahnede çizim çağrısı 175 → 179, çizilen
+üçgen +%0,4, silah güncellemesi kare başına ~0,07 ms. Uçan bir füzeyle +10, patlama sırasında birkaç
+saniye +20–35 çizim çağrısı; silah güncellemesi 0,2–0,5 ms. Parçacıklar GPU'da hareket ettiği için
+canlı parçacık sayısı CPU maliyetini değiştirmez. Uçuş ve atış sırasında yeni gölgelendirici programı
+derlenmez (`hitch`); efekt gölgelendiricileri (5) ve yeni malzeme varyantları uçuş başlarken, yükleme
+ekranının arkasında derlenir. Silah efektlerinin ilk ÇİZİMİ de orada yapılır (uçuş sahnesinin ışık
+kümesiyle): önceden ilk atışta ve ilk patlamada tek karelik bir takılma vardı, şimdi ilk atış karesi
+de sonrakiler kadar hızlıdır. Uçuş modeli v3.1.0 ile birebir aynıdır (aynı 60 s manevra, aynı sonuç).
+
+**Testler.** `weapons` (24 denetim: takılma, uçakla birlikte hareket, yerde engel, aynı dönüşümle
+ayrılma, düşüşte gövdeye göre süreklilik (öne sıçrama yok), sıra/kopya yok, düşüş → ateşleme →
+hızlanma, burun doğrultusu, yuva dizisi sırası, kapakların füze süpürme hacmindeyken asla
+kapanmaması, yama/iç kısım geçişi, yere/yapıya/suya çarpma, krater, havada imha, yeni program yok,
+yeniden başlatınca yeniden yükleme, konsol hatası yok), `vpfill` (12), `gearpoke` (gövde ve EOTS,
+tüm takım konumları), 0,01 adımlı ana takım taraması, `nosetub`, `f35holes` (300 görünüm: yüzeyler,
+takım, yuvalar açık/yarı açık), `flush`, `inside`, `f35only`, `app`, `hitch`, `suite`, `uilayout`,
+`offline`, `livphys`, `abcost`, `loadsmoke` ve uçuş modelinin v3.1.0 ile birebir karşılaştırması.
+
 ## Dünya ve havaalanları
 
 **Harita 72 x 72 km'dir.** Ortada ova ve tepelik araziler, kenarlarda (27 km'den sonra) dağ kuşağı, sekiz göl, doğudan batıya uzanan bir nehir, iki kasaba, yollar ve iki havaalanı vardır.
@@ -350,7 +447,8 @@ Aerodinamik her zaman **havaya göre bağıl hızla** hesaplanır, yer hızıyla
 - **Uçak ve kamera düğmeleri İngilizcedir:** `Flaps`, `Camera`, `Landing Gear`. Kamera modu adları da İngilizcedir (CHASE / COCKPIT / FREE / FLYBY / LEFT WING / RIGHT WING / LANDING GEAR).
 - **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır) → uçuş geçişi (sabit dış kamera, Doppler sesi) → sol kanat → sağ kanat → iniş takımı. Kanat ve takım görünümleri gövdeye sabittir. Tam HUD yalnızca kokpit görünümünde çizilir; tüm dış görünümlerde üst ortada kompakt bir şerit sürekli **IAS / ALT / VS / HDG** gösterir; altında kısa uyarılar (STALL, İNİŞ TAKIMI) çıkar. Dar ekranda sığmayan alanlar sondan düşer.
 - **Işık:** iniş ışıkları (takım açıkken burun önünü aydınlatır). Seyir ışıkları (kırmızı/yeşil/beyaz), flaşörler ve dönen ikaz ışıkları her zaman açıktır.
-- **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, L ışıklar, M ses, P/Esc duraklat.
+- **FIRE (sağ sütunun üstü):** AIM-120 fırlatır — önce kanat altı istasyonları, sonra iç silah yuvaları. Düğme kalan füze sayısını, bekleme süresini (dolan şerit) ve sıradaki atışı (QUEUED) gösterir. Yerde engellidir; yerde durunca 2 s içinde yeniden yüklenir.
+- **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, L ışıklar, M ses, **Space ateş**, P/Esc duraklat.
 - **Kalkış:** gazı sonuna kadar itin, ~145 kt'ta burnu kaldırın, tırmanışta takımı toplayın. (Fren zaten açıktır; park freni istenirse **Brakes** düğmesiyle basılır.)
 - **Stall:** Hücum açısı 19°'de uyarı (HUD ve ses), 24°'nin üzerinde taşıma hızla düşer; burun düşer, kanat sallanır. Toparlamak için çubuğu ileri itip hız kazanın.
 - **Eğim kontrolü:** Ayarlar → Eğim kontrolü → Açık. Telefonu rahat tuttuğunuz açıda **Kalibre Et**'e basın.

@@ -25,24 +25,55 @@
   var state = { w: 0, h: 0, landscape: true, version: 0 };
   var listeners = [];
 
+  // Tam ekran ölçü sondası: position:fixed; inset:0 olan görünmez bir öğe. CSS'in
+  // gerçekte yerleştirdiği alanı (ilk kapsayıcı blok) verir.
+  var probe = null;
+  function probeSize() {
+    if (!document.body) return null;
+    if (!probe) {
+      probe = document.createElement('div');
+      probe.setAttribute('aria-hidden', 'true');
+      probe.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;visibility:hidden;pointer-events:none;z-index:-1;';
+      document.body.appendChild(probe);
+    }
+    return { w: probe.clientWidth, h: probe.clientHeight };
+  }
+  // Yönelim: önce CSS'in kullandığı medya sorgusu, yoksa ekran açısı, en son pencere oranı
+  var mqLand = window.matchMedia ? matchMedia('(orientation: landscape)') : null;
+  function isLandscape() {
+    if (mqLand) return mqLand.matches;
+    var a = screen.orientation && typeof screen.orientation.angle === 'number' ? screen.orientation.angle
+      : (typeof window.orientation === 'number' ? window.orientation : null);
+    if (a !== null) return Math.abs(a) % 180 === 90;
+    return window.innerWidth >= window.innerHeight;
+  }
+
   function read() {
-    var w = window.innerWidth, h = window.innerHeight;
+    // Ölçü kaynakları (pencere, görsel alan, belge kökü, tam ekran sondası) içinden her kenar
+    // için EN BÜYÜĞÜ alınır. Eskiden görsel alan önceliklendiriliyordu; iOS'ta yatayda bu değer
+    // gerçek alandan ~60 px KISA kalabiliyor, uygulama kabı o yüksekliğe ayarlandığı için altta
+    // siyah bir şerit kalıyor ve alt kumandalar kesiliyordu. Oyunda klavye girişi yoktur, yani
+    // görünen alanı meşru olarak daraltan bir durum yok: en büyük değer gerçek oyun alanıdır.
+    // Döndürme sırasında bazı kaynaklar ESKİ yönelimi bildirebilir; bu yüzden her kaynağın uzun
+    // ve kısa kenarı ayrı toplanır, genişlik/yükseklik yönelime göre atanır (kare olmaz).
+    var long = 0, short = 0;
+    function src(a, b) { if (!(a > 0 && b > 0)) return; long = Math.max(long, Math.max(a, b)); short = Math.max(short, Math.min(a, b)); }
+    src(window.innerWidth, window.innerHeight);
     var vv = window.visualViewport;
-    // Yakınlaştırma kapalı olduğu için görsel alan = görünen alan. iOS'ta döndürmeden
-    // sonra innerWidth/innerHeight'tan önce güncellenir.
-    if (vv && vv.width > 0 && vv.height > 0 && Math.abs((vv.scale || 1) - 1) < 0.01) {
-      w = Math.round(vv.width); h = Math.round(vv.height);
-    }
-    // iOS tam ekran PWA: uygulama ekranın TAMAMINI kaplar. Ölçülen değer ekrana
-    // çok yakın ama ondan küçükse (durum çubuğu kadar kısa yerleşim alanı hatası)
-    // ekran boyutu kullanılır. Gerçekten küçük bir pencere (iPad Split View) bu
-    // eşiğin dışında kalır ve ölçülen değer korunur.
+    if (vv && Math.abs((vv.scale || 1) - 1) < 0.01) src(Math.round(vv.width), Math.round(vv.height));
+    var de = document.documentElement;
+    if (de) src(de.clientWidth, de.clientHeight);
+    var p = probeSize();
+    if (p) src(p.w, p.h);
+    var land = isLandscape();
+    // iOS tam ekran (ana ekrana eklenmiş) uygulama: iPhone'da pencere her zaman ekranın
+    // TAMAMIDIR (Split View yok), ölçü ne derse desin ekran boyutu kullanılır. iPad'de
+    // gerçekten küçük pencere (Split View) korunur.
     if (IOS && standalone() && screen && screen.width > 0 && screen.height > 0) {
-      var sMin = Math.min(screen.width, screen.height), sMax = Math.max(screen.width, screen.height);
-      var land = w > h;
-      var ew = land ? sMax : sMin, eh = land ? sMin : sMax;
-      if (w <= ew && h <= eh && ew - w <= 80 && eh - h <= 80) { w = ew; h = eh; }
+      var sMax = Math.max(screen.width, screen.height), sMin = Math.min(screen.width, screen.height);
+      if (/iPhone|iPod/.test(ua) || (sMax - long <= 120 && sMin - short <= 120)) { long = sMax; short = sMin; }
     }
+    var w = land ? long : short, h = land ? short : long;
     return { w: Math.max(1, w), h: Math.max(1, h) };
   }
 

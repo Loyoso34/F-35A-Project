@@ -137,6 +137,8 @@ export class AudioEngine {
 
     this.rateNodes = [this.roarA, this.roarB, this.hiss, this.abSrc, this.crackle];
     this.baseRates = this.rateNodes.map((n) => n.playbackRate.value);
+    // Silah sesleri için gürültü tamponları şimdi üretilir (ilk ateşlemede ~8 ms ana iş parçacığı işi olmasın)
+    this._buf('w', 2.0, 'white', 91); this._buf('b', 2.0, 'brown', 93); this._buf('p', 3.2, 'pink', 95);
     this.ready = true;
     this.resume();
   }
@@ -249,6 +251,67 @@ export class AudioEngine {
     } else {
       this.stallGain.gain.setTargetAtTime(0, t, 0.02);
     }
+  }
+
+  // ---- Silah sesleri (tek seferlik; gürültü tamponları önbellekte, her çağrıda üretilmez) ----
+  _buf(key, sec, kind, seed) {
+    this._bufs = this._bufs || {};
+    if (!this._bufs[key]) this._bufs[key] = this.makeNoiseBuffer(sec, kind, seed);
+    return this._bufs[key];
+  }
+  _noise(buf, t, dur, gain, filterType, f0, f1, q = 0.7, rate = 1) {
+    const ctx = this.ctx;
+    const n = ctx.createBufferSource(); n.buffer = buf; n.playbackRate.value = rate;
+    const f = ctx.createBiquadFilter(); f.type = filterType; f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t + Math.min(0.03, dur * 0.2));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    n.connect(f); f.connect(g); g.connect(this.bus);
+    n.start(t, Math.random() * Math.max(0, buf.duration - dur - 0.05)); n.stop(t + dur + 0.05);
+  }
+  _tone(t, f0, f1, dur, gain, type = 'sine') {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.bus); o.start(t); o.stop(t + dur + 0.05);
+  }
+  /** Silah yuvası kapakları: hidrolik vızıltı + sonda mekanik oturma sesi. */
+  weaponBay(open) {
+    if (!this.ready || this.muted) return;
+    const t = this.ctx.currentTime, inC = this.view === 'cockpit' ? 0.6 : 1;
+    this._noise(this._buf('w', 2.0, 'white', 91), t, 0.42, 0.05 * inC, 'bandpass', open ? 700 : 900, open ? 1100 : 650, 2.5);
+    this._tone(t + 0.4, 120, 60, 0.12, 0.12 * inC);
+    this._noise(this._buf('b', 2.0, 'brown', 93), t + 0.4, 0.12, 0.18 * inC, 'lowpass', 600, 200);
+  }
+  /** Ejektör: keskin pnömatik darbe. */
+  missileEject() {
+    if (!this.ready || this.muted) return;
+    const t = this.ctx.currentTime;
+    this._tone(t, 90, 38, 0.18, 0.28);
+    this._noise(this._buf('w', 2.0, 'white', 91), t, 0.16, 0.16, 'bandpass', 2400, 700, 1.2);
+  }
+  /** Motor ateşlemesi: patlamalı başlangıç, sonra füze uzaklaştıkça incelip sönen kükreme. */
+  missileMotor() {
+    if (!this.ready || this.muted) return;
+    const t = this.ctx.currentTime, inC = this.view === 'cockpit' ? 0.55 : 1;
+    this._noise(this._buf('b', 2.0, 'brown', 93), t, 0.35, 0.5 * inC, 'lowpass', 1800, 300);
+    this._noise(this._buf('p', 3.2, 'pink', 95), t, 2.8, 0.42 * inC, 'lowpass', 5200, 500, 0.6);
+    this._noise(this._buf('w', 2.0, 'white', 91), t, 1.4, 0.07 * inC, 'highpass', 3500, 1600, 0.5);
+  }
+  /**
+   * Patlama: ses hızıyla gecikir (mesafe / 343 m/s), uzaklıkla kısılır ve yüksek frekansları
+   * kaybeder. dist: dinleyiciye (kameraya) uzaklık, m.
+   */
+  explosion(dist) {
+    if (!this.ready || this.muted) return;
+    const t = this.ctx.currentTime + Math.min(6, dist / 343);
+    const g = 1 / (1 + dist / 260), lp = 300 + 5200 / (1 + dist / 350);
+    if (g < 0.01) return;
+    this._tone(t, 70, 26, 1.1, 0.75 * g);
+    this._noise(this._buf('b', 2.0, 'brown', 93), t, 1.9, 0.95 * g, 'lowpass', lp, 120, 0.5);
+    this._noise(this._buf('w', 2.0, 'white', 91), t, 0.35, 0.3 * g, 'lowpass', lp * 1.6, 400, 0.4);
   }
 
   // Art yakıcı ateşleme darbesi: kısa düşük frekanslı patlama

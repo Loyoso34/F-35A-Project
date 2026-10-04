@@ -55,6 +55,7 @@ export class CameraRig {
     this._v = new THREE.Vector3(); this._v2 = new THREE.Vector3(); this._up = new THREE.Vector3(); this._right = new THREE.Vector3();
     this._q = new THREE.Quaternion(); this._q2 = new THREE.Quaternion();
     this._ax = new THREE.Vector3();
+    this._shakeE = new THREE.Euler(); this.trauma = 0;
     this.initialized = false;
     this.doppler = 1;
     this.distance = 0;
@@ -148,7 +149,25 @@ export class CameraRig {
     this.flybyPlaced = true;
   }
 
+  /**
+   * Kısa sarsıntı darbesi (füze ateşlemesi, yakın patlama). amount 0..1; birikir, üstel söner.
+   * Yalnızca kameranın YÖNELİMİNE küçük açısal sapma ekler (konum değişmez, uçak titremez).
+   */
+  shake(amount) { this.trauma = Math.min(1, (this.trauma || 0) + amount); }
+
   update(dt, fm) {
+    this._update(dt, fm);
+    if (this.trauma > 0.001) {
+      const t = (fm.time || 0), k = this.trauma * this.trauma;
+      const ax = (Math.sin(t * 39.1) * 0.6 + Math.sin(t * 71.7 + 1.3) * 0.4) * 0.022 * k;
+      const ay = (Math.sin(t * 43.3 + 2.1) * 0.6 + Math.sin(t * 67.9) * 0.4) * 0.022 * k;
+      const az = Math.sin(t * 29.7 + 0.7) * 0.012 * k;
+      this.camera.quaternion.multiply(this._q.setFromEuler(this._shakeE.set(ax, ay, az)));
+      this.trauma *= Math.exp(-dt * 3.2);
+    } else this.trauma = 0;
+  }
+
+  _update(dt, fm) {
     const cam = this.camera;
     const pos = fm.pos, quat = fm.quat;
     const fwd = this._v.set(0, 0, -1).applyQuaternion(quat);

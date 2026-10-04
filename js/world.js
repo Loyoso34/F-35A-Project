@@ -2057,6 +2057,37 @@ export class World {
     return false;
   }
 
+  /**
+   * Doğru parçası (p0 -> p1) ile yapı kutularının ilk kesişimi: kesir t (0..1) ya da -1.
+   * Füze çarpışması için süpürülmüş test: parçanın XZ kutusunun örttüğü ızgara hücrelerindeki
+   * kutulara yarık (slab) testi uygulanır; hızlı füze ince bir yapının içinden geçip kaçamaz.
+   */
+  segmentHit(p0, p1) {
+    if (!this.colGrid) this.buildCollisionGrid();
+    const CELL = this.colCell, key = this.colKey;
+    const dx = p1.x - p0.x, dy = p1.y - p0.y, dz = p1.z - p0.z;
+    const i0 = Math.floor(Math.min(p0.x, p1.x) / CELL), i1 = Math.floor(Math.max(p0.x, p1.x) / CELL);
+    const j0 = Math.floor(Math.min(p0.z, p1.z) / CELL), j1 = Math.floor(Math.max(p0.z, p1.z) / CELL);
+    let best = -1;
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const cell = this.colGrid.get(key(i, j));
+      if (!cell) continue;
+      for (const b of cell) {
+        let t0 = 0, t1 = 1, ok = true;
+        for (const [o, d, lo, hi] of [[p0.x, dx, b.minX, b.maxX], [p0.y, dy, b.minY, b.maxY], [p0.z, dz, b.minZ, b.maxZ]]) {
+          if (Math.abs(d) < 1e-9) { if (o < lo || o > hi) { ok = false; break; } continue; }
+          let a = (lo - o) / d, c = (hi - o) / d;
+          if (a > c) { const t = a; a = c; c = t; }
+          if (a > t0) t0 = a;
+          if (c < t1) t1 = c;
+          if (t0 > t1) { ok = false; break; }
+        }
+        if (ok && (best < 0 || t0 < best)) best = t0;
+      }
+    }
+    return best;
+  }
+
   // Rüzgar tulumunu gerçek rüzgar vektörüne çevirir: tulum rüzgarın gittiği yönü gösterir,
   // dolgunluğu (yatay durması) hızla artar.
   setWind(vec, kt) {

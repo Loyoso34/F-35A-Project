@@ -116,8 +116,118 @@ export function bottomSurfaceY(s, x) {
 }
 // Gövde kaplamasının loft istasyonları (buildFuselage). Alt şerit 4.5'ten doğrudan 5.4'e geçer.
 const FORE_S = [0.0, 0.10, 0.22, 0.35, 0.52, 0.7, 0.95, 1.2, 1.5, 1.8, 2.1, 2.4, 2.65, 2.9, 3.1, 3.3, 3.6, 3.85, 4.1, 4.3, 4.5];
-const MAIN_S = [5.0, 5.4, 5.8, 6.2, 6.6, 7.1, 7.6, 8.2, 8.8, 9.4, 10.0, 10.6, 11.2, 11.8, 12.4, 12.9, 13.4, 13.8, 14.2, 14.6];
+// 7.0 ve 10.8: iç silah yuvası ağzının ön/arka kenarı (v3.2). Bu istasyonlar TÜM şeritlere
+// eklenir (üst, yan, alt): kesik yalnızca alt şeritte olsa da şeritlerin ortak kenarlarında
+// T-kavşağı (piksel çatlağı) oluşmaz.
+const MAIN_S = [5.0, 5.4, 5.8, 6.2, 6.6, 7.0, 7.1, 7.6, 8.2, 8.8, 9.4, 10.0, 10.6, 10.8, 11.2, 11.8, 12.4, 12.9, 13.4, 13.8, 14.2, 14.6];
 const HULL_S = [...FORE_S, ...MAIN_S.slice(1)];
+// Panel dokusunun yeri değişmesin: loft UV'leri satır/sütun SIRASINDAN üretilir; yeni
+// istasyon ve sütunlar eklenince doku kayardı. UV'ler eski dizideki kesirli sıraya göre verilir.
+const MAIN_S_OLD = [5.0, 5.4, 5.8, 6.2, 6.6, 7.1, 7.6, 8.2, 8.8, 9.4, 10.0, 10.6, 11.2, 11.8, 12.4, 12.9, 13.4, 13.8, 14.2, 14.6];
+function oldIdx(s, list) {
+  if (s <= list[0]) return 0;
+  for (let j = 0; j < list.length - 1; j++) if (s <= list[j + 1]) return j + (s - list[j]) / (list[j + 1] - list[j]);
+  return list.length - 1;
+}
+
+// ---------------------------------------------------------------------------
+// İç silah yuvası (her yanda bir). Ağız alt kaplamada |x| = x0..x1, s = s0..s1 dikdörtgenidir;
+// iki kapak (iç: menteşe x0'da, dış: menteşe x1'de) xs çizgisinde birleşir. Tavan gövde
+// ekseninde ceil yüksekliğindedir. AIM-120C taşıma konumu: eksen (mx, my), orta nokta ms.
+// Fırlatıcı rayı (ejektör) füzeyi stroke kadar aşağı itip bırakır.
+export const BAY = {
+  x0: 0.10, x1: 1.10, xs: 0.60, gap: 0.0012, s0: 7.0, s1: 10.8, ceil: -0.40,
+  mx: 0.60, my: -0.624, ms: 8.905, railY: -0.4875, stroke: 0.22, tilt: 6 * DEG,
+};
+export const MISSILE = { len: 3.65, r: 0.089, span: 0.447 };
+
+// Efekt ışığı: füze ateşlemesi ve yakın patlamaların uçağı aydınlatması. Sahneye gerçek
+// bir nokta ışığı EKLENMEZ (her malzeme yeniden derlenir ve mobilde her pikselin ışık
+// döngüsü uzardı); boya, yuva içi, füze ve takım malzemelerinin gölgelendiricisine tek
+// bir paylaşılan tekdüze değerle eklenir. Konum GÖRÜNÜŞ uzayındadır (weapons.js her kare).
+export const FX_LIGHT = { uFxPos: { value: new THREE.Vector3() }, uFxCol: { value: new THREE.Color(0, 0, 0) }, uFxFall: { value: 0.08 } };
+function addFxLight(sh) {
+  Object.assign(sh.uniforms, FX_LIGHT);
+  sh.fragmentShader = 'uniform vec3 uFxPos;\nuniform vec3 uFxCol;\nuniform float uFxFall;\n' + sh.fragmentShader.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+  {
+    vec3 fxL = uFxPos + vViewPosition;
+    float fxD2 = dot(fxL, fxL);
+    float fxN = max(dot(normal, fxL * inversesqrt(max(fxD2, 1e-4))), 0.0) * 0.85 + 0.15;
+    reflectedLight.directDiffuse += BRDF_Lambert(diffuseColor.rgb) * uFxCol * (fxN / (1.0 + fxD2 * uFxFall));
+  }`);
+}
+export function withFxLight(mat, key) {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (sh, r) => { if (prev && prev !== withFxLight._noop) prev(sh, r); addFxLight(sh); };
+  mat.customProgramCacheKey = () => key;
+  return mat;
+}
+withFxLight._noop = THREE.Material.prototype.onBeforeCompile;
+
+// ---------------------------------------------------------------------------
+// AIM-120C AMRAAM (iç yuvaya sığan kırpık kanatçıklı sürüm): 3,65 m, Ø178 mm, kanat ve kuyruk
+// açıklığı ~447 mm, X düzeninde. Ekseni -z'dir (burun ileri), askı kulakları +y'de.
+// Gövde döndürme yüzeyidir; bant renkleri (sarı = harp başlığı, kahverengi = roket motoru)
+// keskin geçişli köşe renkleridir. Tek ağ, tek çizim çağrısı; yuvadaki ve uçan füzeler
+// aynı geometri ve malzemeyi paylaşır.
+// ---------------------------------------------------------------------------
+const _tmpScale = new THREE.Vector3();
+let MISSILE_GEO = null, MISSILE_MAT = null;
+export function getMissileGeometry() {
+  if (MISSILE_GEO) return MISSILE_GEO;
+  const L = MISSILE.len, R = MISSILE.r, half = L / 2;
+  const RADOME = 0xe2e4e6, BODY = 0xcdd1d5, YEL = 0xc8a22c, BRN = 0x75583a, AFT = 0x8d9297, NOZ = 0x2b2d30, FIN = 0xc3c7cb;
+  // Profil: [yarıçap, burundan uzaklık, renk]. Aynı uzaklıkta iki halka = keskin renk geçişi.
+  const P = [
+    [0.0005, 0, 0xb9bdc2], [0.018, 0.025, RADOME], [0.04, 0.09, RADOME], [0.06, 0.18, RADOME], [0.075, 0.28, RADOME], [0.085, 0.38, RADOME], [R, 0.47, RADOME],
+    [R, 0.47, BODY], [R, 0.62, BODY], [R, 0.62, YEL], [R, 0.675, YEL], [R, 0.675, BODY], [R, 2.0, BODY], [R, 2.0, BRN], [R, 2.055, BRN], [R, 2.055, BODY],
+    [R, 3.48, BODY], [R, 3.48, AFT], [0.084, 3.58, AFT], [0.078, 3.63, AFT], [0.078, 3.63, NOZ], [0.066, 3.65, NOZ], [0.045, 3.6, NOZ], [0.0005, 3.6, NOZ],
+  ];
+  const SEG = 18;
+  const pts = P.map(([r, d]) => new THREE.Vector2(r, half - d));
+  const lathe = new THREE.LatheGeometry(pts, SEG);
+  // Köşe renkleri: lathe köşeleri (segment başına profil sırası)
+  {
+    const n = lathe.attributes.position.count, a = new Float32Array(n * 3), c = new THREE.Color();
+    for (let i = 0; i < n; i++) { c.setHex(P[i % P.length][2]); a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }
+    lathe.setAttribute('color', new THREE.BufferAttribute(a, 3));
+  }
+  lathe.rotateX(-Math.PI / 2);            // +y (burun) -> -z
+  const parts = [lathe.toNonIndexed()];
+  // Kanatçık: eksen düzleminde ince prizma. dLE0/dTE0 kök, dLE1/dTE1 uç (burundan uzaklık), rOut uç yarıçapı.
+  const fin = (phi, dLE0, dTE0, dLE1, dTE1, rOut, t, hex) => {
+    const u = new THREE.Vector3(Math.sin(phi), Math.cos(phi), 0), w = new THREE.Vector3(Math.cos(phi), -Math.sin(phi), 0);
+    const P2 = (d, r) => new THREE.Vector3().addScaledVector(u, r).add(new THREE.Vector3(0, 0, d - half));
+    const q = [P2(dLE0, R * 0.95), P2(dLE1, rOut), P2(dTE1, rOut), P2(dTE0, R * 0.95)];
+    const top = q.map((p) => p.clone().addScaledVector(w, t / 2)), bot = q.map((p) => p.clone().addScaledVector(w, -t / 2));
+    const tri = [];
+    const quad = (a, b, c, d) => tri.push(a, b, c, a, c, d);
+    quad(top[0], top[1], top[2], top[3]); quad(bot[3], bot[2], bot[1], bot[0]);
+    for (let k = 0; k < 4; k++) { const k1 = (k + 1) % 4; quad(top[k], bot[k], bot[k1], top[k1]); }
+    const g = new THREE.BufferGeometry().setFromPoints(tri);
+    g.computeVertexNormals();
+    return paintVC(g, hex);
+  };
+  const span = MISSILE.span / 2;
+  for (let k = 0; k < 4; k++) {
+    const phi = Math.PI / 4 + k * Math.PI / 2;
+    parts.push(fin(phi, 1.36, 1.86, 1.72, 1.84, span, 0.008, FIN));      // orta kanatlar (geriye ok açılı)
+    parts.push(fin(phi, 3.14, 3.6, 3.36, 3.58, span, 0.009, FIN));       // kuyruk kontrol kanatçıkları
+  }
+  // Askı kulakları (üstte) ve göbek kablo kanalı
+  for (const d of [half - 0.45, half + 0.45]) { const g = new THREE.BoxGeometry(0.03, 0.025, 0.07); g.translate(0, R + 0.01, d - half); parts.push(paintVC(g.toNonIndexed(), 0x6d7277)); }
+  { const g = new THREE.BoxGeometry(0.035, 0.02, 1.1); g.translate(0, R + 0.005, 1.25 - half + 0.55); parts.push(paintVC(g.toNonIndexed(), 0xb6babe)); }
+  for (const g of parts) { if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2)); if (g.attributes.uv && g.attributes.uv.itemSize !== 2) g.deleteAttribute('uv'); }
+  MISSILE_GEO = mergeGeometries(parts.map((g) => { const o = g.index ? g.toNonIndexed() : g; for (const a of Object.keys(o.attributes)) if (!['position', 'normal', 'color', 'uv'].includes(a)) o.deleteAttribute(a); if (!o.attributes.uv) o.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(o.attributes.position.count * 2), 2)); return o; }), false);
+  MISSILE_GEO.computeBoundingSphere();
+  return MISSILE_GEO;
+}
+export function getMissileMaterial() {
+  if (MISSILE_MAT) return MISSILE_MAT;
+  MISSILE_MAT = withFxLight(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.42, metalness: 0.18, envMapIntensity: 0.8, vertexColors: true }), 'f35missile');
+  return MISSILE_MAT;
+}
+
 // GERÇEK kaplamanın alt yüzeyi: istasyonlar arasında doğrusal (loft böyle bağlar). bottomSurfaceY
 // profili istasyonlar arasında smoothstep ile enterpole eder; kaplamayla birkaç cm farklı olabilir
 // ve yüzeye yapışık paneller (takım yuvaları, kapaklar) yer yer kaplamanın içine gömülüp
@@ -202,14 +312,14 @@ function halfSection(p) {
 }
 
 // Genel loft. sections[i] = [{x,y,z}], hepsi aynı uzunlukta.
-export function loft(sections, { uScale = 1, vScale = 1, closeRing = false, flip = false, skipQuad = null } = {}) {
+export function loft(sections, { uScale = 1, vScale = 1, closeRing = false, flip = false, skipQuad = null, uvAt = null } = {}) {
   const n = sections.length, m = sections[0].length;
   const pos = [], uv = [], idx = [];
   for (let i = 0; i < n; i++) {
     for (let k = 0; k < m; k++) {
       const p = sections[i][k];
       pos.push(p.x, p.y, p.z);
-      uv.push((i / (n - 1)) * uScale, (k / (m - 1)) * vScale);
+      if (uvAt) { const t = uvAt(i, k); uv.push(t[0], t[1]); } else uv.push((i / (n - 1)) * uScale, (k / (m - 1)) * vScale);
     }
   }
   const kMax = closeRing ? m : m - 1;
@@ -330,6 +440,7 @@ function applyPaintDetail(mat, macro) {
     tone *= 1.0 - 0.04 * under * (0.6 + 0.8 * mB) - 0.16 * soot * (0.55 + 0.45 * mB);
     diffuseColor.rgb *= tone;
   }`);
+    addFxLight(sh);
   };
   mat.customProgramCacheKey = () => 'f35paintDetail';
   return mat;
@@ -398,6 +509,8 @@ export class F35A {
     this.buildNozzle();
     this.buildGear();
     this.buildDetails();
+    this.buildWeaponBays();
+    this.buildStores();
     this.buildLights();
     this.buildMarkings();
     this._hull = null; this._skinTop = null; this._fins = null;   // yalnızca kurulumda gereken ışın yüzeyleri
@@ -448,13 +561,43 @@ export class F35A {
     // Kokpit açıklığı: kanopi altındaki güverte dörtgenleri (k=3,4) atlanır; içi kokpit teknesi doldurur
     const allS = [...foreS, ...mainS];
     const skipQuad = (i, k) => (k === 3 || k === 4) && allS[i] >= 3.25 && allS[i + 1] <= 6.7;
-    this.paintGeos.push(ensureOutward(loft(topRows, { uScale: 3, vScale: 1, skipQuad }), bodyAxisRef));
+    const ALL_OLD = [...FORE_S, ...MAIN_S_OLD];
+    const uvTop = (i, k) => [oldIdx(allS[i], ALL_OLD) / (ALL_OLD.length - 1) * 3, k / 8];
+    this.paintGeos.push(ensureOutward(loft(topRows, { skipQuad, uvAt: uvTop }), bodyAxisRef));
     this._skinTop = this.paintGeos[this.paintGeos.length - 1];
-    // Alt şerit: ön gövde + ana gövde (alt köşeden alt köşeye)
-    const botRows = [...fore, ...main.slice(1)].map((h) => [mirror(h[8]), mirror(h[9]), mirror(h[10]), h[11], h[10], h[9], h[8]]);
-    // hava alığı alt dudağı: 5.4 istasyonu ana profilden (eğik alt dudak)
+    // Alt şerit: ön gövde + ana gövde (alt köşeden alt köşeye). Silah yuvaları için her yarıya
+    // dört sütun eklenir — hepsi MEVCUT kesit çizgisinin üzerindedir, biçim değişmez:
+    //   c0 = BAY.x0 (h11–h10 arası, iç menteşe), cA/cB = BAY.xs ∓ gap (kapak ayrım çizgisi),
+    //   c1 = BAY.x1 (h10–h9 arası, dış menteşe).
+    // Yuva istasyonlarında (7.0–10.8) bu x'ler tam tutturulur (düz menteşe/kenar çizgileri);
+    // dar kesitlerde (burun, kuyruk) sırayı koruyan sabit kesirlere düşer.
+    const botS = [...foreS, ...mainS.slice(1)];
+    const lerpP = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t });
+    const colT = [];   // satır başına eklenen sütunların kesirleri (UV için)
+    const botRows = [...fore, ...main.slice(1)].map((h, i) => {
+      const fitIn = h[10].x > BAY.xs + 0.08, fitOut = BAY.x1 > h[10].x + 0.03 && BAY.x1 < h[9].x - 0.01;
+      const t0 = fitIn ? BAY.x0 / h[10].x : 0.15, tA = fitIn ? (BAY.xs - BAY.gap) / h[10].x : 0.6, tB = fitIn ? (BAY.xs + BAY.gap) / h[10].x : 0.62;
+      const t1 = fitOut ? (BAY.x1 - h[10].x) / (h[9].x - h[10].x) : 0.5;
+      colT.push([t0, tA, tB, t1]);
+      const R = [h[11], lerpP(h[11], h[10], t0), lerpP(h[11], h[10], tA), lerpP(h[11], h[10], tB), h[10], lerpP(h[10], h[9], t1), h[9], h[8]];
+      return [...R.slice(1).reverse().map(mirror), ...R];
+    });
+    // Eski 7 sütunlu satırdaki kesirli sütun sırası: [-h8,-h9,-h10,h11,h10,h9,h8] = 0..6
+    const BOT_OLD = [...FORE_S, ...MAIN_S_OLD.slice(1)];
+    const vBot = (i, k) => {
+      const [t0, tA, tB, t1] = colT[i];
+      const right = [3, 3 + t0, 3 + tA, 3 + tB, 4, 4 + t1, 5, 6];   // h11, c0, cA, cB, h10, c1, h9, h8
+      return k >= 7 ? right[k - 7] : 6 - right[7 - k];
+    };
+    const uvBot = (i, k) => [oldIdx(botS[i], BOT_OLD) / (BOT_OLD.length - 1) * 3, vBot(i, k) / 6];
+    // Yuva ağzı: iki yanda c0..c1 arasındaki dörtlüler atlanır (kesik). Ağzı kapalıyken
+    // aynı köşelerden kurulan yama (buildWeaponBays) doldurur, açılınca kapaklar ve yuva içi.
+    const iS0 = botS.indexOf(BAY.s0), iS1 = botS.indexOf(BAY.s1);
+    const BAY_K = [2, 3, 4, 5, 8, 9, 10, 11];
+    const skipBot = (i, k) => i >= iS0 && i < iS1 && BAY_K.includes(k);
+    this._bay = { rows: botRows, stations: botS, iS0, iS1, uv: uvBot };
     this._hull = [];   // alt/yan kaplama: takım yuvaları ve kapaklar bu yüzeye ışınla oturtulur
-    this.paintGeos.push(ensureOutward(loft(botRows, { uScale: 3, vScale: 1 }), bodyAxisRef));
+    this.paintGeos.push(ensureOutward(loft(botRows, { skipQuad: skipBot, uvAt: uvBot }), bodyAxisRef));
     this._hull.push(this.paintGeos[this.paintGeos.length - 1]);
     // Yan şeritler: ön gövde (ayrı) ve ana gövde (ağızdan itibaren, süpürülmüş dudak halkası)
     const lipProfile = lerpProfile(MAIN_PROFILES, 5.0);
@@ -466,7 +609,8 @@ export class F35A {
       // Dudak halkası: chine 4.55'te, alt köşe 5.7'de (süpürülmüş)
       const lipRing = lipHalf.slice(4, 9).map((q, k) => ({ x: side * q.x, y: q.y, z: st(4.55 + (k / 4) * 1.15) }));
       const sideRowsMain = [lipRing, ...main.slice(1).map((h) => h.slice(4, 9).map((q) => ({ x: side * q.x, y: q.y, z: q.z })))];
-      this.paintGeos.push(ensureOutward(loft(sideRowsMain, { uScale: 2.5, vScale: 0.5 }), bodyAxisRef));
+      const uvSide = (i, k) => [(i === 0 ? 0 : oldIdx(mainS[i], MAIN_S_OLD)) / (MAIN_S_OLD.length - 1) * 2.5, k / 4 * 0.5];
+      this.paintGeos.push(ensureOutward(loft(sideRowsMain, { uvAt: uvSide }), bodyAxisRef));
       this._hull.push(this.paintGeos[this.paintGeos.length - 1]);
       // Hava alığı: ağız halkası = DIŞ dudak zinciri (süpürülmüş) + İÇ duvar zinciri (ön
       // gövde yan duvarı, 4.5 istasyonu; ön gövde yan şeridiyle aynı noktalar, yarık yok).
@@ -498,22 +642,36 @@ export class F35A {
     }
     // Burun ucu: kesitler s=0'da küçük ama AÇIK bir halkayla başlıyordu (önden-yukarıdan
     // bakınca uçta delik). Birkaç santim önde bir tepe noktasına kapatılır.
-    const tipHalf = fore[0];
-    const tipRing = [...tipHalf, ...tipHalf.slice(1, -1).reverse().map(mirror)];
-    const apex = tipRing.map(() => ({ x: 0, y: 0, z: st(-0.025) }));
-    this.paintGeos.push(ensureOutward(loft([apex, tipRing], { uScale: 1, vScale: 1, closeRing: true }), (v, o) => o.set(0, 0, st(0.3))));
-    this.buildAftBody(main[main.length - 1]);
+    const tip = this.bellyRing(fore[0], botRows[0]);
+    const apex = tip.ring.map(() => ({ x: 0, y: 0, z: st(-0.025) }));
+    this.paintGeos.push(ensureOutward(loft([apex, tip.ring], { closeRing: true, uvAt: (i, k) => [i, tip.uk[k]] }), (v, o) => o.set(0, 0, st(0.3))));
+    this.buildAftBody(this.bellyRing(main[main.length - 1], botRows[botRows.length - 1]));
+  }
+
+  // Tam kesit halkası (sağ yarı üst merkez -> alt merkez, sonra sol yarı geri). Karın
+  // şeridinin satırındaki ek sütunlar (c0, cA, cB, c1) halkaya da eklenir: burun ucu ve
+  // arka gövde bu satırlara dikilir; eklenmezse kenarda T-birleşimi (piksel delikleri) kalır.
+  // uk: eski 22 noktalı halkadaki kesirli indisle UV (desen kaymaz).
+  bellyRing(half, botRow) {
+    const R = botRow.slice(7);   // h11, c0, cA, cB, h10, c1, h9, h8 (sağ yarı)
+    const t = (q, a, b) => { const d = Math.hypot(b.x - a.x, b.y - a.y); return d > 1e-9 ? Math.hypot(q.x - a.x, q.y - a.y) / d : 0; };
+    const fr = [8, 9, 10 - t(R[5], half[10], half[9]), 10, 11 - t(R[3], half[11], half[10]), 11 - t(R[2], half[11], half[10]), 11 - t(R[1], half[11], half[10]), 11];
+    const right = [...half.slice(0, 8), ...R.slice().reverse()];
+    const fRight = [0, 1, 2, 3, 4, 5, 6, 7, ...fr];
+    const ring = [...right, ...right.slice(1, -1).reverse().map((q) => ({ x: -q.x, y: q.y, z: q.z }))];
+    const fk = [...fRight, ...fRight.slice(1, -1).reverse().map((f) => 22 - f)];
+    return { ring, uk: fk.map((f) => f / 21) };
   }
 
   // Arka gövde. Eskiden gövde 14.6 istasyonunda 2,4 m genişliğinde düz, siyah bir
   // levhayla bitiyordu: arkadan bakınca uçak "kutu" gibi, motor bölümü boş görünüyordu.
   // Gerçek F-35A'da arka gövde nozul kılıfına doğru daralır (boat-tail) ve iki yanda
   // stabilatörleri taşıyan kuyruk bumları uzanır.
-  buildAftBody(endHalf) {
+  buildAftBody(end) {
     const Y0 = 0.08;                     // nozul ekseni yüksekliği (buildNozzle ile aynı)
     const sA = 14.6, sB = 14.95, sC = 15.28, R = 0.585;
-    // Son gövde kesitinin tam halkası: sağ yarı (üst merkez -> alt merkez) + sol yarı (geri)
-    const ring = [...endHalf, ...endHalf.slice(1, -1).reverse().map((q) => ({ x: -q.x, y: q.y, z: q.z }))];
+    // Son gövde kesitinin tam halkası (karın şeridinin ek sütunlarıyla, bkz. bellyRing)
+    const ring = end.ring;
     const toCircle = (q, r, t, sv) => {
       const a = Math.atan2(q.y - Y0, q.x);
       const cx = Math.cos(a) * r, cy = Y0 + Math.sin(a) * r;
@@ -524,7 +682,7 @@ export class F35A {
       ring.map((q) => toCircle(q, R * 1.08, 0.58, sB)),
       ring.map((q) => toCircle(q, R, 1, sC)),
     ];
-    this.paintGeos.push(ensureOutward(loft(rows, { uScale: 1, vScale: 1, closeRing: true }), (v, o) => o.set(0, Y0, v.z)));
+    this.paintGeos.push(ensureOutward(loft(rows, { closeRing: true, uvAt: (i, k) => [i / 2, end.uk[k]] }), (v, o) => o.set(0, Y0, v.z)));
     // Kılıf ile nozul arasındaki ince halka (sıcak bölüm conta yüzü)
     const ann = new THREE.RingGeometry(0.50, R + 0.002, 40, 1);
     ann.translate(0, Y0, st(sC));
@@ -577,7 +735,9 @@ export class F35A {
       y: C.y + (q.y - C.y) * shrink,
       z: q.z + aft,
     }));
-    const rows = [mouth, stage(0.9, 0.35, 0.03), stage(0.74, 1.0, 0.1), stage(0.56, 1.8, 0.18)];
+    // Kanal 1,2 m'de biter (eskiden 1,8): sonu en fazla 6,9 istasyonunda kalır, silah
+    // yuvasının ön duvarına (7,0) girmez. Dip neredeyse siyah olduğundan önden fark edilmez.
+    const rows = [mouth, stage(0.9, 0.3, 0.03), stage(0.74, 0.72, 0.1), stage(0.56, 1.2, 0.18)];
     const shade = [0.55, 0.24, 0.08, 0.02];
     const tube = loft(rows, { uScale: 1, vScale: 1, closeRing: true });
     const col = [];
@@ -1343,7 +1503,7 @@ export class F35A {
   buildGear() {
     const m = this.m;
     this.parts.gear = {};
-    const gearMat = this.track(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.34, metalness: 0.5, vertexColors: true }));
+    const gearMat = this.track(withFxLight(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.34, metalness: 0.5, vertexColors: true }), 'f35gear'));
     const WHITE = 0xdfe2e5, CHROME = 0xf4f7fa, GREY = 0x9aa0a6, DARK = 0x3a3e43, HUB = 0xc2c6ca, BRAKE = 0x4a4d51, LENS = 0xfff4dc;
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
     const yAxis = V(0, 1, 0), qq = new THREE.Quaternion();
@@ -1411,13 +1571,17 @@ export class F35A {
       return { pivot, leg, slide, wheel, L, rake, baseY: P.y, cosRake: Math.cos(rake), radius: r, extra, rest: V(0, dy, dz).normalize() };
     };
     // Gövde altını izleyen kapak: menteşe x0'da, serbest kenar x1'de; s0..s1 boyunca
-    const mkDoor = (x0, x1, s0, s1) => {
+    // Serbest kenar, gövdenin alt yan çizgisini (kesit noktası h6) aşmaz: ana takım yuvasının
+    // ön ucunda (7.05–7.5) gövde 1,72'den dardır; sabit kenarlı kapağın dış köşesi gövde
+    // yanına tırmanıp kaplamayı kesiyordu. edge(sv) = o istasyondaki azami |x|.
+    const freeX = (x1, sv, edge) => (edge ? Math.sign(x1) * Math.min(Math.abs(x1), edge(sv)) : x1);
+    const mkDoor = (x0, x1, s0, s1, edge = null) => {
       useRegion(x0, x1, s0, s1);
       const off = 0.011, th = 0.024, NX = 7, NS = 12;   // sık örnek: dışbükey kaplamada düz kirişler kaplamanın altına girmesin
       const rows = [];
       for (let j = 0; j <= NS; j++) {
-        const sv = s0 + (s1 - s0) * (j / NS), row = [];
-        for (let i = 0; i <= NX; i++) { const x = x0 + (x1 - x0) * (i / NX); row.push({ x, y: hullY(sv, x) - off, z: st(sv) }); }
+        const sv = s0 + (s1 - s0) * (j / NS), row = [], xe = freeX(x1, sv, edge);
+        for (let i = 0; i <= NX; i++) { const x = x0 + (xe - x0) * (i / NX); row.push({ x, y: below(sv, x, off), z: st(sv) }); }
         rows.push(row);
       }
       const h0 = V(x0, hullY(s0, x0) - off, st(s0)), h1 = V(x0, hullY(s1, x0) - off, st(s1));
@@ -1437,8 +1601,10 @@ export class F35A {
         const sv = s0 + (s1 - s0) * f, g = new THREE.CylinderGeometry(0.018, 0.018, 0.09, 8);
         g.rotateX(Math.PI / 2); g.translate(x0 - mid.x, hullY(sv, x0) - off + th + 0.02 - mid.y, st(sv) - mid.z); add(fit, g, DARK);   // kapalıyken kaplamanın içinde
       }
+      // Aktüatör bağlantı ucu: kısa. Eskiden 0,2 m'lik çubuk açık kapaktan takımın katlanma
+      // yoluna taşıyor, bacak geçerken çubuğun içinden geçiyordu.
       { const x = x0 + (x1 - x0) * 0.6, sv = (s0 + s1) / 2, y = hullY(sv, x) - off + th - mid.y;
-        rod(fit, V(x - mid.x, y, st(sv) - mid.z), V(x - mid.x - (x1 - x0) * 0.35, y + 0.2, st(sv) - mid.z), 0.016, GREY, 8); }
+        rod(fit, V(x - mid.x, y, st(sv) - mid.z), V(x - mid.x - (x1 - x0) * 0.3, y + 0.07, st(sv) - mid.z), 0.016, GREY, 8); }
       const grp = new THREE.Group(); grp.position.copy(mid);
       const pm = new THREE.Mesh(this.track(panel), m.paint); pm.castShadow = true;
       grp.add(pm, merged(fit, gearMat));
@@ -1457,10 +1623,10 @@ export class F35A {
     // Çift yüzlü: yuva kaplamanın 6 mm dışında durduğundan önden/yandan neredeyse yatay bakışta
     // aradaki boşluktan yuvanın üst yüzü görünür; tek yüzlüyken orada gökyüzü (delik) görünüyordu.
     const bayMat = this.track(new THREE.MeshStandardMaterial({ map: this.track(makeGearBayTexture()), roughness: 0.75, metalness: 0.15, side: THREE.DoubleSide }));
-    const mkBay = (x0, x1, s0, s1) => {
+    const mkBay = (x0, x1, s0, s1, edge = null) => {
       useRegion(x0, x1, s0, s1);
       const rows = [];
-      for (let j = 0; j <= 12; j++) { const sv = s0 + (s1 - s0) * (j / 12), row = []; for (let i = 0; i <= 8; i++) { const x = x0 + (x1 - x0) * (i / 8); row.push({ x, y: hullY(sv, x) - 0.006, z: st(sv) }); } rows.push(row); }
+      for (let j = 0; j <= 12; j++) { const sv = s0 + (s1 - s0) * (j / 12), row = [], xe = freeX(x1, sv, edge) + (edge ? Math.sign(x1) * 0.006 : 0); for (let i = 0; i <= 8; i++) { const x = x0 + (xe - x0) * (i / 8); row.push({ x, y: below(sv, x, 0.006), z: st(sv) }); } rows.push(row); }
       const g = ensureOutward(loft(rows, { uScale: 1, vScale: 1 }), (v, o) => o.set(v.x, v.y + 1, v.z));
       // uv: u enine, v boyuna (loft: u satır = boyuna, v sütun = enine) -> yer değiştir
       const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) { const a = uv.getX(i), b = uv.getY(i); uv.setXY(i, b, a); }
@@ -1477,11 +1643,18 @@ export class F35A {
     const useRegion = (xa, xb, sa, sb) => {
       hullRegion = [regionMesh(this._hull, V(Math.min(xa, xb) - 0.05, -10, st(Math.min(sa, sb)) - 0.05), V(Math.max(xa, xb) + 0.05, 10, st(Math.max(sa, sb)) + 0.05), hullMat)];
     };
+    let hullNy = 1;
     const hullY = (sv, x) => {
       rc.set(org.set(x, -6, st(sv)), upDir);
       const hit = rc.intersectObjects(hullRegion, false);
+      hullNy = hit.length ? Math.abs(hit[0].face.normal.y) : 1;
       return hit.length ? hit[0].point.y : hullBottomY(sv, x);
     };
+    // Kaplamanın DIŞINA dik mesafe: eğik fasette düşey ofset 1/|ny| kadar büyütülür. Sabit
+    // düşey ofset 57° eğimli dış fasette yalnızca birkaç mm kalıyor; kapalı kapağın üçgenleri
+    // kaplamanın burkulmuş dörtlülerinin içine giriyor, arkadaki yuva dokusu çizgi çizgi
+    // görünüyordu (alttan yakın bakışta).
+    const below = (sv, x, off) => { const y = hullY(sv, x); return y - off / Math.max(0.4, hullNy); };
     // Toplanma: bacağın dinlenme yönünü hedef yöne çeviren eksen ve açı (pivot çerçevesinde)
     const stowTo = (g, target) => {
       const t = target.clone().normalize();
@@ -1493,8 +1666,11 @@ export class F35A {
     // ---------------- Burun takımı ----------------
     {
       const r = 0.28, w = 0.17;
-      // Muylu yuvanın arka ucunda: tekerleğin katlanırken öne süpürdüğü yay kısalır (EOTS'a varmaz)
-      const P = V(0, bottomSurfaceY(4.45, 0) + 0.20, st(4.45));
+      // Muylu tekerleğin 0,30 m gerisinde: bacak ~12° öne yatık, neredeyse dik (gerçek F-35A).
+      // Eskiden muylu 0,6–0,75 m gerideydi; bacak 23–28° öne eğik, "yamuk" görünüyordu.
+      // Katlanırken amortisör önce 0,30 m kısalır (aşağıdaki shrink): kısalan bacağın
+      // tekerleği öne süpürürken yuvanın ön kenarına ve EOTS'a varmaz.
+      const P = V(0, bottomSurfaceY(4.0, 0) + 0.20, st(4.0));
       const W = V(0, wb + r, F35.noseGearZ);
       const g = mkLeg(P, W, r, w, ({ L, rake, fixedG, slideG }) => {
         rod(fixedG, V(-0.15, 0, 0), V(0.15, 0, 0), 0.06, WHITE, 12);                     // muylu
@@ -1506,7 +1682,7 @@ export class F35A {
         // takımda dikme öndedir; eskiden arkaya gidip yuvanın arka kenarının gerisinde
         // kaplamayı deliyordu. Gövde ucu muyluya yakın: katlanınca gövdenin içinde kalır.
         const toLeg = (y, z) => V(0, y * Math.cos(rake) + z * Math.sin(rake), -y * Math.sin(rake) + z * Math.cos(rake));
-        const a = V(0, -0.42 * L, -0.07), b = toLeg(0.10, -0.42), k = a.clone().lerp(b, 0.5).add(V(0, -0.02, -0.10));
+        const a = V(0, -0.40 * L, -0.07), b = toLeg(0.06, -0.34), k = a.clone().lerp(b, 0.5).add(V(0, -0.02, -0.09));
         rod(fixedG, a, k, 0.032, WHITE); rod(fixedG, k, b, 0.032, WHITE); ball(fixedG, 0.045, k, DARK);
         // Lambalar: bacak önünde braket + iki mercek (ileri bakar)
         const lp = V(0, -0.60 * L, -0.12);
@@ -1530,13 +1706,19 @@ export class F35A {
       // Öne ve hafifçe yukarı katlanır (yuvanın içine)
       stowTo(g, V(0, 0.10, -1));
       this.parts.gear.nose = Object.assign(g, {
-        lift: 0.22, flat: 0, lampLocal: lampP,
+        lift: 0.22, flat: 0, lampLocal: lampP, shrink: 0.30,
         // Yuva, tekerleğin ön kenarının süpürdüğü yay kadar öne uzar (EOTS 2,46'da biter)
         doors: [mkDoor(-0.30, -0.006, 2.48, 4.50), mkDoor(0.30, 0.006, 2.48, 4.50)],
       });
       mkBay(-0.30, 0.30, 2.48, 4.50);
     }
     // ---------------- Ana takımlar ----------------
+    // Gövde kaplamasının (istasyonlar arası doğrusal loft) alt yan noktası h6'nın |x|'i, 2 cm pay
+    const sideEdge = (sv) => {
+      const S = HULL_S; let j = 0; while (j < S.length - 2 && S[j + 1] < sv) j++;
+      const t = Math.min(1, Math.max(0, (sv - S[j]) / (S[j + 1] - S[j])));
+      return this.sectionPoints(S[j])[6].x * (1 - t) + this.sectionPoints(S[j + 1])[6].x * t - 0.02;
+    };
     for (const side of [-1, 1]) {
       const r = 0.37, w = 0.29;
       const legX = 1.60, bx0 = 1.36, bx1 = 1.72;   // yuva alt fasette kalır (dış kenar gövdenin en geniş yerine taşmaz)
@@ -1566,17 +1748,21 @@ export class F35A {
         return null;
       });
       // Öne katlanır; tekerlek yuvaya DİK (bıçak gibi) girer: 0,74 m çaplı tekerlek ancak
-      // 0,29 m genişliğiyle 0,36 m'lik ağızdan geçer. Ağızdan geçerken içe kayma çok az
-      // (3,5°), tekerlek gövde içine girdikten sonra (katlanmanın son %40'ı) 7,5° merkeze
-      // döner ki dış yüzü gövdenin dik yan duvarından taşmasın. Yuva tekerleğin ön kenarının
-      // süpürdüğü yaya göre öne uzar (7,05). Parametreler, takım kenarlarının kaplamayı yuva
-      // ağzı dışında hiç kesmediği bölgenin ortasından seçildi (geçiş sırasında 0 kesişme).
-      stowTo(g, V(-side * Math.sin(3.5 * DEG), 0.08, -Math.cos(3.5 * DEG)));
+      // 0,29 m genişliğiyle 0,36 m'lik ağızdan geçer. Yuvanın ön ucunda gövde daralır, ağız
+      // tekerlekten ancak birkaç santim geniştir; bu yüzden üç hareket birlikte ayarlandı:
+      //  - içe kayma 2° (fazlası tekerleğin iç omzunu menteşe hattının içinden, asılı kapaktan geçirir),
+      //  - katlanırken tekerlek bacak ekseni etrafında 15° yatar (flat): üstü içe eğilir, gövde
+      //    içine önce giren üst kısım yan duvardan uzak kalır, alt kısım ağzın dış yarısından geçer,
+      //  - merkeze dönüş 9,75°, katlanmanın %60'ından sonra (ağızdan geçince).
+      // Takım inikken (gear 1) üçü de sıfırdır: yer teması değişmez. Parametreler, 0,01 adımlı
+      // taramada takım kenarlarının ne kaplamayı (yuva ağzı dışında) ne de kendi açık kapağını
+      // kestiği bölgenin ortasından seçildi (komşu değerler de 0/0).
+      stowTo(g, V(-side * Math.sin(2 * DEG), 0.08, -Math.cos(2 * DEG)));
       this.parts.gear[side < 0 ? 'left' : 'right'] = Object.assign(g, {
-        lift: 0.22, flat: 0, yaw: side * 7.5 * DEG, yawFrom: 0.6,
-        doors: [mkDoor(side * bx0, side * (bx1 - 0.006), 7.05, 9.15)],
+        lift: 0.22, flat: side * 15 * DEG, yaw: side * 9.75 * DEG, yawFrom: 0.6,
+        doors: [mkDoor(side * bx0, side * (bx1 - 0.006), 7.05, 9.15, sideEdge)],
       });
-      mkBay(side * bx0, side * bx1, 7.05, 9.15);
+      mkBay(side * bx0, side * (bx1 - 0.006), 7.05, 9.15, sideEdge);
     }
   }
 
@@ -1600,31 +1786,8 @@ export class F35A {
     const gunPort = new THREE.CircleGeometry(0.06, 8);
     gunPort.translate(-1.1, 0.22, st(7.85) - 0.01);
     this.group.add(new THREE.Mesh(this.track(gunPort), m.dark));
-    // Alt yüzeyi izleyen ince kabuk (kapaklar, yuva ağızları): x aralığı, istasyon aralığı, yüzeyden ofset
-    const bellyShell = (x0, x1, s0, s1, nx, ns, off) => {
-      const rows = [];
-      for (let j = 0; j <= ns; j++) {
-        const sv = s0 + (s1 - s0) * (j / ns);
-        const row = [];
-        for (let i = 0; i <= nx; i++) { const x = x0 + (x1 - x0) * (i / nx); row.push({ x, y: bottomSurfaceY(sv, x) - off, z: st(sv) }); }
-        rows.push(row);
-      }
-      // İnce KAPALI levha: dış yüz yüzeyin `off` altında, iç yüz gövdenin içinde.
-      // Açık tek yüzlü levhanın kenarı, yandan ve hafif yukarıdan bakınca gövde
-      // silüetinde ince bir yarık (arka yüz elemesi) bırakıyordu.
-      return closedLoft(rows.map((row) => [...row, ...row.slice().reverse().map((q) => ({ x: q.x, y: q.y + off + 0.03, z: q.z }))]), { uScale: 1, vScale: 1 });
-    };
-    // Silah yuvası kapakları: her yanda iç (düz karın) ve dış (eğik faset) kapak; kapak çevresinde koyu panel aralığı
-    const gapMat = this.track(new THREE.MeshStandardMaterial({ color: 0x0f1113, roughness: 0.95 }));
-    const gapGeos = [];
-    for (const side of [-1, 1]) {
-      for (const [x0, x1] of [[0.10, 0.60], [0.66, 1.30]]) {
-        this.paintGeos.push(bellyShell(side * x0, side * x1, 6.75, 10.55, 4, 9, 0.014));
-        gapGeos.push(bellyShell(side * (x0 - 0.03), side * (x1 + 0.03), 6.71, 10.59, 4, 9, 0.005));
-      }
-    }
-    // İniş takımı yuvaları buildGear'da (dokulu iç yüz + kapaklar)
-    this.group.add(new THREE.Mesh(this.track(mergeGeometries(gapGeos.map((g) => (g.index ? g.toNonIndexed() : g)), false)), gapMat));
+    // Silah yuvaları: buildWeaponBays (gerçek iç hacim + menteşeli kapaklar). Eski düz kapak
+    // kabukları ve koyu aralık levhası kaldırıldı. İniş takımı yuvaları buildGear'da.
     // Kuyruk kancası kaportası (gövde altı, orta hat) ve kanca
     const hookFair = new THREE.BoxGeometry(0.26, 0.20, 1.7);
     hookFair.rotateX(0.05);
@@ -1819,14 +1982,31 @@ export class F35A {
           pa.setY(i, P.y + naca((s2 - l) / ch, th) * ch + 0.005);
         }
         pa.needsUpdate = true; g.geometry.computeVertexNormals(); }
-      // Kriko noktası: ana takım yuvasının önünde, gövde altı
-      conform(sten, V(side * 1.15, bottomSurfaceY(7.2, 1.15), st(7.2)), V(0, -1, 0), fwd, 0.09, 0.13, A.jack, 2, 2);
+      // Kriko noktası: silah yuvasının önünde, gövde altı (yuva kapağının üstünde olmaz)
+      conform(sten, V(side * 0.85, bottomSurfaceY(6.65, 0.85), st(6.65)), V(0, -1, 0), fwd, 0.09, 0.13, A.jack, 2, 2);
     }
     // Kurtarma oku (sol, kanopiyi gösterir), veri bloğu (sol ön gövde), yakıt bilgisi (sırt, ikmal kapağının arkası)
     conform(sten, V(-0.86, topSurfaceY(3.7, 0.86), st(3.7)), V(-0.6, 1, 0), fwd, 0.48, 0.16, A.rescue, 6, 3);
     conform(sten, V(-0.92, -0.16, st(3.2)), V(-1, -0.2, 0), V(0, 1, 0), 0.34, 0.11, A.data, 6, 3);
     conform(sten, V(0, bodyTop(7.95), st(7.95)), V(0, 1, 0), V(1, 0, 0), 0.30, 0.075, A.fuel, 4, 2);
     conform(sten, V(0.9, -0.2, st(3.25)), V(1, -0.2, 0), V(0, 1, 0), 0.22, 0.055, A.ground, 4, 2);
+    // Kapalı silah yuvası kapaklarının dikiş çizgileri ve uyarı yazısı. Yalnızca yamanın
+    // üzerindedir: yuva açılınca yamayla birlikte gizlenir (kapaklar havada çizgi taşımaz).
+    if (this._bayPatch && this.parts.weaponBays && !this.forStatic) {
+      const pm = [new THREE.Mesh(this._bayPatch, skinMat)];
+      const segs = [], B = BAY, sm = (B.s0 + B.s1) / 2;
+      for (const side of [-1, 1]) {
+        for (const x of [B.x0 + 0.004, B.xs, B.x1 - 0.004]) segs.push(conform(sten, V(side * x, hullBottomY(sm, x), st(sm)), V(0, -1, 0), fwd, 0.007, B.s1 - B.s0 - 0.012, A.line, 1, 24, pm, 0.0015));
+        for (const sv of [B.s0 + 0.004, B.s1 - 0.004]) segs.push(conform(sten, V(side * (B.x0 + B.x1) / 2, hullBottomY(sv, 0.6), st(sv)), V(0, -1, 0), V(1, 0, 0), 0.007, B.x1 - B.x0 - 0.012, A.line, 1, 8, pm, 0.0015));
+        segs.push(conform(sten, V(side * 0.86, hullBottomY(10.25, 0.86), st(10.25)), V(0, -1, 0), fwd, 0.36, 0.29, A.bay, 4, 4, pm, 0.0015));
+      }
+      const geo = mergeGeometries(segs.map((s2) => s2.geometry), false);
+      for (const s2 of segs) this.group.remove(s2);
+      const seams = new THREE.Mesh(this.track(geo), sten);
+      seams.userData.decal = true;
+      this.group.add(seams);
+      this.parts.weaponBays.seams = seams;
+    }
 
     // Dikey kuyruk (sabit kısım) ışın hedefi: kuyruk işaretleri ve ışıkları yalnızca ona
     // oturtulur (gövde ışını kökte kuyruktan önce gövdeye çarpabilir).
@@ -1944,6 +2124,319 @@ export class F35A {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // İç silah yuvaları (v3.2). Alt kaplama yuva ağzında KESİKTİR (buildFuselage); kapalıyken
+  // ağzı, kaplamanın AYNI köşelerinden ve aynı UV'lerinden kurulan tek bir yama doldurur:
+  // dikiş, aralık ya da kayma olamaz ve panel dokusu kesintisiz sürer. Bir fırlatma
+  // başlayınca yama gizlenir, yerini yine aynı köşelerden kurulan menteşeli kapaklar alır
+  // (geçişte görüntü değişmez) ve yuva içi görünür olur. Kapalıyken iç kısım çizilmez:
+  // uçuşta ek çizim çağrısı yalnızca yama ve kapak çizgileridir.
+  //
+  // Yuva içi: duvarlar ve tavan ağız kenarındaki kaplama köşelerinden başlar; çerçeveler,
+  // kirişler, hidrolik/elektrik hatları, menteşe yatakları, fırlatıcı (ejektör) gövdesi ve
+  // piston kovanları. Renk dış boyadan koyu, derinlere doğru köşe renkleriyle kararır (ortam
+  // kapanması taklidi); malzeme gölge alır ve ortam haritasını yansıtır.
+  // ---------------------------------------------------------------------------
+  buildWeaponBays() {
+    const B = BAY, info = this._bay, m = this.m;
+    const rows = info.rows, iS0 = info.iS0, iS1 = info.iS1;
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const wb = this.parts.weaponBays = { bays: [], interior: null, patch: null, seams: null, active: false };
+    for (let i = iS0; i <= iS1; i++) {
+      const r = rows[i], c0 = r[8], c1 = r[12];
+      if (Math.abs(c0.x - B.x0) > 1e-4 || Math.abs(c1.x - B.x1) > 1e-4) console.warn('weapon bay edge off its station line', i, c0.x, c1.x);
+    }
+    // Kaplama köşelerinden alt-loft: satırlar iS0..iS1, sütunlar kA..kB (sınırlar dahil)
+    const sub = (kA, kB, mutate = null) => {
+      const sec = [];
+      for (let i = iS0; i <= iS1; i++) sec.push(rows[i].slice(kA, kB + 1).map((q, k) => (mutate ? mutate(q, i, kA + k) : q)));
+      return ensureOutward(loft(sec, { uvAt: (i, k) => info.uv(i + iS0, k + kA) }), bodyAxisRef);
+    };
+    // Kapalı yama: iki yanın ağız dörtlüleri, birebir kaplama üçgenleri. Kapak ayrım
+    // şeridi (cA–cB, 2,4 mm) 2,5 mm içeri basık: yakından ince bir oluk olarak okunur.
+    const groove = (q, i, k) => ((k === 4 || k === 5 || k === 9 || k === 10) && i > iS0 && i < iS1 ? { x: q.x, y: q.y + 0.0025, z: q.z } : q);
+    const patchGeo = mergeGeometries([sub(2, 6, groove), sub(8, 12, groove)].map((g) => g.toNonIndexed()), false);
+    patchGeo.computeVertexNormals();
+    const patch = new THREE.Mesh(this.track(patchGeo), m.paint);
+    patch.castShadow = true; patch.receiveShadow = true;
+    this.group.add(patch);
+    wb.patch = patch;
+    this._bayPatch = patchGeo;
+    if (this.forStatic) return;
+
+    // ---- Malzeme ve köşe renkli yapı parçaları ----
+    const bayMat = this.track(withFxLight(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.3, envMapIntensity: 0.75, vertexColors: true }), 'f35bay'));
+    this.bayMat = bayMat;
+    const BASE = 0x737a82, FRAME = 0x8a9199, DEEP = 0x3e4349, LINE = 0x2c2f33, BRASS = 0x8f7038, BLUE = 0x4c6782, KNUCKLE = 0x8d949c, HOUSING = 0x60666e, SEAL = 0x1d1f22;
+    const col = (g, hex, ao = null) => {
+      const c = new THREE.Color(hex), p = g.attributes.position, a = new Float32Array(p.count * 3);
+      for (let i = 0; i < p.count; i++) { const f = ao ? ao(p.getX(i), p.getY(i), p.getZ(i)) : 1; a[i * 3] = c.r * f; a[i * 3 + 1] = c.g * f; a[i * 3 + 2] = c.b * f; }
+      g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+      return g;
+    };
+    const ni = (g) => (g.index ? g.toNonIndexed() : g);
+    const qq = new THREE.Quaternion(), yAxis = V(0, 1, 0);
+    const rod = (list, a, b, r, hex, seg = 8) => {
+      const d = b.clone().sub(a), len = d.length();
+      const g = new THREE.CylinderGeometry(r, r, len, seg, 1);
+      g.applyQuaternion(qq.setFromUnitVectors(yAxis, d.normalize()));
+      const c = a.clone().add(b).multiplyScalar(0.5); g.translate(c.x, c.y, c.z);
+      list.push(col(ni(g), hex)); return g;
+    };
+    const box = (list, w, h, d, x, y, z, hex) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); list.push(col(ni(g), hex)); return g; };
+    // Derinliğe göre kararma: ağız kenarında 1, tavanda ~0,58
+    const aoDepth = (y, yOpen) => 0.7 + 0.3 * Math.min(1, Math.max(0, (B.ceil - y) / Math.max(0.05, B.ceil - yOpen)));
+    const yOpenAt = (s) => hullBottomY(s, B.mx);
+
+    const interior = [];
+    for (const side of [-1, 1]) {
+      const sx = (x) => side * x;
+      const kc0 = side > 0 ? 8 : 6, kc1 = side > 0 ? 12 : 2;            // menteşe sütunları (c0, c1)
+      const kSpan = side > 0 ? [8, 9, 10, 11, 12] : [6, 5, 4, 3, 2];      // c0 -> c1
+      const stS = []; for (let i = iS0; i <= iS1; i++) stS.push(i);
+      // Yan duvarlar: alt kenar = ağız kenarındaki kaplama köşeleri, üst kenar = tavan
+      const wall = (k, refX) => {
+        const sec = stS.map((i) => { const q = rows[i][k]; return [q, { x: q.x, y: B.ceil, z: q.z }]; });
+        const g = ensureOutward(loft(sec), (v, o) => o.set(refX, v.y, v.z));
+        return col(ni(g), BASE, (x, y, z) => aoDepth(y, -0.98));
+      };
+      interior.push(wall(kc0, sx(B.x0 - 1)), wall(kc1, sx(B.x1 + 1)));
+      // Ön/arka duvar: ağız kenarı satırı -> tavan
+      const endWall = (i, refDz) => {
+        const sec = kSpan.map((k) => { const q = rows[i][k]; return [q, { x: q.x, y: B.ceil, z: q.z }]; });
+        const g = ensureOutward(loft(sec), (v, o) => o.set(v.x, v.y, v.z + refDz));
+        return col(ni(g), BASE, (x, y, z) => aoDepth(y, -0.98));
+      };
+      interior.push(endWall(iS0, -1), endWall(iS1, 1));
+      // Tavan
+      {
+        const sec = stS.map((i) => kSpan.map((k) => ({ x: rows[i][k].x, y: B.ceil, z: rows[i][k].z })));
+        const g = ensureOutward(loft(sec), (v, o) => o.set(v.x, v.y + 1, v.z));
+        interior.push(col(ni(g), BASE, (x) => 0.7 + 0.05 * Math.sin(x * 9)));
+      }
+      // Çerçeveler: tavanda enine kiriş + iki duvarda dikme (U kesit gibi), 0,5 m arayla
+      for (let sv = B.s0 + 0.45; sv < B.s1 - 0.2; sv += 0.5) {
+        const z = st(sv), yo0 = hullBottomY(sv, B.x0), yo1 = hullBottomY(sv, B.x1);
+        box(interior, B.x1 - B.x0 - 0.02, 0.045, 0.035, sx((B.x0 + B.x1) / 2), B.ceil - 0.0225, z, FRAME);
+        box(interior, 0.035, B.ceil - yo0 - 0.05, 0.035, sx(B.x0 + 0.0175), (B.ceil + yo0 + 0.05) / 2, z, FRAME);
+        box(interior, 0.035, B.ceil - yo1 - 0.05, 0.035, sx(B.x1 - 0.0175), (B.ceil + yo1 + 0.05) / 2, z, FRAME);
+      }
+      // Duvar kirişleri (boyuna) ve tavan kenar kirişleri
+      for (const [x, y, w, h] of [[B.x0 + 0.012, -0.70, 0.024, 0.03], [B.x1 - 0.012, -0.70, 0.024, 0.03], [B.x0 + 0.03, B.ceil - 0.02, 0.06, 0.04], [B.x1 - 0.03, B.ceil - 0.02, 0.06, 0.04]]) {
+        box(interior, w, h, B.s1 - B.s0 - 0.04, sx(x), y, st((B.s0 + B.s1) / 2), FRAME);
+      }
+      // Hidrolik / elektrik hatları (iç duvar boyunca) ve kablo kanalı (dış duvar)
+      const sA = st(B.s0 + 0.04), sB = st(B.s1 - 0.04);
+      rod(interior, V(sx(B.x0 + 0.05), B.ceil - 0.075, sA), V(sx(B.x0 + 0.05), B.ceil - 0.075, sB), 0.011, LINE, 6);
+      rod(interior, V(sx(B.x0 + 0.05), B.ceil - 0.105, sA), V(sx(B.x0 + 0.05), B.ceil - 0.105, sB), 0.009, BRASS, 6);
+      rod(interior, V(sx(B.x0 + 0.05), B.ceil - 0.13, sA), V(sx(B.x0 + 0.05), B.ceil - 0.13, sB), 0.008, BLUE, 6);
+      rod(interior, V(sx(B.x1 - 0.06), B.ceil - 0.09, sA), V(sx(B.x1 - 0.06), B.ceil - 0.09, sB), 0.02, LINE, 8);
+      for (let sv = B.s0 + 0.3; sv < B.s1; sv += 0.6) box(interior, 0.03, 0.05, 0.02, sx(B.x0 + 0.04), B.ceil - 0.105, st(sv), DEEP);   // hat kelepçeleri
+      // Fırlatıcı (ejektör) gövdesi: tavanda füze ekseni üzerinde; altında iki piston kovanı
+      box(interior, 0.26, 0.07, 2.3, sx(B.mx), B.ceil - 0.035, st(B.ms + 0.0), HOUSING);
+      box(interior, 0.30, 0.012, 2.36, sx(B.mx), B.ceil - 0.006, st(B.ms), DEEP);
+      for (const ds of [-0.62, 0.62]) {
+        const g = new THREE.CylinderGeometry(0.042, 0.042, 0.014, 12); g.translate(sx(B.mx), B.ceil - 0.063, st(B.ms + ds)); interior.push(col(ni(g), DEEP));
+      }
+      // Ön duvarda donanım kutusu ve konektör, arka duvarda havalandırma ızgarası
+      box(interior, 0.34, 0.16, 0.07, sx(B.mx), B.ceil - 0.15, st(B.s0) + 0.035, HOUSING);
+      box(interior, 0.08, 0.05, 0.03, sx(B.mx + 0.1), B.ceil - 0.15, st(B.s0) + 0.085, BRASS);
+      box(interior, 0.4, 0.12, 0.02, sx(B.mx), -0.62, st(B.s1) - 0.012, DEEP);
+      // Menteşe yatakları (sabit yarı): kapak kulaklarının arasına
+      for (const sv of [7.42, 8.32, 9.27, 10.22]) for (const [x, hx] of [[B.x0, 1], [B.x1, -1]]) {
+        const y = hullBottomY(sv + 0.075, x) + 0.012;
+        const g = new THREE.CylinderGeometry(0.017, 0.017, 0.06, 10); g.rotateX(Math.PI / 2); g.translate(sx(x + hx * 0.002), y, st(sv + 0.075)); interior.push(col(ni(g), KNUCKLE));
+        box(interior, 0.03, 0.05, 0.05, sx(x + hx * 0.02), y + 0.03, st(sv + 0.075), FRAME);
+      }
+    }
+    const interiorGeo = mergeGeometries(interior, false);
+    interior.forEach((g) => g.dispose());
+    const inner = new THREE.Mesh(this.track(interiorGeo), bayMat);
+    inner.castShadow = true; inner.receiveShadow = true; inner.visible = false;
+    this.group.add(inner);
+    wb.interior = inner;
+
+    // ---- Kapaklar, ray ve füzeler ----
+    const missileGeo = getMissileGeometry(), missileMat = getMissileMaterial();
+    for (const side of [-1, 1]) {
+      const bay = { side, doors: [], rail: null, missile: null };
+      // Kapak: dış yüz = kaplama köşeleri (boya, birebir UV), içte köşe renkli levha + kaburgalar + menteşe kolları
+      const mkDoor = (kA, kB, hingeK, freeX) => {
+        const hx = rows[iS0][hingeK].x;
+        const h0 = V(hx, hullBottomY(B.s0, Math.abs(hx)) + 0.012, st(B.s0)), h1 = V(hx, hullBottomY(B.s1, Math.abs(hx)) + 0.012, st(B.s1));
+        const axis = h1.clone().sub(h0).normalize();
+        const skin = sub(kA, kB); skin.translate(-h0.x, -h0.y, -h0.z);
+        const grp = new THREE.Group(); grp.position.copy(h0);
+        const sm = new THREE.Mesh(this.track(skin), m.paint); sm.castShadow = true;
+        grp.add(sm);
+        const parts = [];
+        // İç levha: dış yüzün 4 mm–34 mm içi (kapalı kalın panel: açılınca kenar kalınlığı görünür)
+        const sec = []; for (let i = iS0; i <= iS1; i++) { const r = rows[i].slice(kA, kB + 1); sec.push([...r.map((q) => ({ x: q.x, y: q.y + 0.004, z: q.z })), ...r.slice().reverse().map((q) => ({ x: q.x, y: q.y + 0.034, z: q.z }))]); }
+        parts.push(col(ni(closedLoft(sec)), 0x6a7178, (x, y, z) => 0.92 + 0.08 * Math.sin(z * 3.1)));
+        // Kenar bandı: dış kaplama ile iç levha arasındaki 4 mm yarık (açık kapağa yandan
+        // bakınca piksel çizgisi) kapatılır; iki yönlü sarım, ince olduğundan maliyeti yok.
+        {
+          const per = [];
+          for (let k = kA; k <= kB; k++) per.push(rows[iS0][k]);
+          for (let i = iS0 + 1; i <= iS1; i++) per.push(rows[i][kB]);
+          for (let k = kB - 1; k >= kA; k--) per.push(rows[iS1][k]);
+          for (let i = iS1 - 1; i >= iS0; i--) per.push(rows[i][kA]);
+          const pos = [];
+          for (let j = 0; j < per.length - 1; j++) {
+            const a = per[j], b = per[j + 1], a2 = [a.x, a.y + 0.0045, a.z], b2 = [b.x, b.y + 0.0045, b.z];
+            const A = [a.x, a.y, a.z], Bq = [b.x, b.y, b.z];
+            pos.push(...A, ...Bq, ...a2, ...Bq, ...b2, ...a2, ...A, ...a2, ...Bq, ...Bq, ...a2, ...b2);
+          }
+          const g = new THREE.BufferGeometry();
+          g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+          g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3 * 2), 2));
+          g.computeVertexNormals();
+          parts.push(col(g, 0x6a7178));
+        }
+        const ax = Math.abs(hx), fx = Math.abs(freeX), sgn = Math.sign(hx);
+        const at = (sv, x, dy = 0.034) => V(sgn * x, hullBottomY(sv, x) + dy, st(sv));
+        // Boyuna kaburgalar (yüzeyi izleyen parçalar) ve enine kaburgalar
+        for (const f of [0.33, 0.67]) { const x = ax + (fx - ax) * f; let prev = null; for (let j = 0; j <= 8; j++) { const sv = B.s0 + 0.06 + (B.s1 - B.s0 - 0.12) * j / 8, p = at(sv, x, 0.046); if (prev) rod(parts, prev, p, 0.011, 0x7a8189, 6); prev = p; } }
+        for (let sv = B.s0 + 0.25; sv < B.s1 - 0.1; sv += 0.62) rod(parts, at(sv, ax + (fx - ax) * 0.06, 0.046), at(sv, ax + (fx - ax) * 0.94, 0.046), 0.01, 0x7a8189, 6);
+        // Serbest kenar contası
+        rod(parts, at(B.s0 + 0.03, fx - (fx - ax) * 0.02, 0.036), at(B.s1 - 0.03, fx - (fx - ax) * 0.02, 0.036), 0.007, SEAL, 6);
+        // Menteşe kolları (kaz boynu) + kulaklar: yatakların arasında, kapakla döner
+        for (const sv of [7.42, 8.32, 9.27, 10.22]) {
+          const hp = h0.clone().lerp(h1, (sv - B.s0) / (B.s1 - B.s0));
+          const g = new THREE.CylinderGeometry(0.018, 0.018, 0.075, 10); g.rotateX(Math.PI / 2); g.translate(hp.x, hp.y, hp.z); parts.push(col(ni(g), KNUCKLE));
+          const foot = at(sv, ax + (fx - ax) * 0.08, 0.04);
+          rod(parts, foot, hp.clone().add(V(0, 0.01, 0)), 0.014, 0x7a8189, 8);
+        }
+        const fit = mergeGeometries(parts, false); parts.forEach((g) => g.dispose());
+        fit.translate(-h0.x, -h0.y, -h0.z);
+        const fm = new THREE.Mesh(this.track(fit), bayMat); fm.castShadow = true; fm.receiveShadow = true;
+        grp.add(fm);
+        grp.visible = false;
+        this.group.add(grp);
+        // Açık konum: kapak dik asılır, serbest kenarı yuva merkezine doğru BAY.tilt kadar yatık
+        const sm2 = (B.s0 + B.s1) / 2, hm = h0.clone().lerp(h1, 0.5);
+        const r0 = V(freeX, hullBottomY(sm2, fx), st(sm2)).sub(hm); r0.addScaledVector(axis, -r0.dot(axis)).normalize();
+        const tgt = V(Math.sign(freeX - hx) * Math.sin(B.tilt), -Math.cos(B.tilt), 0); tgt.addScaledVector(axis, -tgt.dot(axis)).normalize();
+        const ang = Math.atan2(axis.dot(r0.clone().cross(tgt)), r0.dot(tgt));
+        return { grp, axis, ang };
+      };
+      if (side > 0) bay.doors.push(mkDoor(8, 9, 8, B.xs), mkDoor(10, 12, 12, B.xs));
+      else bay.doors.push(mkDoor(5, 6, 6, -B.xs), mkDoor(2, 4, 2, -B.xs));
+      // Fırlatıcı rayı: kiriş, pistonlar (kovanlara girer), kancalar ve yan destek pabuçları
+      const rail = new THREE.Group();
+      rail.position.set(side * B.mx, B.railY, st(B.ms));
+      const rp = [];
+      box(rp, 0.11, 0.035, 2.1, 0, 0, 0, FRAME);
+      box(rp, 0.13, 0.008, 2.0, 0, -0.019, 0, DEEP);
+      for (const ds of [-0.62, 0.62]) rod(rp, V(0, 0.015, ds), V(0, 0.33, ds), 0.024, 0xb9bec4, 10);   // krom pistonlar
+      for (const ds of [-0.45, 0.45]) {
+        box(rp, 0.05, 0.03, 0.09, 0, -0.035, ds, DEEP);                                              // kancalar
+        for (const k of [-1, 1]) { const g = new THREE.BoxGeometry(0.03, 0.05, 0.05); g.rotateZ(k * 0.65); g.translate(k * 0.07, -0.045, ds + 0.13); rp.push(col(ni(g), HOUSING)); }   // yan destekler
+      }
+      const railGeo = mergeGeometries(rp, false); rp.forEach((g) => g.dispose());
+      const railMesh = new THREE.Mesh(this.track(railGeo), bayMat); railMesh.castShadow = true;
+      rail.add(railMesh);
+      const missile = new THREE.Mesh(missileGeo, missileMat);
+      missile.position.set(0, B.my - B.railY, 0);
+      missile.castShadow = true;
+      rail.add(missile);
+      rail.visible = false;
+      this.group.add(rail);
+      bay.rail = rail; bay.missile = missile;
+      wb.bays.push(bay);
+    }
+  }
+
+  /**
+   * Silah yuvası durumu (weapons.js her kare çağırır). i: 0 sol, 1 sağ.
+   * inner/outer: kapak açıklık kesri (0 kapalı, 1 açık; yerleşme salınımı için 1'i biraz
+   * aşabilir), rail: ejektör stroku kesri (0..1), armed: füze rayda mı.
+   * Herhangi bir yuva kullanımdayken yama gizlenir, kapaklar ve iç kısım çizilir.
+   */
+  setWeaponBay(i, inner, outer, rail, armed) {
+    const wb = this.parts.weaponBays;
+    if (!wb || !wb.bays.length) return;
+    const bay = wb.bays[i];
+    bay.state = { inner, outer, rail, armed };
+    const d0 = bay.doors[0], d1 = bay.doors[1];
+    d0.grp.quaternion.setFromAxisAngle(d0.axis, d0.ang * inner);
+    d1.grp.quaternion.setFromAxisAngle(d1.axis, d1.ang * outer);
+    bay.rail.position.y = BAY.railY - BAY.stroke * rail;
+    bay.missile.visible = !!armed;
+    const busy = (b) => b.state && (b.state.inner > 0 || b.state.outer > 0 || b.state.rail > 0);
+    const active = wb.bays.some(busy);
+    if (active !== wb.active) {
+      wb.active = active;
+      wb.patch.visible = !active;
+      if (wb.seams) wb.seams.visible = !active;
+      wb.interior.visible = active;
+      for (const b of wb.bays) { for (const d of b.doors) d.grp.visible = active; b.rail.visible = active; }
+    }
+  }
+
+  /** Raydaki füzenin dünya dönüşümü (fırlatılan füze tam buradan devralır: ışınlanma yok). */
+  /**
+   * Dış kanat istasyonları (F-35A 2 ve 10 numaralı istasyon): kanat altı pilonu, fırlatma rayı
+   * ve AIM-120C. İç yuvadaki füzeler kapaklar kapalıyken görünmez; uçakta GÖRÜNEN füzeler
+   * bunlardır. Füze ağı ve malzemesi iç yuvadakilerle aynıdır (getMissileGeometry/Material),
+   * uçak grubunun çocuğudur (uçakla birlikte hareket eder) ve uçuş modeline etkisi yoktur
+   * (yalnızca görsel). Pilon gövde boyasına birleşir: ek çizim çağrısı yalnızca iki füzedir.
+   */
+  buildStores() {
+    this.parts.stores = [];
+    const P = this.wingPlanform();
+    // Füze ortası 9,45: tam sarkık hücum kenarı flapının ucu radomdan ~7 cm yukarıda kalır,
+    // kuyruk kanatçıkları aşağı sapmış flaperonun ~17 cm altında. Pilon sabit kanat kutusunda
+    // (LEF menteşesi %15, flaperon menteşesi %76 veter): hareketli yüzeye bağlı değil.
+    const X = 2.9, SM = 9.45, R = MISSILE.r;
+    const f = (X - P.rootX) / (P.tipX - P.rootX);
+    const le = P.leRoot + (P.leTip - P.leRoot) * f, te = P.teRoot + (P.teTip - P.teRoot) * f, ch = te - le;
+    const th = P.thickRoot + (P.thickTip - P.thickRoot) * f;
+    const lowerY = (sv) => P.y - naca((sv - le) / ch, th) * ch;          // kanat alt yüzeyi
+    const s0 = SM - 0.95, s1 = SM + 0.85;                               // pilon boyu 1,8 m
+    const yb = Math.min(lowerY(s0), lowerY(s1)) - 0.22;                 // pilon alt kenarı (düz)
+    const axisY = yb - 0.035 - R;                                       // füze ekseni (ray + kulak)
+    for (const side of [-1, 1]) {
+      const x = side * X;
+      // Pilon: alt kenarı düz, üstü kanat profiline 3 cm gömülü, önü süpürülmüş kesik
+      const g = new THREE.BoxGeometry(0.1, 1, s1 - s0, 1, 1, 8);
+      const pa = g.attributes.position;
+      for (let i = 0; i < pa.count; i++) {
+        const sv = (s1 + s0) / 2 + pa.getZ(i), top = pa.getY(i) > 0;
+        const y = top ? lowerY(sv) + 0.03 : yb;
+        // Alt kenar boyunca doğrusal yeniden eşleme: ön uç 0,35 m geride (süpürülmüş), arka uç 0,12 m
+        const sNew = top ? sv : (s0 + 0.35) + (sv - s0) / (s1 - s0) * ((s1 - 0.12) - (s0 + 0.35));
+        pa.setXYZ(i, x + pa.getX(i) * (top ? 1 : 0.8), y, st(sNew));
+      }
+      g.computeVertexNormals();
+      this.paintGeos.push(g);
+      // Fırlatma rayı (LAU-128 benzeri): pilonun altında koyu ray
+      const rail = new THREE.BoxGeometry(0.075, 0.035, 1.5);
+      rail.translate(x, yb - 0.0175, st(SM + 0.05));
+      this.group.add(new THREE.Mesh(this.track(rail), this.m.metal));
+      if (this.forStatic) continue;
+      const mesh = new THREE.Mesh(getMissileGeometry(), getMissileMaterial());
+      mesh.position.set(x, axisY, st(SM));
+      mesh.castShadow = true;
+      mesh.name = 'AIM-120C STA' + (side < 0 ? '2' : '10');
+      this.group.add(mesh);
+      this.parts.stores.push({ side, station: side < 0 ? 2 : 10, mesh, armed: true });
+    }
+  }
+
+  /** Dış istasyondaki füzenin dünya dönüşümü (ileride fırlatma bu dönüşümden devralır). */
+  storeWorld(i, outPos, outQuat) {
+    const st0 = this.parts.stores[i];
+    st0.mesh.updateWorldMatrix(true, false);
+    st0.mesh.matrixWorld.decompose(outPos, outQuat, _tmpScale);
+  }
+
+  storedMissileWorld(i, outPos, outQuat) {
+    const bay = this.parts.weaponBays.bays[i];
+    bay.missile.updateWorldMatrix(true, false);
+    bay.missile.matrixWorld.decompose(outPos, outQuat, _tmpScale);
+  }
+
   setCockpitView(on) {
     for (const p of this.parts.pilotParts) p.visible = !on;
     this.parts.canopy.material = on ? this.m.canopyInside : this.m.canopy;
@@ -2011,7 +2504,8 @@ export class F35A {
       g.wheel.rotation.x = this.wheelSpin * 0.35 / g.radius;
       // Amortisör: kayan grup bacak ekseni boyunca; düşey bileşeni gearComp (main.js
       // syncAircraft gövdeyi aynı miktarda alçaltır, tekerlek yerde kalır)
-      g.slide.position.y = gearComp / g.cosRake;
+      // Katlanma başında amortisör kısalır (burun takımı), açılışın sonunda uzar
+      g.slide.position.y = gearComp / g.cosRake + (g.shrink ? g.shrink * (1 - ss(0.55, 0.95, gear)) : 0);
       for (const d of g.doors) d.grp.quaternion.setFromAxisAngle(d.axis, d.ang * doorT);
     }
     // Değişken alanlı nozul: rölantide açık, askeri güçte kısılı, AB'de tam açık

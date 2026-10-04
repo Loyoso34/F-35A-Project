@@ -295,6 +295,7 @@ export const STENCIL_ATLAS = {
   warn: [0, 0, 0.125, 0.5], rescue: [0.125, 0, 0.5, 0.5], nostep: [0.5, 0, 0.75, 0.25],
   fuel: [0.5, 0.25, 0.75, 0.5], intake: [0.75, 0, 1, 0.5], jack: [0, 0.5, 0.125, 1],
   ground: [0.125, 0.5, 0.375, 0.75], data: [0.375, 0.5, 0.75, 1], walk: [0.75, 0.5, 1, 0.625],
+  line: [0.79, 0.66, 0.96, 0.69], bay: [0.75, 0.72, 1, 1],
 };
 export function makeStencilAtlas(w = 1024, h = 256, ink = '#4b5056') {
   const c = makeCanvas(w, h);
@@ -329,6 +330,11 @@ export function makeStencilAtlas(w = 1024, h = 256, ink = '#4b5056') {
   // Veri bloğu (seri/bakım)
   { const r = R('data'); ctx.font = 'bold 19px Arial, Helvetica, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ['F-35A  LIGHTNING II', 'LOCKHEED MARTIN AERONAUTICS', 'SERVICE: OIL MIL-PRF-23699', 'HYD: MIL-PRF-87257  3000/4000 PSI', 'OXY: OBOGS - NO SERVICING'].forEach((s, k) => ctx.fillText(s, r.x + 10, r.y + 8 + k * 23)); }
+  // Düz çizgi (kapak dikiş çizgileri için dolu bant)
+  { const r = R('line'); ctx.fillRect(r.x - 2, r.y - 1, r.w + 4, r.h + 2); }
+  // Silah yuvası kapak uyarısı
+  { const r = R('bay'); ctx.lineWidth = 3; ctx.strokeRect(r.x + 6, r.y + 6, r.w - 12, r.h - 12);
+    text('WEAPON BAY', r.x + r.w / 2, r.y + r.h * 0.36, 30); text('KEEP CLEAR', r.x + r.w / 2, r.y + r.h * 0.68, 22); }
   // Yürüme yolu sınır çizgisi parçası (kesikli)
   { const r = R('walk'); ctx.lineWidth = 5; ctx.setLineDash([22, 12]); ctx.beginPath(); ctx.moveTo(r.x, r.y + r.h / 2); ctx.lineTo(r.x + r.w, r.y + r.h / 2); ctx.stroke(); ctx.setLineDash([]); }
   const t = new THREE.CanvasTexture(c);
