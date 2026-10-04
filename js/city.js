@@ -127,7 +127,7 @@ function archWarehouse(w, h, d) {
 // Hiyerarşi: çevre otoyolu (ring) > arterler (radyal) > cadde ızgarası > sokaklar.
 // Izgara açısı dünya eksenlerinden döndürülür: hem daha doğal görünür hem de arazi
 // ızgarasıyla eş düzlemli desen oluşmaz.
-function buildRoadNetwork(cfg, zoneAt, landAt) {
+function buildRoadNetwork(cfg, zoneAt, landAt, reserved = () => false) {
   const { x: CX, z: CZ, r: R } = cfg;
   const TH = cfg.gridAngle;
   const ca = Math.cos(TH), sa = Math.sin(TH);
@@ -145,7 +145,7 @@ function buildRoadNetwork(cfg, zoneAt, landAt) {
   // Denize düşen bölümleri at, kara parçalarını ayrı polilinelere böl
   let run = [];
   for (const p of ringPts) {
-    if (landAt(p[0], p[1])) run.push(p);
+    if (landAt(p[0], p[1]) && !reserved(p[0], p[1], 'road')) run.push(p);
     else { if (run.length > 3) roads.highway.push({ w: 24, pts: run }); run = []; }
   }
   if (run.length > 3) roads.highway.push({ w: 24, pts: run });
@@ -160,7 +160,9 @@ function buildRoadNetwork(cfg, zoneAt, landAt) {
       const bend = 0.10 * Math.sin(t * 5.2 + i);
       pts.push([CX + Math.cos(a + bend) * rr, CZ + Math.sin(a + bend) * rr]);
     }
-    const land = pts.filter((p) => landAt(p[0], p[1]));
+    // Karada ve ayrılmış alan (rıhtım şeridi) dışında kalan uç parça kullanılır
+    const land = [];
+    for (const p of pts) { if (landAt(p[0], p[1]) && !reserved(p[0], p[1], 'road')) land.push(p); else if (land.length) break; }
     if (land.length > 3) roads.arterial.push({ w: 16, pts: land });
   }
 
@@ -175,7 +177,7 @@ function buildRoadNetwork(cfg, zoneAt, landAt) {
       const v = j * step;
       const [wx, wz] = toWorld(u, v);
       const z = zoneAt(wx, wz);
-      const keep = z !== ZONE.NONE && landAt(wx, wz) && (z !== ZONE.SUBURB || i % 2 === 0) && (z !== ZONE.OUTSKIRT || i % 3 === 0);
+      const keep = z !== ZONE.NONE && landAt(wx, wz) && !reserved(wx, wz, 'road') && (z !== ZONE.SUBURB || i % 2 === 0) && (z !== ZONE.OUTSKIRT || i % 3 === 0);
       if (keep) seg.push([wx, wz]);
       else { if (seg.length > 2) roads.street.push({ w: 9, pts: seg, over: false }); seg = []; }
     }
@@ -186,7 +188,7 @@ function buildRoadNetwork(cfg, zoneAt, landAt) {
       const v = j * step;
       const [wx, wz] = toWorld(v, u);
       const z = zoneAt(wx, wz);
-      const keep = z !== ZONE.NONE && landAt(wx, wz) && (z !== ZONE.SUBURB || i % 2 === 0) && (z !== ZONE.OUTSKIRT || i % 3 === 0);
+      const keep = z !== ZONE.NONE && landAt(wx, wz) && !reserved(wx, wz, 'road') && (z !== ZONE.SUBURB || i % 2 === 0) && (z !== ZONE.OUTSKIRT || i % 3 === 0);
       if (keep) seg.push([wx, wz]);
       else { if (seg.length > 2) roads.street.push({ w: 9, pts: seg, over: true }); seg = []; }
     }
@@ -199,7 +201,7 @@ function buildRoadNetwork(cfg, zoneAt, landAt) {
     const u = i * (R / 26);
     const [wx0] = toWorld(u, 0);
     const cz = cfg.coastZ(wx0) - 150;
-    if (Math.hypot(wx0 - CX, cz - CZ) < R * 1.02 && landAt(wx0, cz)) boul.push([wx0, cz]);
+    if (Math.hypot(wx0 - CX, cz - CZ) < R * 1.02 && landAt(wx0, cz) && !reserved(wx0, cz, 'boulevard')) boul.push([wx0, cz]);
     else if (boul.length > 3) { roads.arterial.push({ w: 14, pts: boul.slice() }); boul.length = 0; }
   }
   if (boul.length > 3) roads.arterial.push({ w: 14, pts: boul });
@@ -224,13 +226,15 @@ export class City {
     this.zoneAt = makeZoning(this.cfg);
     this.heightAt = opts.heightAt;
     this.landAt = (x, z) => this.heightAt(x, z) > 2.5;
+    // Ayrılmış alan (ör. rıhtım şeridi): bina, sokak, ağaç ve otopark buraya yerleşmez
+    this.reserved = opts.reserved || (() => false);
     this.center = new THREE.Vector3(this.cfg.x, this.cfg.elev, this.cfg.z);
   }
 
   track(o) { this.disposables.push(o); return o; }
 
   build() {
-    const net = buildRoadNetwork(this.cfg, this.zoneAt, this.landAt);
+    const net = buildRoadNetwork(this.cfg, this.zoneAt, this.landAt, this.reserved);
     this.net = net;
     this.buildRoads(net.roads);
     this.buildBuildings(net);
@@ -350,6 +354,7 @@ export class City {
     const place = (wx, wz, arch, matKey, tier, sBase, tint) => {
       const y = this.heightAt(wx, wz);
       if (y < 2.0) return;                                   // suya/bataklığa bina koyma
+      if (this.reserved(wx, wz, 'building')) return;
       const s = sBase * (0.86 + rand() * 0.30);
       const rot = Math.floor(rand() * 4) * (Math.PI / 2) + (rand() - 0.5) * 0.10;
       q.setFromAxisAngle(up, rot);
@@ -497,7 +502,7 @@ export class City {
       for (let t = 0; t < k; t++) {
         const x = bx + (rand() - 0.5) * block * 0.9, z = bz + (rand() - 0.5) * block * 0.9;
         const y = this.heightAt(x, z);
-        if (y < 2.5) continue;
+        if (y < 2.5 || this.reserved(x, z, 'building')) continue;
         items.push({ x, y, z, s: 0.7 + rand() * 0.8, r: rand() * Math.PI * 2, c: rand() });
       }
     }
@@ -658,7 +663,7 @@ export class City {
     for (const r of [...net.roads.highway, ...net.roads.arterial]) {
       for (let i = 2; i < r.pts.length - 1; i += 2) {
         const p = r.pts[i];
-        if (this.heightAt(p[0], p[1]) < 2) continue;
+        if (this.heightAt(p[0], p[1]) < 2 || this.reserved(p[0], p[1] + r.w * 0.7, 'building')) continue;
         pole(p[0], p[1] + r.w * 0.7, 11);
       }
     }
@@ -689,6 +694,7 @@ export class City {
       const zone = this.zoneAt(wx, wz);
       if (zone !== ZONE.INDUSTRIAL && zone !== ZONE.CORE && zone !== ZONE.URBAN) continue;
       if (rand() > 0.22) continue;
+      if (this.reserved(wx, wz, 'building')) continue;
       const y = this.heightAt(wx, wz);
       if (y < 2) continue;
       const w = 54 + rand() * 34, d = 40 + rand() * 26;

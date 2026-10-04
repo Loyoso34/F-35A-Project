@@ -652,6 +652,141 @@ export function makeRoadTexture(w = 128, h = 256) {
   return finishTexture(new THREE.CanvasTexture(c));
 }
 
+// Yol atlası (u yönü yolun enine kesiti): [0, 0.25) çakıllı banket (dışta çimen-toprak
+// geçişi), [0.25, 1] asfalt şerit: kenar çizgileri, kesikli orta çizgi, tekerlek izi aşınması,
+// yama lekeleri. Kavşak dolguları çizgisiz asfalt bölgesini (u ~ 0.42) kullanır.
+export function makeRoadAtlasTexture(w = 256, h = 256) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  const rand = mulberry32(611);
+  const patch = periodicNoise(w, 4, 612, 4, 0.55);
+  const grit = periodicNoise(w, 5, 613, 32, 0.6);
+  const g0 = w * 0.25;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4, pn = patch[(y % w) * w + x], gn = grit[(y % w) * w + x];
+      let r, g, b;
+      if (x < g0) {
+        // banket: dışta (x=0) çimenli toprak, içe doğru açık gri çakıl
+        const t = smoothstepJS(0, g0 * 0.55, x);
+        const sp = (rand() - 0.5) * 30 + (gn - 0.5) * 26;
+        r = 92 + 40 * t + sp; g = 96 + 28 * t + sp; b = 64 + 38 * t + sp;
+        if (x > g0 - 3) { r *= 0.8; g *= 0.8; b *= 0.8; }   // asfalt kenarı gölge çizgisi
+      } else {
+        const u = (x - g0) / (w - g0);
+        const wear = Math.exp(-Math.pow((u - 0.30) / 0.06, 2)) + Math.exp(-Math.pow((u - 0.70) / 0.06, 2));
+        let v = 50 + (pn - 0.5) * 26 + (gn - 0.5) * 10 + (rand() - 0.5) * 12 - wear * 7;
+        r = v; g = v; b = v + 3;
+      }
+      img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const px = (u) => g0 + u * (w - g0);
+  ctx.fillStyle = 'rgba(222,222,212,0.92)';
+  ctx.fillRect(px(0.035), 0, 4, h); ctx.fillRect(px(0.965) - 4, 0, 4, h);
+  ctx.fillStyle = 'rgba(226,222,200,0.95)';
+  ctx.fillRect(px(0.5) - 2, 0, 4, h * 0.45);
+  return finishTexture(new THREE.CanvasTexture(c));
+}
+function smoothstepJS(a, b, x) { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
+
+// Ev atlası 2x2: [0,0.5)x[0.5,1] tek katlı cephe (pencere+kapı), [0.5,1]x[0.5,1] iki katlı
+// cephe, [0,0.5)x[0,0.5) dükkan cephesi (vitrin + üst kat), [0.5,1]x[0,0.5) kiremit/çatı.
+// Cephe renkleri beyaza yakın: duvar rengi örnek rengiyle (instanceColor) çarpılır.
+export function makeHouseAtlasTexture(size = 256) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  const H = size / 2;
+  const n = periodicNoise(size, 4, 721, 8, 0.5);
+  const img = ctx.createImageData(size, size);
+  for (let i = 0; i < size * size; i++) {
+    const v = 236 + (n[i] - 0.5) * 16;
+    img.data[i * 4] = v; img.data[i * 4 + 1] = v - 2; img.data[i * 4 + 2] = v - 6; img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const win = (x, y, w, h) => {
+    ctx.fillStyle = '#f4f2ee'; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+    ctx.fillStyle = '#3c4a58'; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = 'rgba(190,210,230,0.35)'; ctx.fillRect(x, y, w * 0.45, h * 0.5);
+  };
+  // canvas y aşağı doğru: üst yarı (y<H) dokuda v=[0.5,1]
+  // tek katlı: 3 pencere, kapı
+  win(10, 38, 22, 26); win(84, 38, 22, 26); ctx.fillStyle = '#6a4a34'; ctx.fillRect(50, 40, 22, 82);
+  ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(0, H - 8, H, 8);
+  // iki katlı
+  for (const yy of [16, 74]) { win(H + 10, yy, 20, 30); win(H + 54, yy, 20, 30); win(H + 98, yy, 20, 30); }
+  ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(H, H - 8, H, 8);
+  // dükkan: geniş vitrin + tente + üst kat pencereleri
+  for (let k = 0; k < 3; k++) win(8 + k * 40, H + 14, 30, 30);
+  ctx.fillStyle = '#2d3a44'; ctx.fillRect(4, H + 72, H - 8, 50);
+  ctx.fillStyle = 'rgba(200,220,235,0.4)'; ctx.fillRect(8, H + 76, H - 16, 20);
+  ctx.fillStyle = '#9c3b2c'; ctx.fillRect(2, H + 62, H - 4, 9);
+  // çatı: kiremit sıraları (gri ton; renk örnek başına gölgelendiricide)
+  for (let y = H; y < size; y += 8) {
+    ctx.fillStyle = '#c8c8c8'; ctx.fillRect(H, y, H, 8);
+    ctx.fillStyle = '#8a8a8a'; ctx.fillRect(H, y + 6, H, 2);
+    for (let x = H + ((y / 8) % 2) * 6; x < size; x += 12) { ctx.fillStyle = '#a8a8a8'; ctx.fillRect(x, y, 1, 6); }
+  }
+  return finishTexture(new THREE.CanvasTexture(c));
+}
+
+// Promenat döşemesi: bir doku döşemesi 6 m; açık renkli taş levhalar, kaydırmalı sıralar,
+// koyu derzler ve hafif renk/ton değişimi
+export function makePavingTexture(size = 128) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  const rand = mulberry32(811);
+  const n = 4, cell = size / n;
+  ctx.fillStyle = '#8f8a80'; ctx.fillRect(0, 0, size, size);
+  for (let r = 0; r < n; r++) {
+    const off = (r % 2) * cell / 2;
+    for (let k = -1; k < n; k++) {
+      const v = 214 + (rand() - 0.5) * 22, w = (rand() - 0.5) * 8;
+      ctx.fillStyle = `rgb(${v + w},${v - 3},${v - 12 - w})`;
+      ctx.fillRect(k * cell + off + 1, r * cell + 1, cell - 2, cell - 2);
+    }
+  }
+  const img = ctx.getImageData(0, 0, size, size);
+  for (let i = 0; i < size * size; i++) { const d = (rand() - 0.5) * 10; img.data[i * 4] += d; img.data[i * 4 + 1] += d; img.data[i * 4 + 2] += d; }
+  ctx.putImageData(img, 0, 0);
+  return finishTexture(new THREE.CanvasTexture(c));
+}
+
+// Kruvaziyer gemisi balkon dokusu: bir döşeme 8 m x 1 güverte (3 m); koyu cam kapı,
+// beyaz korkuluk bandı ve kabin ayırıcıları
+export function makeBalconyTexture(size = 64) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#f2f3f4'; ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#2c3b4a'; ctx.fillRect(0, 6, size, 34);
+  ctx.fillStyle = 'rgba(160,190,215,0.35)'; ctx.fillRect(0, 8, size, 10);
+  ctx.fillStyle = '#e8eaec'; for (let x = 0; x < size; x += size / 2) ctx.fillRect(x, 6, 3, 34);
+  ctx.fillStyle = '#b8bec4'; ctx.fillRect(0, 40, size, 3);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 43, size, 4);
+  ctx.fillStyle = '#d0d4d8'; ctx.fillRect(0, 0, size, 6);
+  return finishTexture(new THREE.CanvasTexture(c));
+}
+
+// Otopark: bir döşeme 10 m (u) x 17 m (v): iki sıra 5 m'lik park yeri (2,5 m aralıklı
+// çizgiler) ve arada 7 m'lik geçiş koridoru
+export function makeParkingTexture(w = 64, h = 108) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  const rand = mulberry32(823);
+  for (let i = 0; i < w * h; i++) { const v = 62 + (rand() - 0.5) * 16; img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v + 3; img.data[i * 4 + 3] = 255; }
+  ctx.putImageData(img, 0, 0);
+  const py = (m) => (m / 17) * h, px = (m) => (m / 10) * w;
+  ctx.fillStyle = '#d9d9d0';
+  for (const [a, b] of [[0, 5], [12, 17]]) {
+    for (let k = 0; k <= 4; k++) ctx.fillRect(px(k * 2.5) - 0.6, py(a), 1.4, py(b) - py(a));
+    ctx.fillRect(0, py(a === 0 ? 5 : 12) - 0.6, w, 1.2);
+  }
+  return finishTexture(new THREE.CanvasTexture(c));
+}
+
 // Bina cephesi: pencere ızgarası
 export function makeWindowsTexture(w = 512, h = 256, cols = 12, rows = 3) {
   const c = makeCanvas(w, h);
@@ -840,4 +975,28 @@ export function makeFacadeTexture(kind = 'office', size = 256) {
   const t = finishTexture(new THREE.CanvasTexture(c));
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
+}
+
+// Arazi ayrıntı dokusu (veri dokusu, sRGB DEĞİL; döşenebilir). Arazi gölgelendiricisi bunu
+// birçok ölçekte ve döndürülmüş olarak örnekler; tek bir döşeme deseni görünmez.
+//  R: ince toprak/çim dokusu   G: kaya (çatlaklı, sırtlı)   B: makro bulutsu değişim
+export function makeTerrainDetailTexture(size = 512) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const fine = periodicNoise(size, 5, 101, 16, 0.55);
+  const fine2 = periodicNoise(size, 3, 104, 64, 0.5);
+  const rock = periodicNoise(size, 5, 102, 8, 0.6);
+  const rock2 = periodicNoise(size, 4, 105, 32, 0.5);
+  const macro = periodicNoise(size, 5, 103, 3, 0.55);
+  const st = (v, k) => Math.max(0, Math.min(1, (v - 0.5) * k + 0.5));
+  for (let i = 0; i < size * size; i++) {
+    const f = st(fine[i] * 0.7 + fine2[i] * 0.3, 2.6);
+    const r1 = 1 - Math.abs(rock[i] * 2 - 1);                  // sırtlı: çatlak hatları
+    const r = st(r1 * 0.55 + rock2[i] * 0.45, 2.4);
+    const m = st(macro[i], 2.8);
+    img.data[i * 4] = f * 255; img.data[i * 4 + 1] = r * 255; img.data[i * 4 + 2] = m * 255; img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return finishTexture(new THREE.CanvasTexture(c), { srgb: false });
 }

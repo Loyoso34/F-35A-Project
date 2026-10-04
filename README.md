@@ -14,6 +14,10 @@ js/viewport.js          Görüntü alanı ölçümü (döndürme, iOS PWA, güve
 js/main.js              Uygulama girişi, yükleme hattı ve ilerleme, oyun döngüsü (sabit adımlı fizik + çizim enterpolasyonu), menüler
 js/perf.js              Uyarlanabilir kalite: önce ikincil efektler, en son yumuşak adımlarla çözünürlük
 js/world.js             Arazi, gökyüzü, deniz/göller, ormanlar, iki havaalanı, kasabalar, yollar, köprü
+js/worldshade.js        Dünya gölgelendiricileri: atmosferik pus (gökyüzüyle aynı renk), arazi malzemesi
+                        (çok ölçekli makro değişim, tarlalar, orman örtüsü, eğim kayası)
+js/waterfront.js        Sahil şehri rıhtımı: kruvaziyer terminali + gemi, marina, plaj ve oteller,
+                        dönme dolaplı iskele; rıhtım arazisi ve yol planı
 js/city.js              Şehir üreteci: bölgeleme, yol ağı, bina yerleşimi, yeşil alan, detay, trafik, LOD
 js/aircraft.js          Prosedürel F-35A modeli: gövde, kokpit + pilot, kanopi, hacimsel art yakıcı alevi,
                         iç silah yuvaları (kapaklar, ray, AIM-120) ve dış istasyonlar (pilon + AIM-120)
@@ -279,6 +283,93 @@ kuyrukların dış yüzünde hücum kenarına paralel. Yalnızca 2 çizim çağr
 toplamıyla doğrulandı; dekal ışınları ~5, takım ışınları ~2 kat hızlandı): uçağın soğuk kurulumu v3.0.0'a göre yalnızca
 ~35 ms uzun. Yeni gölgelendirici programı yok (`hitch`).
 
+## Dünya görselleri: arazi, yollar, kasabalar ve sahil şehri (v3.3.0)
+
+Yalnızca dünya/harita görselleri değişti. Uçak, uçuş fiziği, HUD, kontroller, silahlar, kamera ve
+oyun mantığı aynıdır. Dünya koordinatları, ölçek, havaalanı ve pist konumları korunur: iki
+havaalanının pist/apron alanında ve kalkış noktalarında 2160 örnek noktada arazi kotu farkı **0**.
+Fizik yüksekliği (`world.heightAt`) hâlâ `terrainHeight`'tır; çarpışma kutuları aynı yoldan geçer.
+
+**Arazi gölgelendirmesi (`js/worldshade.js`).** Köşe rengi geniş biyomu taşır (iklim, irtifa
+kuşakları, kıyı, nehir kıyısı, orman, çalılık, kar). Piksel başına: döndürülmüş örneklerle çok
+ölçekli makro değişim (4,1 km / 1,1 km / 290 m; döşeme izi yok), kurak/yeşil lekeler ve çıplak
+toprak, **tarlalar** (~2,6 km'lik tarım bölgeleri, her biri kendi yönelimi ve parsel boyutuyla;
+8 renkli ürün paleti, bölünmüş şeritler, ekin sıraları, çit/patika sınırları — piksel
+çözünürlüğünde, `fwidth` ile kenar yumuşatmalı), orman örtüsü kümelenmesi, eğime bağlı kaya
+(eşik gürültüyle bozulur, hafif katmanlaşma) ve yakında ince ayrıntı. `land` özniteliği (tarım
+uygunluğu, orman, yerleşim, kuraklık) her köşede hesaplanır. Büyük ölçekli iki makro örnek köşede
+(bulanık mip), ince ayrıntı yalnızca 1,6 km içinde örneklenir: uzakta pikselde tek doku örneği.
+
+**Atmosfer.** Sahnenin doğrusal sisi dünya malzemelerinde yerini havai perspektife bıraktı: pus
+rengi o bakış yönündeki **gökyüzü rengidir** (gök kubbesiyle aynı işlev), yoğunluk 1200 m ölçek
+yükseklikli üstel bir tabaka boyunca integrallenir (alçakta uzaklar puslu, yüksekten aşağı bakınca
+zemin net), uzaklıkla hafif doygunluk kaybı ve maviye kayma. Pus ton eşlemeden önce doğrusal
+uzayda uygulanır; uzak dağlar arkalarındaki göğe birebir karışır, ufukta açık renkli bant veya
+yüksekten bakınca açık denizde basamak oluşmaz. Pus köşede hesaplanır (pikselde tek karışım);
+su pusu piksel başınadır. Uçak malzemeleri eski sisi kullanmaya devam eder.
+
+**Dağlar ve arazi biçimi.** Temel gürültü alan bükmeli (yuvarlak tepeler yerine uzamış sırtlar),
+sırt terimi küplü (keskin sırt, yayvan vadi). Kenar dağları bükülmüş alanda kütle gürültüsü +
+4 oktavlı, ağırlıklı sırtlı çoklu fraktaldır: ayrıntı sırtlarda toplanır, vadi tabanları yumuşak
+kalır. Dağ parçaları artık 3/4 çözünürlükte (eskiden 1/2: uzak LOD'da 500 m'lik kırık üçgenler).
+Nehir yumuşatılmış (Catmull-Rom) ve menderesli; genişliği boyunca değişir.
+
+**Yollar.** Köşeler yol sınıfına göre yarıçaplı yaylarla yumuşatılır (otoyol 900 m, yol 420 m).
+Enine kesit: çakıllı banket + asfalt (kenar çizgileri, kesikli orta çizgi, tekerlek izi aşınması);
+tek doku atlası, tek malzeme. Her kesit noktası **görünen arazi yüzeyine** (LOD0 üçgenleri)
+oturur: eğimli zeminde kenarlar gömülmez, havada kalmaz (47 904 yol köşesinde gömülen 0).
+Kavşaklarda (257) çizgisiz asfalt dolgu; köprüler yol-nehir kesişimlerinden otomatik hesaplanır.
+
+**Kasabalar.** Izgara sokaklar yerine organik plan: merkezi kaydırılmış, düzensiz dört halka yolu,
+halkalar arasında kaydırmalı ve kavisli ara sokaklar, çekirdekte kısa sokaklar, kenarda kırsala
+uzanan çıkmaz sokaklar. Evler sokağa bakar; dört tip (tek katlı beşik çatılı, iki katlı kırma
+çatılı, düz çatılı dükkân, çiftlik ambarı), ev atlası dokusu (pencere, kapı, kiremit), duvar ve
+çatı renkleri örnek başına (tek çizim çağrısında). Merkezde ana yol üzerinde dükkânlar, dışa doğru
+müstakil evler, kenarda ambarlar. Taban görünen yüzeyin en alçak köşesindedir (havada kalan ev 0).
+Arka bahçelerde ağaçlar. Kasaba ağları 3B mesafeyle (7,5 km; ağaçlar 4,8 km) kapanır.
+
+**Sahil şehri rıhtımı (`js/waterfront.js`).** Şehir merkezinin güneyindeki 3,3 km'lik kıyı tek bir
+tasarım: yumuşak eğrili rıhtım hattı, arkasında deniz seviyesinin 3,5 m üstünde teras, önünde
+derin su. Batıdan doğuya:
+- **Kruvaziyer terminali:** 110 m'lik rıhtım güvertesi, 380 m'lik cam terminal ve dalgalı çatı,
+  yolcu köprüleri, **300 m × 38 m kruvaziyer gemisi** (karina/su hattı/borda bantları, 12 güverte
+  balkon dokusu, köprü kanatları, baca, havuzlar, su kaydırağı, filikalar), römorkör, otoparklar.
+- **Marina:** moloz dalgakıranlar (kaba kaya yamaç, beton yürüyüş yolu), giriş ağzında kırmızı ve
+  yeşil deniz fenerleri, rıhtıma bağlı beş yüzer iskele, parmak iskeleler, motor yatlar,
+  yelkenliler ve iskele başlarında süper yatlar; rıhtımda tenteli restoranlar, liman ofisi kulesi.
+- **Plaj ve oteller:** palmiyeli promenat, kum, şemsiyeler, plaj barları; plaj ortasında en yüksek
+  (125 m'ye kadar) otel kuleleri (podyum + kule + taç, çatı havuzu), arkada orta yükseklikte
+  konutlar: siluet denize doğru yükselir, içeride apartmanlara iner.
+- **Eğlence iskelesi:** 440 m'lik kazıklı iskele, platformda **61 m çaplı dönme dolap** (kıyıya
+  paralel, yavaşça döner; gondollar dik kalır), serbest düşme kulesi, atlıkarınca, büfeler,
+  iskele ucunda restoran köşkü.
+- Yollar: rıhtım bulvarı, arka cadde, bağlantı sokakları; şehrin sahil bulvarı kesilmez ve şehir
+  sokaklarının şeritte kesilen uçları kendi doğrultularında rıhtım caddelerine bağlanır.
+- Şehir üretecine `reserved` geri çağrısı eklendi: şehir binaları/ağaçları/otoparkları rıhtım
+  şeridine ve bağlantı koridorlarına yerleşmez (şeritte şehir binası 0).
+- Arazi ızgarası (~62 m) düşey rıhtım duvarını çözemediği için eğim güvertenin altında kalır;
+  güvertenin ön yüzü su altına inen düşey duvardır. Plajda arazi kendisi yumuşak eğimli kumdur.
+- Doğudaki yüksek burun doğal kayalık kıyı olarak kaldı.
+
+**Su ve kıyı.** Kıyı bandının rıhtım bölgesindeki parçası ince ızgaralı (45 m × 36 m): rıhtım
+önündeki derin su, marina ve plaj kıyısı doğru renk ve saydamlık alır. Uzakta güneş parıltısı
+dar noktalar yerine yumuşak bir ışıltı bandıdır.
+
+**Doğrulama.** Gemi gövde izi derin suda (omurga altı 4,5 m) ve rıhtım yüzünden 3 m açıkta;
+137 teknenin tümü suda (en sığ 9,7 m), güvertede veya dalgakıranda değil; 268 rıhtım binası
+karada ya da tamamen güvertede; tüm iskeleler rıhtıma bağlı; dönme dolap iskele platformunda
+(en alçak gondol güvertenin 2,7 m üstünde). Çarpışma: gemi, otel, dönme dolap ve füze yolu
+isabet eder; açık deniz ve marina suyu boştur.
+
+**Performans (orta kalite, 30 görünüm, eski → yeni).** Çizim çağrısı 4594 → 4881 (+%6),
+üçgen 16,65 M → 17,76 M (+%7), dünya kurulumu ~10,3 s → ~9,3 s. Arazi ağırlıklı görünümler
+yazılım (CPU) oluşturucuda eşit (ova ×1,02, dağ ×1,05, nehir ×1,06, otoyol ×0,96); şehir/sahil
+×1,0–1,25; yakın kasaba görünümleri ×1,4–1,6 (daha yoğun kasaba + zengin arazi gölgelendirmesi).
+30 görünümün ortalaması ×1,17. Kullanılan teknikler: örnekli ağlar (evler, tekneler, palmiye,
+ağaç, araba, şemsiye, gondol), birleştirilmiş statik ağlar, dizinli geometri (orman ağaçları dahil:
+köşe sayısı ~%40 az), mesafe katmanları (rıhtım ayrıntısı 6,2 km, araba/şemsiye 3,2 km), köşede
+pus ve makro örnek, yakında ince ayrıntı.
+
 ## F-35A: silahlar, ekran ve iniş takımı düzeltmeleri (v3.2.0)
 
 **Ekranın altındaki siyah şerit (iOS, yatay).** Neden: `viewport.js` uygulama yüksekliğini
@@ -377,7 +468,7 @@ takım, yuvalar açık/yarı açık), `flush`, `inside`, `f35only`, `app`, `hitc
 
 **Harita 72 x 72 km'dir.** Ortada ova ve tepelik araziler, kenarlarda (27 km'den sonra) dağ kuşağı, sekiz göl, doğudan batıya uzanan bir nehir, iki kasaba, yollar ve iki havaalanı vardır.
 
-**Arazi.** Yükseklik alanı dört katmandan oluşur: çok geniş ölçekli bir *bölge* gürültüsü kabartma şiddetini değiştirir (bazı bölgeler yayvan ova, bazıları engebeli tepelik olur), ana fbm ana hatları, sırt gürültüsü (`1 - |noise|`) doğal vadi ve sırt hatlarını, ince gürültü de yüzey kabartmasını verir. Renklendirme bölgesel iklime (kurak samanlı ↔ nemli koyu yeşil), yüksekliğe (çalılık → kaya → moloz → kar), eğime, tarla desenine ve yamaç yönüne göre köşe renklerinden gelir.
+**Arazi.** Yükseklik alanı dört katmandan oluşur: çok geniş ölçekli bir *bölge* gürültüsü kabartma şiddetini değiştirir (bazı bölgeler yayvan ova, bazıları engebeli tepelik olur), ana fbm ana hatları, sırt gürültüsü (`1 - |noise|`) doğal vadi ve sırt hatlarını, ince gürültü de yüzey kabartmasını verir. Geniş biyom (bölgesel iklim, irtifa kuşakları, kıyı, orman, kar) köşe renklerinden; tarlalar, makro değişim, orman örtüsü ve eğim kayası arazi gölgelendiricisinden gelir (bkz. v3.3.0 bölümü).
 
 **Havaalanları.** Her havaalanı kendi yerel çerçevesinde tanımlanır (`AIRPORTS` dizisi: merkez, pist yönü, kot, düzleştirme dikdörtgeni). Arazi düzleştirmesi, yüzey tipi sorgusu ve çarpışma kutuları tek kod yolundan geçtiği için yeni havaalanı eklemek bir kayıt satırı ve bir kurucu demektir.
 
@@ -391,7 +482,7 @@ takım, yuvalar açık/yarı açık), `flush`, `inside`, `f35only`, `app`, `hitc
 
 İki havaalanı arası **yaklaşık 26 km (14 deniz mili)**. Kalkış yeri **hangardaki Departure satırından** seçilir; kamera seçilen havaalanının üzerinde döner. Her iki havaalanı da kalkış ve inişe uygundur.
 
-**Performans.** Arazi 18 x 18 = 324 parçaya bölünür ve üç kademede örneklenir: havaalanı/su çevresi 2x, iç bölge normal, dış dağ kuşağı yarı çözünürlük. Her parçanın iki LOD'u ve histerezisi vardır. Ağaç bütçesi haritanın tamamına eşit dağıtılmaz; iki havaalanı arasındaki koridora ağırlıklı ve **koruluk kümeleri** halinde yerleştirilir, böylece aynı bütçeyle seyrek nokta yerine gerçek orman dokusu oluşur. Ağaç parçaları da 4 km'lik hücrelerdir (mesafe kırpması isabetli olsun diye) ve ağaç geometrisi düşük segmentlidir.
+**Performans.** Arazi 18 x 18 = 324 parçaya bölünür ve üç kademede örneklenir: havaalanı/su çevresi 2x, iç bölge normal, dış dağ kuşağı 3/4 çözünürlük. Her parçanın iki LOD'u ve histerezisi vardır. Ağaç bütçesi haritanın tamamına eşit dağıtılmaz; iki havaalanı arasındaki koridora ağırlıklı ve **koruluk kümeleri** halinde yerleştirilir, böylece aynı bütçeyle seyrek nokta yerine gerçek orman dokusu oluşur. Ağaç parçaları da 4 km'lik hücrelerdir (mesafe kırpması isabetli olsun diye) ve ağaç geometrisi düşük segmentlidir.
 
 ## Şehir
 
@@ -419,7 +510,7 @@ Haritanın güney kıyısında, üsten **yaklaşık 18 km (10 deniz mili)** uzak
 
 ## Deniz ve kıyı
 
-Haritanın güneyinde büyük bir körfez vardır. Kıyı çizgisi düz bir kenar değildir: iki ölçekli gürültüyle koylar ve burunlar oluşur (`coastLineZ`). Kıyıdan itibaren plaj eğimi, sonra kademeli derinleşen bir taban gelir; su, derinliğe göre renklenir ve çok sığ bantta köpük çıkar. Deniz yüzeyi harita sınırının 12 km ötesine kadar uzanır, böylece oyuncu su kütlesinin kenarını göremez — bu aynı zamanda haritanın güney sınırını gizler. Kıyı bandı ince, açık deniz kaba ızgarayla döşenir.
+Haritanın güneyinde büyük bir körfez vardır. Şehrin önündeki 3,3 km'lik kıyı rıhtım, marina, plaj ve iskeleden oluşan simge bölgedir (bkz. v3.3.0). Kıyı çizgisi düz bir kenar değildir: iki ölçekli gürültüyle koylar ve burunlar oluşur (`coastLineZ`). Kıyıdan itibaren plaj eğimi, sonra kademeli derinleşen bir taban gelir; su, derinliğe göre renklenir ve çok sığ bantta köpük çıkar. Deniz yüzeyi harita sınırının 12 km ötesine kadar uzanır, böylece oyuncu su kütlesinin kenarını göremez — bu aynı zamanda haritanın güney sınırını gizler. Kıyı bandı ince, açık deniz kaba ızgarayla döşenir.
 
 Dağ kuşağı deniz tarafında oluşmaz; kıyı gerçekçi kalır.
 
