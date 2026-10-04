@@ -202,13 +202,17 @@ export function makeGearBayTexture(w = 256, h = 512) {
 // Doku kenarlardan kesintisiz döşenir. Büyük ölçekli ton/kir değişimi gölgelendiricide
 // (applyPaintDetail) nesne uzayında eklenir; döşeme tekrarı böylece seçilmez.
 export function makeStealthPanelTexture(size = 1024) {
+  // F-35 kaplaması: perçin görünmez (bağlantılar RAM macunuyla kapatılır). Doku yalnızca
+  // çok hafif panel tonu değişimi, ince derz çizgileri ve seyrek, sönük kapak konturları
+  // taşır; belirgin RAM desenini gölgelendirici uçağın gerçek koordinatlarında çizer.
+  // Ortalama değer (~124) korunur: livery renkleri bu ortalamaya göre ayarlıdır.
   const c = makeCanvas(size, size);
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(size, size);
-  const n = periodicNoise(size, 4, 41, 4, 0.5);
+  const n = periodicNoise(size, 4, 41, 4, 0.5), n2 = periodicNoise(size, 3, 43, 48, 0.5);
   for (let i = 0; i < size * size; i++) {
-    const v = 124 + (n[i] - 0.5) * 9;
-    img.data[i * 4] = v; img.data[i * 4 + 1] = v + 1; img.data[i * 4 + 2] = v + 3; img.data[i * 4 + 3] = 255;
+    const v = 124 + (n[i] - 0.5) * 7 + (n2[i] - 0.5) * 3;
+    img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v + 1; img.data[i * 4 + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
   const rand = mulberry32(42);
@@ -216,45 +220,32 @@ export function makeStealthPanelTexture(size = 1024) {
   const colsF = [0, 0.12, 0.27, 0.39, 0.53, 0.66, 0.80, 0.91];
   const rowsF = [0, 0.16, 0.34, 0.49, 0.67, 0.83];
   const X = colsF.map((f) => Math.round(f * S)), Y = rowsF.map((f) => Math.round(f * S));
-  // Panel tonları (ızgara hücreleri; satırlar arasında sütunlar kaydırılmaz, sarmalama korunur)
   for (let j = 0; j < Y.length; j++) {
     const y0 = Y[j], y1 = j + 1 < Y.length ? Y[j + 1] : S;
     for (let i = 0; i < X.length; i++) {
       const x0 = X[i], x1 = i + 1 < X.length ? X[i + 1] : S;
       const d = (rand() - 0.5) * 2;
-      ctx.fillStyle = d > 0 ? `rgba(255,255,255,${0.022 * d})` : `rgba(0,0,0,${-0.028 * d})`;   // hafif: büyük düz kanatta şerit gibi görünmesin
+      ctx.fillStyle = d > 0 ? `rgba(255,255,255,${0.014 * d})` : `rgba(0,0,0,${-0.018 * d})`;
       ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
     }
   }
-  const seam = (pts, dark = 0.42) => {
+  const seam = (pts, dark = 0.12) => {
     ctx.lineJoin = 'miter';
-    ctx.strokeStyle = 'rgba(205,210,214,0.20)'; ctx.lineWidth = 1.2;
-    ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x + 1.6, y + 1.6) : ctx.moveTo(x + 1.6, y + 1.6))); ctx.stroke();
-    ctx.strokeStyle = `rgba(38,41,45,${dark})`; ctx.lineWidth = 1.4;
+    ctx.strokeStyle = `rgba(40,42,45,${dark})`; ctx.lineWidth = 1.0;
     ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
   };
-  const rivets = (x0, y0, x1, y1, off, gap = 13) => {
-    const len = Math.hypot(x1 - x0, y1 - y0), nx = -(y1 - y0) / len, ny = (x1 - x0) / len;
-    ctx.fillStyle = 'rgba(52,55,60,0.30)';
-    for (let t = gap * 0.5; t < len; t += gap) {
-      const x = x0 + (x1 - x0) * (t / len) + nx * off, y = y0 + (y1 - y0) * (t / len) + ny * off;
-      ctx.beginPath(); ctx.arc(x, y, 1.1, 0, Math.PI * 2); ctx.fill();
-    }
-  };
-  // Dikey derzler (bazıları testere dişi); x=0 ve x=S aynı çizgi
   X.forEach((x, i) => {
     const saw = i % 3 === 1;
     for (const xx of i === 0 ? [0, S] : [x]) {
       const pts = [];
-      if (saw) { const t = 22; for (let y = 0; y <= S; y += t) pts.push([xx + ((y / t) % 2 ? 9 : -9), y]); }
+      if (saw) { const t = 22; for (let y = 0; y <= S; y += t) pts.push([xx + ((y / t) % 2 ? 7 : -7), y]); }
       else pts.push([xx, 0], [xx, S]);
-      seam(pts);
-      if (!saw) { rivets(xx, 0, xx, S, 5); rivets(xx, 0, xx, S, -5); }
+      seam(pts, saw ? 0.09 : 0.12);
     }
   });
-  Y.forEach((y, j) => { for (const yy of j === 0 ? [0, S] : [y]) { seam([[0, yy], [S, yy]]); rivets(0, yy, S, yy, 5); } });
-  // Servis kapakları: hücre içinde, yuvarlak köşeli, çevresi perçinli
-  for (let k = 0; k < 16; k++) {
+  Y.forEach((y, j) => { for (const yy of j === 0 ? [0, S] : [y]) seam([[0, yy], [S, yy]]); });
+  // Servis kapakları: yuvarlak köşeli ince kontur, perçinsiz
+  for (let k = 0; k < 14; k++) {
     const i = Math.floor(rand() * X.length), j = Math.floor(rand() * Y.length);
     const cx0 = X[i], cx1 = i + 1 < X.length ? X[i + 1] : S, cy0 = Y[j], cy1 = j + 1 < Y.length ? Y[j + 1] : S;
     const w = Math.min(cx1 - cx0 - 30, 36 + rand() * 80), h = Math.min(cy1 - cy0 - 30, 26 + rand() * 50);
@@ -262,15 +253,8 @@ export function makeStealthPanelTexture(size = 1024) {
     const x = cx0 + 15 + rand() * (cx1 - cx0 - 30 - w), y = cy0 + 15 + rand() * (cy1 - cy0 - 30 - h), r = 5;
     ctx.beginPath();
     ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
-    ctx.fillStyle = rand() > 0.5 ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.03)'; ctx.fill();
-    ctx.strokeStyle = 'rgba(40,43,47,0.36)'; ctx.lineWidth = 1.1; ctx.stroke();
-    ctx.fillStyle = 'rgba(50,53,58,0.30)';
-    const per = 2 * (w + h), nR = Math.max(6, Math.round(per / 11));
-    for (let q = 0; q < nR; q++) {
-      let t = (q / nR) * per, px, py;
-      if (t < w) { px = x + t; py = y + 4; } else if ((t -= w) < h) { px = x + w - 4; py = y + t; } else if ((t -= h) < w) { px = x + w - t; py = y + h - 4; } else { t -= w; px = x + 4; py = y + h - t; }
-      ctx.beginPath(); ctx.arc(px, py, 0.9, 0, Math.PI * 2); ctx.fill();
-    }
+    ctx.fillStyle = rand() > 0.5 ? 'rgba(255,255,255,0.016)' : 'rgba(0,0,0,0.02)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(42,44,48,0.12)'; ctx.lineWidth = 1.0; ctx.stroke();
   }
   return finishTexture(new THREE.CanvasTexture(c), { aniso: 8 });
 }
@@ -405,29 +389,36 @@ function makeIronCrossTexture(size = 256) {
 // çubuklar daireden R uzunluğunda ve R/2 yüksekliğinde dışa uzanır, hepsini ince bir kontur
 // çevreler; toplam en-boy 4R x 2R. Yüksek çözünürlük + anizotropi: keskin kenar.
 export function makeInsigniaTexture(size = 512, contrast = 1) {
+  // Düşük görünürlüklü yıldız-çubuk (F-35A fotoğraflarındaki gibi): açık gri disk ve
+  // çubuklar, yıldız boyanmaz (gövde grisi görünür), ince koyu kontur, çubuk ortasında
+  // ince koyu çizgi. Mavi yoktur; tonlar gövde grisine yakın kalır.
   const W = size, H = size / 2;
   const c = makeCanvas(W, H);
   const ctx = c.getContext('2d');
   ctx.clearRect(0, 0, W, H);
-  const cx = W / 2, cy = H / 2, R = H * 0.44, k = contrast;
-  const light = `rgba(168,173,179,${0.92 * k})`, dark = `rgba(92,97,104,${0.95 * k})`, edge = `rgba(70,74,80,${0.9 * k})`;
+  const cx = W / 2, cy = H / 2, R = H * 0.42, k = contrast;
+  const light = `rgba(192,195,198,${0.62 * k})`, edge = `rgba(92,96,101,${0.6 * k})`;
   const bh = R * 0.5, bl = R * 0.98;
-  const outline = (grow) => {
+  const shape = (grow) => {
     ctx.beginPath();
     ctx.rect(cx - R - bl - grow, cy - bh / 2 - grow, 2 * (R + bl + grow), bh + 2 * grow);
     ctx.moveTo(cx + R + grow, cy); ctx.arc(cx, cy, R + grow, 0, Math.PI * 2);
   };
-  ctx.fillStyle = edge; outline(R * 0.07); ctx.fill('nonzero');
-  ctx.fillStyle = light; ctx.fillRect(cx - R - bl, cy - bh / 2, 2 * (R + bl), bh);
-  ctx.fillStyle = dark; ctx.fillRect(cx - R - bl, cy - bh * 0.08, 2 * (R + bl), bh * 0.16);   // çubuk ortası çizgi
-  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fillStyle = dark; ctx.fill();
+  ctx.fillStyle = edge; shape(R * 0.045); ctx.fill('nonzero');
+  ctx.fillStyle = light; shape(0); ctx.fill('nonzero');
+  // çubuk ortası ince koyu çizgi (diskin dışında)
+  ctx.fillStyle = edge;
+  for (const sgn of [-1, 1]) ctx.fillRect(sgn < 0 ? cx - R - bl : cx + R, cy - bh * 0.05, bl, bh * 0.1);
+  // Yıldız: kesilir (alfa 0) — gövde boyası görünür
+  ctx.globalCompositeOperation = 'destination-out';
   ctx.beginPath();
   for (let i = 0; i < 10; i++) {
-    const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? R * 0.382 : R * 0.98;
+    const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? R * 0.37 : R * 0.95;
     const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
-  ctx.closePath(); ctx.fillStyle = light; ctx.fill();
+  ctx.closePath(); ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
   t.needsUpdate = true;

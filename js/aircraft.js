@@ -45,33 +45,33 @@ function paintVC(g, hex) {
 // smoothstep enterpolasyonunun uçta türevi sıfır olduğu için burun uzun, ince
 // bir İĞNEye dönüşüyordu. Ara istasyonlar ojivden hesaplanarak eklendi.
 const FORE_PROFILES = [
-  [0.00, { yt: 0.013, xc: 0.017, yc: 0.001, xs: 0.015, ys: -0.006, xb: 0.009, yb: -0.011, ybot: -0.014, nt: 2.15, nb: 2.15, dk: 0.004 }],
-  [0.15, { yt: 0.065, xc: 0.084, yc: 0.006, xs: 0.072, ys: -0.028, xb: 0.043, yb: -0.054, ybot: -0.066, nt: 2.15, nb: 2.15, dk: 0.004 }],
-  [0.35, { yt: 0.145, xc: 0.188, yc: 0.014, xs: 0.161, ys: -0.062, xb: 0.095, yb: -0.121, ybot: -0.147, nt: 2.18, nb: 2.18, dk: 0.004 }],
-  [0.70, { yt: 0.268, xc: 0.347, yc: 0.026, xs: 0.298, ys: -0.114, xb: 0.176, yb: -0.224, ybot: -0.272, nt: 2.2, nb: 2.2, dk: 0.004 }],
-  [1.20, { yt: 0.408, xc: 0.529, yc: 0.040, xs: 0.455, ys: -0.174, xb: 0.268, yb: -0.341, ybot: -0.415, nt: 2.25, nb: 2.25, dk: 0.004 }],
-  [1.80, { yt: 0.526, xc: 0.682, yc: 0.052, xs: 0.587, ys: -0.224, xb: 0.345, yb: -0.440, ybot: -0.535, nt: 2.3, nb: 2.3, dk: 0.004 }],
-  [2.40, { yt: 0.593, xc: 0.768, yc: 0.058, xs: 0.661, ys: -0.253, xb: 0.389, yb: -0.496, ybot: -0.603, nt: 2.35, nb: 2.35, dk: 0.03 }],
-  [2.90, { yt: 0.61, xc: 0.79, yc: 0.06, xs: 0.68, ys: -0.26, xb: 0.40, yb: -0.51, ybot: -0.62, nt: 2.4, nb: 2.4, dk: 0.10 }],
-  [3.30, { yt: 0.635, xc: 0.85, yc: 0.055, xs: 0.73, ys: -0.27, xb: 0.44, yb: -0.57, ybot: -0.67, nt: 2.45, nb: 2.5, dk: 0.35 }],
-  [3.60, { yt: 0.65, xc: 0.90, yc: 0.05, xs: 0.78, ys: -0.29, xb: 0.47, yb: -0.62, ybot: -0.72, nt: 2.5, nb: 2.6, dk: 0.49 }],
-  [4.10, { yt: 0.67, xc: 0.97, yc: 0.03, xs: 0.88, ys: -0.33, xb: 0.49, yb: -0.68, ybot: -0.78, nt: 2.6, nb: 2.8, dk: 0.60 }],
-  [4.50, { yt: 0.68, xc: 1.02, yc: 0.01, xs: 0.94, ys: -0.35, xb: 0.46, yb: -0.71, ybot: -0.80, nt: 2.6, nb: 3.0, dk: 0.63 }],
+  [0.00, { yt: 0.013, xc: 0.017, yc: 0.001, xs: 0.015, ys: -0.006, xb: 0.009, yb: -0.011, ybot: -0.014, nt: 2.15, nb: 2.15, dk: 0.004, cb: 0.85 }],
+  [0.15, { yt: 0.065, xc: 0.084, yc: 0.008, xs: 0.072, ys: -0.028, xb: 0.043, yb: -0.054, ybot: -0.066, nt: 2.15, nb: 2.15, dk: 0.004, cb: 0.85 }],
+  [0.35, { yt: 0.145, xc: 0.188, yc: 0.018, xs: 0.161, ys: -0.062, xb: 0.095, yb: -0.121, ybot: -0.147, nt: 2.18, nb: 2.18, dk: 0.004, cb: 0.85 }],
+  [0.70, { yt: 0.268, xc: 0.347, yc: 0.034, xs: 0.298, ys: -0.114, xb: 0.176, yb: -0.224, ybot: -0.272, nt: 2.2, nb: 2.2, dk: 0.004, cb: 0.85 }],
+  [1.20, { yt: 0.408, xc: 0.529, yc: 0.052, xs: 0.455, ys: -0.174, xb: 0.268, yb: -0.341, ybot: -0.415, nt: 2.25, nb: 2.25, dk: 0.004, cb: 0.85 }],
+  [1.80, { yt: 0.526, xc: 0.682, yc: 0.068, xs: 0.587, ys: -0.224, xb: 0.345, yb: -0.440, ybot: -0.535, nt: 2.3, nb: 2.3, dk: 0.004, cb: 0.85 }],
+  [2.40, { yt: 0.593, xc: 0.768, yc: 0.082, xs: 0.661, ys: -0.253, xb: 0.389, yb: -0.496, ybot: -0.603, nt: 2.35, nb: 2.35, dk: 0.03, cb: 0.85 }],
+  [2.90, { yt: 0.61, xc: 0.79, yc: 0.10, xs: 0.68, ys: -0.26, xb: 0.40, yb: -0.51, ybot: -0.62, nt: 2.4, nb: 2.4, dk: 0.10, cb: 0.85 }],
+  [3.30, { yt: 0.635, xc: 0.85, yc: 0.125, xs: 0.73, ys: -0.27, xb: 0.44, yb: -0.57, ybot: -0.67, nt: 2.45, nb: 2.5, dk: 0.35, cb: 0.85 }],
+  [3.60, { yt: 0.65, xc: 0.90, yc: 0.15, xs: 0.78, ys: -0.29, xb: 0.47, yb: -0.62, ybot: -0.72, nt: 2.5, nb: 2.6, dk: 0.49, cb: 0.85 }],
+  [4.10, { yt: 0.67, xc: 0.97, yc: 0.175, xs: 0.88, ys: -0.33, xb: 0.49, yb: -0.68, ybot: -0.78, nt: 2.6, nb: 2.8, dk: 0.60, cb: 0.85 }],
+  [4.50, { yt: 0.68, xc: 1.02, yc: 0.185, xs: 0.94, ys: -0.35, xb: 0.46, yb: -0.71, ybot: -0.80, nt: 2.6, nb: 3.0, dk: 0.63, cb: 0.85 }],
 ];
 // Ana gövde: chine altındaki yan yüzey (hava alığı yanağı -> alt köşe) iki fasetli, orta karın düz;
 // arka gövde motor yatağı etrafında yuvarlaklaşır.
 const MAIN_PROFILES = [
-  [5.00, { yt: 0.69, xc: 1.12, yc: 0.00, xs: 1.46, ys: -0.42, xb: 1.18, yb: -0.85, ybot: -0.92, nt: 2.6, nb: 3.2, dk: 0.64 }],
-  [5.80, { yt: 0.73, xc: 1.26, yc: -0.02, xs: 1.54, ys: -0.47, xb: 1.22, yb: -0.90, ybot: -0.98, nt: 2.7, nb: 3.3, dk: 0.57 }],
-  [6.60, { yt: 0.79, xc: 1.46, yc: -0.06, xs: 1.74, ys: -0.53, xb: 1.28, yb: -0.95, ybot: -1.02, nt: 2.8, nb: 3.4, dk: 0.35 }],
-  [7.60, { yt: 0.83, xc: 1.66, yc: -0.10, xs: 1.92, ys: -0.57, xb: 1.33, yb: -0.99, ybot: -1.04, nt: 2.9, nb: 3.5, dk: 0.04 }],
-  [8.80, { yt: 0.83, xc: 1.76, yc: -0.10, xs: 1.98, ys: -0.58, xb: 1.36, yb: -1.00, ybot: -1.05, nt: 2.9, nb: 3.5, dk: 0.004 }],
-  [10.0, { yt: 0.77, xc: 1.76, yc: -0.10, xs: 1.92, ys: -0.56, xb: 1.32, yb: -0.96, ybot: -1.00, nt: 2.8, nb: 3.4, dk: 0.004 }],
-  [11.2, { yt: 0.69, xc: 1.66, yc: -0.08, xs: 1.74, ys: -0.50, xb: 1.20, yb: -0.84, ybot: -0.88, nt: 2.7, nb: 3.0, dk: 0.004 }],
-  [12.4, { yt: 0.64, xc: 1.52, yc: -0.05, xs: 1.52, ys: -0.40, xb: 1.02, yb: -0.68, ybot: -0.74, nt: 2.6, nb: 2.6, dk: 0.004 }],
-  [13.4, { yt: 0.63, xc: 1.40, yc: -0.02, xs: 1.34, ys: -0.34, xb: 0.86, yb: -0.56, ybot: -0.64, nt: 2.5, nb: 2.2, dk: 0.004 }],
-  [14.2, { yt: 0.62, xc: 1.26, yc: 0.00, xs: 1.16, ys: -0.28, xb: 0.72, yb: -0.48, ybot: -0.58, nt: 2.4, nb: 2.0, dk: 0.004 }],
-  [14.6, { yt: 0.61, xc: 1.18, yc: 0.00, xs: 1.08, ys: -0.26, xb: 0.66, yb: -0.46, ybot: -0.56, nt: 2.4, nb: 2.0, dk: 0.004 }],
+  [5.00, { yt: 0.69, xc: 1.12, yc: 0.18, xs: 1.46, ys: -0.42, xb: 1.18, yb: -0.85, ybot: -0.92, nt: 2.6, nb: 3.2, dk: 0.64, cb: 0.8 }],
+  [5.80, { yt: 0.73, xc: 1.26, yc: 0.11, xs: 1.54, ys: -0.47, xb: 1.22, yb: -0.90, ybot: -0.98, nt: 2.7, nb: 3.3, dk: 0.57, cb: 0.65 }],
+  [6.60, { yt: 0.79, xc: 1.46, yc: -0.02, xs: 1.74, ys: -0.53, xb: 1.28, yb: -0.95, ybot: -1.02, nt: 2.8, nb: 3.4, dk: 0.35, cb: 0.45 }],
+  [7.60, { yt: 0.83, xc: 1.66, yc: -0.10, xs: 1.92, ys: -0.57, xb: 1.33, yb: -0.99, ybot: -1.04, nt: 2.9, nb: 3.5, dk: 0.04, cb: 0.3 }],
+  [8.80, { yt: 0.83, xc: 1.76, yc: -0.10, xs: 1.98, ys: -0.58, xb: 1.36, yb: -1.00, ybot: -1.05, nt: 2.9, nb: 3.5, dk: 0.004, cb: 0.25 }],
+  [10.0, { yt: 0.77, xc: 1.76, yc: -0.10, xs: 1.92, ys: -0.56, xb: 1.32, yb: -0.96, ybot: -1.00, nt: 2.8, nb: 3.4, dk: 0.004, cb: 0.25 }],
+  [11.2, { yt: 0.69, xc: 1.66, yc: -0.08, xs: 1.74, ys: -0.50, xb: 1.20, yb: -0.84, ybot: -0.88, nt: 2.7, nb: 3.0, dk: 0.004, cb: 0.25 }],
+  [12.4, { yt: 0.64, xc: 1.52, yc: -0.05, xs: 1.52, ys: -0.40, xb: 1.02, yb: -0.68, ybot: -0.74, nt: 2.6, nb: 2.6, dk: 0.004, cb: 0.25 }],
+  [13.4, { yt: 0.63, xc: 1.40, yc: -0.02, xs: 1.34, ys: -0.34, xb: 0.86, yb: -0.56, ybot: -0.64, nt: 2.5, nb: 2.2, dk: 0.004, cb: 0.25 }],
+  [14.2, { yt: 0.62, xc: 1.26, yc: 0.00, xs: 1.16, ys: -0.28, xb: 0.72, yb: -0.48, ybot: -0.58, nt: 2.4, nb: 2.0, dk: 0.004, cb: 0.25 }],
+  [14.6, { yt: 0.61, xc: 1.18, yc: 0.00, xs: 1.08, ys: -0.26, xb: 0.66, yb: -0.46, ybot: -0.56, nt: 2.4, nb: 2.0, dk: 0.004, cb: 0.25 }],
 ];
 
 export function lerpProfile(table, s) {
@@ -288,10 +288,21 @@ function halfSection(p) {
   const dk = Math.min(p.dk || 0.004, p.xc * 0.9);
   pts.push({ x: 0, y: p.yt });
   pts.push({ x: dk, y: p.yt });
+  // Üst eğri: süperelips (chine'e dik iner, yuvarlak omuz) ile chine'e ~38° eğimle gelen
+  // kübik bezier (düz güverte, eğik yan faset, KESKİN chine — F-35 ön gövdesi) karışımı.
+  const cb = p.cb || 0, ca = 38 * Math.PI / 180;
+  const W = p.xc - dk, Hh = p.yt - p.yc, L = Math.min(W * 0.55, Hh / Math.sin(ca) * 0.6);
+  const B1x = dk + W * 0.42, B1y = p.yt, B2x = p.xc - L * Math.cos(ca), B2y = p.yc + L * Math.sin(ca);
   for (let i = 1; i <= 3; i++) {
     const th = (i / 3) * Math.PI / 2;
-    const x = dk + (p.xc - dk) * Math.pow(Math.sin(th), 2 / p.nt);
-    const y = p.yc + (p.yt - p.yc) * Math.pow(Math.cos(th), 2 / p.nt);
+    let x = dk + (p.xc - dk) * Math.pow(Math.sin(th), 2 / p.nt);
+    let y = p.yc + (p.yt - p.yc) * Math.pow(Math.cos(th), 2 / p.nt);
+    if (cb > 0) {
+      const t = [0, 0.4, 0.75, 1][i], u = 1 - t;   // i=3 tam chine noktası (indeks 4)
+      const bx = u * u * u * dk + 3 * u * u * t * B1x + 3 * u * t * t * B2x + t * t * t * p.xc;
+      const by = u * u * u * p.yt + 3 * u * u * t * B1y + 3 * u * t * t * B2y + t * t * t * p.yc;
+      x += (bx - x) * cb; y += (by - y) * cb;
+    }
     pts.push({ x, y });
   }
   // Yan: (xc,yc) -> (xb,yb) kuadratik bezier, kontrol (xs,ys)
@@ -424,25 +435,118 @@ export function airfoilPoints(K, chord, thickFrac, tStart = 0, tEnd = 1, cutStar
 // egzoz çevresinde is. Döşeme tekrarını kırar; boya, dekal ve işaretlerde AYNI hesap çalışır,
 // böylece işaretler kaplamanın üstüne yapıştırılmış çıkartma gibi değil boyanın parçası gibi
 // görünür. Tek doku okuması x3, ışık sayısından bağımsız.
-function applyPaintDetail(mat, macro) {
+// F-35 RAM (radar soğurucu kaplama) deseni: gerçek uçakta panel ve kapak kenarları açık
+// gri, hafif parlak, testere dişli ya da basamaklı bantlarla örtülüdür (sırtta iç içe
+// "merdiven" dikdörtgenler, kanat kökünde ve uçta, kuyruklarda, bölme kapaklarında).
+// Desen UV'den değil, uçağın DURAĞAN POZ koordinatlarından (acp özniteliği) hesaplanır:
+// her yüzeyde doğru yerde durur, hareketli yüzeylerde kaymaz, çözünürlükten bağımsızdır.
+// s = burundan istasyon (m), x = |yan|, y = dikey. Ayrıca: açık gri, parlak radom; chine
+// altında ön gövde yanlarında koyu antrasit paneller (fotoğraftaki iki ton).
+const RAM_GLSL = `
+  float ramTri(float t, float per) { return abs(fract(t / per) - 0.5) * 2.0 - 0.5; }
+  // Basamaklı kenar: dik basamaklı yamuk dalga (sürekli; çizgi kopmaz)
+  float ramStep(float t, float per) { return clamp(ramTri(t, per) * 6.0, -0.5, 0.5); }
+  // Kenarları dalgalı dikdörtgen (içeride pozitif, metre). kind 0 testere dişi, 1 basamak
+  float ramBox(vec2 p, vec4 r, float amp, float per, float kind) {
+    float a = mix(ramTri(p.y, per), ramStep(p.y, per), kind);
+    float b = mix(ramTri(p.x, per), ramStep(p.x, per), kind);
+    return min(min(p.x - r.x + amp * a, r.z - p.x + amp * a), min(p.y - r.y + amp * b, r.w - p.y + amp * b));
+  }
+  float ramLine(float d, float w) { float aa = fwidth(d) + 1e-4; return 1.0 - smoothstep(w, w + aa, abs(d)); }
+  float ramFill(float d) { float aa = fwidth(d) + 1e-4; return smoothstep(-aa, aa, d); }
+`;
+const RAM_FS = `
+  {
+    vec3 RN = normalize(vObjN);
+    float rs = vObjPos.z + 8.0, rx = abs(vObjPos.x), ry = vObjPos.y;
+    float wT = smoothstep(0.25, 0.5, RN.y), wB = smoothstep(-0.3, -0.55, RN.y), wS = smoothstep(0.42, 0.68, abs(RN.x));
+    vec2 pt = vec2(rx, rs);
+    float lines = 0.0, fills = 0.0, d;
+    // --- Üst gövde: ikmal kapağı, omuz panelleri, orta "merdiven", motor bölmesi ---
+    // Konturlar çoğunlukla düz bantlardır; seyrek, büyük basamaklar (çentikler) taşır.
+    d = ramBox(vec2(vObjPos.x, rs), vec4(-0.27, 7.15, 0.27, 7.95), 0.05, 0.36, 1.0); lines = max(lines, ramLine(d, 0.02));
+    d = ramBox(pt, vec4(0.45, 6.95, 1.05, 8.15), 0.08, 0.55, 1.0); lines = max(lines, ramLine(d, 0.024));
+    d = ramBox(pt, vec4(0.60, 7.14, 0.90, 7.96), 0.0, 1.0, 0.0); lines = max(lines, ramLine(d, 0.016) * 0.8);
+    float midBox = ramBox(pt, vec4(0.30, 8.35, 1.25, 9.95), 0.08, 0.6, 1.0);
+    lines = max(lines, ramLine(midBox, 0.026));
+    float inMid = ramFill(midBox - 0.06);
+    lines = max(lines, inMid * max(ramLine(rs - 8.88, 0.016), ramLine(rs - 9.42, 0.016)) * 0.85);
+    float engBox = ramBox(pt, vec4(0.22, 10.15, 0.98, 12.15), 0.07, 0.5, 1.0);
+    lines = max(lines, ramLine(engBox, 0.024));
+    lines = max(lines, ramFill(engBox - 0.06) * ramLine((fract((rs - 10.15) / 0.5 + 0.5) - 0.5) * 0.5, 0.014) * 0.85);
+    fills = max(fills, ramFill(ramBox(pt, vec4(0.05, 8.45, 0.27, 8.80), 0.04, 0.3, 1.0)));
+    fills = max(fills, ramFill(ramBox(pt, vec4(0.05, 9.00, 0.25, 9.30), 0.0, 1.0, 0.0)) * 0.8);
+    // Kanopi önü aviyonik kapağı
+    d = ramBox(vec2(vObjPos.x, rs), vec4(-0.42, 2.25, 0.42, 2.92), 0.05, 0.4, 1.0); lines = max(lines, ramLine(d, 0.016));
+    // --- Kanat üstü: uç "U" bandı, flaperon ve LEF menteşe çizgileri (kanadın geri kalanı düz) ---
+    float wf = clamp((rx - 1.35) / 4.0, 0.0, 1.0);
+    float wle = 6.55 + 2.6 * wf, wte = 12.55 - 1.0 * wf, wch = wte - wle;
+    float onWing = step(1.42, rx) * step(rs, wte + 0.02) * step(wle - 0.02, rs);
+    lines = max(lines, onWing * step(4.6, rx) * ramLine(min(rx - 4.82, min(rs - wle - 0.24, wte - 0.14 - rs)), 0.03));
+    lines = max(lines, onWing * step(rx, 3.95) * ramLine(rs - (wle + wch * 0.76) + 0.06, 0.02));
+    lines = max(lines, onWing * ramLine(rs - (wle + wch * 0.15) - 0.03, 0.012) * 0.7);
+    // --- Yatay kuyruk: uç bandı ve hücum kenarı çizgisi ---
+    float hf = clamp((rx - 0.8) / 2.65, 0.0, 1.0), hle = 12.35 + 2.0 * hf, hte = 15.75 - 0.2 * hf;
+    float onHT = step(0.85, rx) * step(hle - 0.02, rs) * step(rs, hte + 0.02) * step(abs(ry + 0.08), 0.2);
+    lines = max(lines, onHT * ramLine(rs - hle - 0.20, 0.014) * 0.8);
+    lines = max(lines, onHT * step(2.9, rx) * ramLine(rx - 3.05, 0.024));
+    float top = wT * max(max(1.0 - step(1.42, rx), onWing), onHT);
+    // --- Yanlar: ön gövde chine altı antrasit + basamaklı kapak konturları, arka gövde ---
+    vec2 ps = vec2(rs, ry);
+    float side = wS * step(ry, 0.35) * step(rx, 2.3);
+    float charcoal = side * smoothstep(2.9, 3.1, rs) * smoothstep(6.6, 6.2, rs) * smoothstep(0.05, -0.02, ry);
+    float sl = 0.0;
+    sl = max(sl, ramLine(ramBox(ps, vec4(3.25, -0.50, 4.35, -0.07), 0.07, 0.42, 1.0), 0.02));
+    sl = max(sl, ramLine(ramBox(ps, vec4(3.50, -0.38, 4.10, -0.18), 0.0, 1.0, 0.0), 0.014));
+    sl = max(sl, ramLine(ramBox(ps, vec4(4.55, -0.62, 5.95, -0.12), 0.08, 0.5, 1.0), 0.022));
+    sl = max(sl, ramLine(ramBox(ps, vec4(10.6, -0.50, 12.9, -0.02), 0.07, 0.55, 1.0), 0.02));
+    // --- Dikey kuyruklar: hücum kenarına paralel bant + iç panel ---
+    float fh = clamp((ry - 0.42) / (0.927 * 1.95), 0.0, 1.0), fle = 11.0 + 2.0 * fh;
+    float onFin = wS * step(0.5, ry) * step(10.8, rs) * step(rx, 1.6);
+    vec2 pf = vec2(rs - fle, fh * 1.95);
+    float fl = max(ramLine(pf.x - 0.26, 0.018), ramLine(ramBox(pf, vec4(0.44, 0.30, 1.30, 1.60), 0.06, 0.45, 1.0), 0.02));
+    // --- Alt: silah yuvası ve ana takım kapaklarının testere dişli kenarları ---
+    float bl = max(ramLine(ramBox(pt, vec4(0.10, 7.0, 1.10, 10.8), 0.06, 0.22, 0.0), 0.02),
+                   ramLine(ramBox(pt, vec4(1.15, 7.55, 1.95, 9.55), 0.05, 0.2, 0.0), 0.018));
+    lines = lines * top + sl * side + fl * onFin + bl * wB;
+    // Hava alığı dudağı: ileri bakan ince yüzey açık gri (fotoğraftaki gibi belirgin kenar)
+    lines = max(lines, smoothstep(-0.55, -0.8, RN.z) * step(4.4, rs) * step(rs, 5.9) * step(0.7, rx) * step(ry, 0.3));
+    fills *= wT;
+    // --- Radom: açık gri, pürüzsüz, testere dişli sınır ---
+    float rang = atan(vObjPos.y + 0.05, vObjPos.x);
+    float rb = rs - 2.95 + 0.07 * ramTri(rang, 0.55);
+    float radome = 1.0 - smoothstep(-0.006, 0.006, rb);
+    lines = clamp(max(lines, ramLine(rb + 0.02, 0.012) * 0.6), 0.0, 1.0);
+    diffuseColor.rgb *= mix(1.0, 1.19, lines) * mix(1.0, 1.16, fills) * mix(1.0, 0.72, charcoal) * mix(1.0, 1.18, radome);
+    ramShine = max(max(lines * 0.85, fills * 0.6), radome);
+  }
+`;
+
+// paint: gövde boyası. ram=false (dekallar): desen yok, yalnızca ton/kir değişimi.
+function applyPaintDetail(mat, macro, ram = true) {
   if (!mat || !macro) return mat;
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uMacro = { value: macro };
-    sh.vertexShader = 'varying vec3 vObjPos;\nvarying vec3 vObjN;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vObjPos = position; vObjN = normal;');
-    sh.fragmentShader = 'uniform sampler2D uMacro;\nvarying vec3 vObjPos;\nvarying vec3 vObjN;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+    // acp: uçağın durağan poz koordinatı (bkz. bakeRestPositions). Yoksa (0) konum kullanılır.
+    sh.vertexShader = 'attribute vec3 acp;\nvarying vec3 vObjPos;\nvarying vec3 vObjN;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vObjPos = dot(acp, acp) > 1e-8 ? acp : position; vObjN = normal;');
+    sh.fragmentShader = 'uniform sampler2D uMacro;\nvarying vec3 vObjPos;\nvarying vec3 vObjN;\n' + (ram ? RAM_GLSL : '') + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+  float ramShine = 0.0;
   {
     float mA = texture2D(uMacro, vObjPos.xz * 0.045 + vec2(vObjPos.y * 0.03)).r;
     float mB = texture2D(uMacro, vObjPos.zy * 0.13 + vec2(0.37, vObjPos.x * 0.05)).g;
     float streak = texture2D(uMacro, vec2(vObjPos.x * 0.42 + vObjPos.y * 0.3, vObjPos.z * 0.016)).b;
-    float tone = 0.94 + 0.09 * mA + 0.05 * (mB - 0.5) - 0.045 * smoothstep(0.55, 0.85, streak);
+    float tone = 0.95 + 0.07 * mA + 0.04 * (mB - 0.5) - 0.035 * smoothstep(0.55, 0.85, streak);
     float under = smoothstep(0.15, -0.7, normalize(vObjN).y);
     float soot = smoothstep(4.2, 7.4, vObjPos.z) * smoothstep(1.5, 0.3, abs(vObjPos.x)) * smoothstep(1.0, 0.2, vObjPos.y);
-    tone *= 1.0 - 0.04 * under * (0.6 + 0.8 * mB) - 0.16 * soot * (0.55 + 0.45 * mB);
+    tone *= 1.0 - 0.06 * under * (0.6 + 0.8 * mB) - 0.16 * soot * (0.55 + 0.45 * mB);
     diffuseColor.rgb *= tone;
-  }`);
+  }
+  ${ram ? RAM_FS : ''}`).replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+  // RAM bantları ve radom daha pürüzsüz (hafif ipeksi parlaklık); ana boya mat kalır
+  roughnessFactor *= 1.0 - 0.32 * ramShine;`);
     addFxLight(sh);
   };
-  mat.customProgramCacheKey = () => 'f35paintDetail';
+  mat.customProgramCacheKey = () => (ram ? 'f35paintRam2' : 'f35paintDecal2');
   return mat;
 }
 
@@ -456,7 +560,8 @@ export function getSharedMaterials() {
   SHARED = {
     disposables: [panel, rough, macro],
     macro,
-    paint: new THREE.MeshStandardMaterial({ color: 0xdfe3e8, map: panel, roughnessMap: rough, roughness: 0.72, metalness: 0.25, envMapIntensity: 0.7 }),
+    // Mat, düşük parlaklıklı RAM boyası: hafif metalik pigment, geniş ve sönük yansıma
+    paint: new THREE.MeshStandardMaterial({ color: 0xe8e6e2, map: panel, roughnessMap: rough, roughness: 0.66, metalness: 0.16, envMapIntensity: 0.62 }),
     paintDark: new THREE.MeshStandardMaterial({ color: 0x8b9096, map: panel, roughness: 0.8, metalness: 0.2 }),
     dark: new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.9, metalness: 0.1 }),
     // F-35 hava alığı kanalı: köşe renkleriyle derinliğe göre kararır (ağızda koyu gri,
@@ -470,8 +575,8 @@ export function getSharedMaterials() {
     // görünür (sarı plastik değil). Koyu renk + yüksek metaliklik yansımayı altına boyar,
     // opaklık iç kokpitin seçilebilmesine yetecek kadar düşük kalır.
     canopy: new THREE.MeshPhysicalMaterial({
-      color: 0x7a5f2a, metalness: 0.72, roughness: 0.05, transparent: true, opacity: 0.66,
-      clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.9, side: THREE.DoubleSide, depthWrite: false,
+      color: 0x3a3122, metalness: 0.7, roughness: 0.05, transparent: true, opacity: 0.8,
+      clearcoat: 0.45, clearcoatRoughness: 0.03, envMapIntensity: 1.5, side: THREE.DoubleSide, depthWrite: false,
     }),
     canopyInside: new THREE.MeshPhysicalMaterial({ color: 0xb08a3a, metalness: 0.3, roughness: 0.1, transparent: true, opacity: 0.12, side: THREE.FrontSide, depthWrite: false }),
     tire: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.95 }),
@@ -515,6 +620,28 @@ export class F35A {
     this.buildMarkings();
     this._hull = null; this._skinTop = null; this._fins = null;   // yalnızca kurulumda gereken ışın yüzeyleri
     this.finalize();
+    this.bakeRestPositions();
+  }
+
+  /**
+   * Boyalı her ağa durağan poz koordinatını (acp) yazar: RAM deseni ve ton değişimi bu
+   * koordinattan hesaplanır, hareketli yüzeyler (flaperon, dümen, stabilizatör, kapaklar)
+   * dönünce desen yüzeyle birlikte hareket eder. Kurulum anında kontroller nötrdür.
+   */
+  bakeRestPositions() {
+    const mats = new Set([this.m.paint, this.m.paintDark]);
+    this.group.updateMatrixWorld(true);
+    const inv = this.group.matrixWorld.clone().invert(), M = new THREE.Matrix4(), v = new THREE.Vector3();
+    const seen = new Set();
+    this.group.traverse((o) => {
+      if (!o.isMesh || !mats.has(o.material)) return;
+      if (seen.has(o.geometry)) { o.geometry = this.track(o.geometry.clone()); }
+      seen.add(o.geometry);
+      M.multiplyMatrices(inv, o.matrixWorld);
+      const pa = o.geometry.attributes.position, a = new Float32Array(pa.count * 3);
+      for (let i = 0; i < pa.count; i++) { v.fromBufferAttribute(pa, i).applyMatrix4(M); a[i * 3] = v.x; a[i * 3 + 1] = v.y; a[i * 3 + 2] = v.z; }
+      o.geometry.setAttribute('acp', new THREE.BufferAttribute(a, 3));
+    });
   }
 
   track(o) { this.disposables.push(o); return o; }
@@ -772,10 +899,11 @@ export class F35A {
     // Eskisi duvardan 21 cm dışarı taşan kısa bir elipsoitti ve ağızdan sarkan ayrı bir
     // "yumurta" gibi görünüyordu; daha yassı ve uzun yapılarak duvara kaynaştırıldı.
     for (const side of [-1, 1]) {
-      const bump = new THREE.SphereGeometry(1, 18, 12, 0, Math.PI * 2, 0, Math.PI);
-      bump.scale(0.15, 0.33, 0.95);
-      bump.rotateY(side * 0.06);
-      bump.translate(side * 0.85, -0.36, st(4.85));
+      // DSI: alçak, geniş, ağzın içine doğru yayılan tümsek (yalnızca ~0,3 m'si dudağın önünde)
+      const bump = new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, 0, Math.PI);
+      bump.scale(0.11, 0.30, 0.82);
+      bump.rotateY(side * 0.05);
+      bump.translate(side * 0.86, -0.31, st(5.05));
       this.paintGeos.push(bump);
     }
   }
@@ -1135,7 +1263,11 @@ export class F35A {
     canopyProxy.renderOrder = canopy.renderOrder;
     this.group.add(canopyProxy);
     // Kanopi bow çerçevesi (ön üçte birde) ve ince ön cam tabanı
-    const frameMat = this.track(m.dark.clone()); frameMat.side = THREE.DoubleSide;
+    // Çerçeve gövde boyasında (gerçek F-35: kalın, gövde rengi kanopi çerçevesi, ince bow);
+    // camla birleştiği yerde koyu conta (sealMat) kalır.
+    const frameMat = this.track(new THREE.MeshStandardMaterial({ color: 0x6d7175, roughness: 0.6, metalness: 0.16, envMapIntensity: 0.6, side: THREE.DoubleSide }));
+    frameMat.color.copy(m.paint.color).multiplyScalar(0.25);   // livery boyasıyla aynı ton (doku ortalaması ~0,2 doğrusal)
+    const sealMat = this.track(m.dark.clone()); sealMat.side = THREE.DoubleSide;
     const interp = (sv) => this.canopyWH(sv);
     const arc = (sv, thick, depth) => {
       const [w, h] = interp(sv);
@@ -1143,9 +1275,9 @@ export class F35A {
       const a = shapeRow(sv, w, h, base, 0.004), b = shapeRow(sv, w, h, base, thick).map((q) => ({ x: q.x, y: q.y, z: q.z + depth }));
       this.group.add(new THREE.Mesh(this.track(loft([a, b], { uScale: 1, vScale: 1 })), frameMat));
     };
-    arc(4.3, 0.026, 0.05);
-    arc(3.14, 0.025, 0.04);
-    arc(6.62, 0.018, 0.035);
+    arc(4.3, 0.016, 0.04);
+    arc(3.14, 0.03, 0.05);
+    arc(6.62, 0.022, 0.04);
     // Kanopi çerçevesi: camın taban kenarı boyunca koyu, sızdırmaz kenar bandı (iki yan).
     // Camın kendi yüzeyi üzerinde, 3 mm dışarıda; gövde güvertesine oturur, boşluk yok.
     const rail = (side) => {
@@ -1166,7 +1298,7 @@ export class F35A {
       // Güverteye yatık ince şerit (dik yüzü yok): kanopi tabanındaki conta çizgisi
       const lo = sillProfile.map(([sv, w], i) => ({ x: side * (w + 0.04 * taper(i)), y: bodyTop(sv) + 0.003, z: st(sv) }));
       const hi = sillProfile.map(([sv, w], i) => ({ x: side * (w + 0.004 * taper(i)), y: bodyTop(sv) + 0.009, z: st(sv) }));
-      this.group.add(new THREE.Mesh(this.track(loft([lo, hi], { uScale: 1, vScale: 1 })), frameMat));
+      this.group.add(new THREE.Mesh(this.track(loft([lo, hi], { uScale: 1, vScale: 1 })), sealMat));
     }
   }
 
@@ -1259,7 +1391,8 @@ export class F35A {
     // height: dikey kuyruk kök-uç mesafesi. Toplam yükseklik (teker altından kuyruk
     // ucuna) kamuya açık 4.38 m değerine oturması için seçildi:
     //   rootY + height·cos(22°) − wheelBottomY = 0.42 + 1.95·0.927 + 2.25 = 4.48 m
-    const V = { rootLE: 10.5, rootTE: 14.2, tipLE: 13.0, tipTE: 14.5, height: 1.95, rootX: 0.66, rootY: 0.42, hinge: 0.68 };
+    // Kök veteri 3,2 m, hücum kenarı ~46° ok açısı: gerçek F-35'in daha dar, dik kuyruğu
+    const V = { rootLE: 11.0, rootTE: 14.2, tipLE: 13.0, tipTE: 14.5, height: 1.95, rootX: 0.66, rootY: 0.42, hinge: 0.68 };
     for (const side of [-1, 1]) {
       const up = new THREE.Vector3(side * Math.sin(cant), Math.cos(cant), 0);
       const nrm = new THREE.Vector3(Math.cos(cant) * side, -Math.sin(cant), 0);
@@ -1830,14 +1963,14 @@ export class F35A {
     // Kırmızı/yeşil hücum kenarında, beyaz çakar firar kenarındadır.
     const lensX = P.tipX + 0.01;
     this.lights = {
-      navLeft: mkLight(0xff2a2a, -lensX, P.y, st(P.leTip + 0.20), 0.16),
-      navRight: mkLight(0x2aff5a, lensX, P.y, st(P.leTip + 0.20), 0.16),
-      tail: mkLight(0xffffff, 0, 0.42, st(14.62), 0.14),
+      navLeft: mkLight(0xff2a2a, -lensX, P.y, st(P.leTip + 0.20), 0.11),
+      navRight: mkLight(0x2aff5a, lensX, P.y, st(P.leTip + 0.20), 0.11),
+      tail: mkLight(0xffffff, 0, 0.42, st(14.62), 0.10),
       // Çarpışma önleyici flaşörler: kanat uçları (beyaz, çift flaş), gövde üst/alt (kırmızı beacon)
-      strobeLeft: mkLight(0xffffff, -lensX, P.y, st(P.teTip - 0.30), 0.30),
-      strobeRight: mkLight(0xffffff, lensX, P.y, st(P.teTip - 0.30), 0.30),
-      beaconTop: mkLight(0xff3020, 0, bodyTop(9.6) + 0.06, st(9.6), 0.24),
-      beaconBottom: mkLight(0xff3020, 0, bodyBottom(9.6) - 0.06, st(9.6), 0.24),
+      strobeLeft: mkLight(0xffffff, -lensX, P.y, st(P.teTip - 0.30), 0.19),
+      strobeRight: mkLight(0xffffff, lensX, P.y, st(P.teTip - 0.30), 0.19),
+      beaconTop: mkLight(0xff3020, 0, bodyTop(9.6) + 0.06, st(9.6), 0.15),
+      beaconBottom: mkLight(0xff3020, 0, bodyBottom(9.6) - 0.06, st(9.6), 0.15),
     };
     this.parts.strobe = this.lights.strobeLeft; // geriye dönük uyumluluk
     // İniş/taksi ışığı: burun takımı üzerinde, öne-aşağı bakan spot
@@ -1869,7 +2002,7 @@ export class F35A {
     const P = this.wingPlanform();
     const L = this.livery || {};
     const macro = this.m.macro || getSharedMaterials().macro;
-    const decalMat = (map, extra = {}) => applyPaintDetail(this.track(new THREE.MeshStandardMaterial(Object.assign({ map, transparent: true, roughness: 0.72, metalness: 0.2, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }, extra))), macro);
+    const decalMat = (map, extra = {}) => applyPaintDetail(this.track(new THREE.MeshStandardMaterial(Object.assign({ map, transparent: true, roughness: 0.66, metalness: 0.12, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }, extra))), macro, false);
     const insig = this.track(makeMilInsigniaTexture(L.insignia || 'starbar', 512));
     const mat = decalMat(insig);
     // Kaplamaya OTURAN dekal: teğet düzlemde ızgara kurulur, her köşe dış normal boyunca
@@ -1910,14 +2043,16 @@ export class F35A {
       return mesh;
     };
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
-    const size = 1.5;
+    // F-35A fotoğraflarındaki boyut: kanat amblemi yerel veter uzunluğunun yarısından küçük,
+    // kanadın dış yarısında durur (eskiden 3 m genişlikte, kanadı kaplıyordu).
+    const size = L.insigniaSquare ? 1.0 : 0.86;
     // Yıldız-çubuk 2:1 (gerçek oran 4R x 2R), demir haçı kare.
     const insigW = L.insigniaSquare ? size : size * 2;
     // Kanat amblemi: sol kanat ÜSTÜ ve sağ kanat ALTI (ABD hava kuvvetleri ve donanmasının
     // ortak yerleşimi); kanat profiline oturtulur.
     for (const [side, up] of [[-1, 1], [1, -1]]) {
-      const x = side * 3.4;
-      const f = (3.4 - P.rootX) / (P.tipX - P.rootX);
+      const x = side * 3.85;
+      const f = (3.85 - P.rootX) / (P.tipX - P.rootX);
       const le = P.leRoot + (P.leTip - P.leRoot) * f, te = P.teRoot + (P.teTip - P.teRoot) * f;
       const sMid = le + (te - le) * 0.42;
       const g = new THREE.PlaneGeometry(insigW, size, 14, 8);
@@ -2602,6 +2737,8 @@ export function buildStaticAircraftGeometries() {
     if (!byMat.has(key)) byMat.set(key, { mat: key === 'other' ? ac.m.metal : mat, geos: [] });
     const ng = g.index ? g.toNonIndexed() : g;
     for (const a of Object.keys(ng.attributes)) if (!['position', 'normal', 'uv'].includes(a)) ng.deleteAttribute(a);
+    // Boyalı parçalar: RAM deseni için uçak koordinatı (konum zaten uçak uzayında)
+    if (key === 'paint') ng.setAttribute('acp', ng.attributes.position.clone());
     if (!ng.attributes.uv) ng.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(ng.attributes.position.count * 2), 2));
     if (!ng.attributes.normal) ng.computeVertexNormals();
     byMat.get(key).geos.push(ng);

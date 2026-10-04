@@ -28,8 +28,8 @@ export const LIVERIES = {
       id: 'usaf',
       name: 'USAF Standard',
       sub: 'Hazy gray, low-visibility USAF markings',
-      paint: 0xdfe3e8, paintDark: 0x8b9096,
-      insignia: 'starbar', markColor: '#9aa0a8',
+      paint: 0xe8e6e2, paintDark: 0x85898d,
+      insignia: 'starbar', markColor: '#b9bcbf',
       tailCode: 'LF', serial: 'AF 15-5108',
     },
     {
@@ -38,10 +38,10 @@ export const LIVERIES = {
       sub: 'Matte Navy gray, low-visibility markings',
       // Donanma şemaları USAF grisinden biraz daha koyu ve hafif mavi-nötr.
       // Tuzlu hava için daha mat bir kaplama: roughness yüksek, metalness düşük.
-      paint: 0xb9c0c7, paintDark: 0x767e86,
-      roughness: 0.80, metalness: 0.16,
+      paint: 0xc9cdd1, paintDark: 0x727980,
+      roughness: 0.74, metalness: 0.12,
       metalTint: 0x6a6f75,
-      insignia: 'navy', markColor: '#8d959d',
+      insignia: 'navy', markColor: '#a9afb4',
       tailCode: 'VX', serial: 'NAVY 169028',
     },
     {
@@ -50,8 +50,8 @@ export const LIVERIES = {
       sub: 'Modern Luftwaffe gray, subdued markings',
       // Modern Luftwaffe şemaları soğuk, hafif yeşile çalan bir gri kullanır;
       // işaretler düşük kontrastlı gri demir haçtır.
-      paint: 0xc4c8c6, paintDark: 0x7b807e,
-      roughness: 0.76, metalness: 0.20,
+      paint: 0xd2d6d2, paintDark: 0x7b807e,
+      roughness: 0.70, metalness: 0.15,
       insignia: 'ironcross', insigniaSquare: true, markColor: '#8e9490',
       tailCode: 'TLG', serial: '31+07',
     },

@@ -1,2 +1,2 @@
 // Uygulama sürümü. sw.js içindeki CACHE_VERSION ile aynı tutulmalıdır.
-export const APP_VERSION = '3.3.0';
+export const APP_VERSION = '3.4.0';

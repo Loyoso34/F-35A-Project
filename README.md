@@ -283,6 +283,56 @@ kuyrukların dış yüzünde hücum kenarına paralel. Yalnızca 2 çizim çağr
 toplamıyla doğrulandı; dekal ışınları ~5, takım ışınları ~2 kat hızlandı): uçağın soğuk kurulumu v3.0.0'a göre yalnızca
 ~35 ms uzun. Yeni gölgelendirici programı yok (`hitch`).
 
+## F-35A görünümü: gövde hatları, kanopi, RAM panel deseni ve boya (v3.4.0)
+
+Yalnızca F-35'in görsel modeli, malzemeleri ve dokuları değişti. Uçuş fiziği, kontroller, HUD,
+kamera, silah mantığı ve oynanış aynıdır: `physcmp` uçuş modelini eski sürümle adım adım
+karşılaştırır, fark yoktur. Aerodinamik yüzeylerin menteşe hatları ve hareket aralıkları aynıdır.
+
+**Ön gövde ve burun.** Kesitin üst eğrisi artık, chine'e ~38° eğimle gelen kübik bir bezier
+ile süperelipsin karışımıdır (`halfSection`, profil başına `cb`): düz bir sırt, eğik yan faset
+ve burundan hava alığına kadar KESKİN, kesintisiz bir chine çizgisi. Chine burun boyunca yükseltildi
+(fotoğraftaki gibi burun alt yarısı daha dolgun, üst yüzey daha basık). Ön profiller hava
+alığının arkasında omuz bölgesine yumuşak geçer. DSI çıkıntısı daha ince ve uzun (gövde
+yanına teğet, dudağa doğru incelir).
+
+**Kanopi.** Koyu duman-altın renkli, metalik kaplamalı cam (eskisi açık sarı ve soluk
+görünüyordu): daha yüksek opaklık, daha az clearcoat yansıması, pilot ve kokpit gölgede
+seçilir. Çerçeve artık gövde grisinin koyu tonudur, kemer ince; contalık şeridi koyu.
+
+**Dikey kuyruklar.** Kök hücum kenarı 0,5 m geri alındı: kök veteri daralır, hücum kenarı
+oku fotoğraftakine yaklaşır (iki dışa eğik kuyruk, aynı menteşe ve dümen).
+
+**RAM panel deseni (gölgelendirici).** F-35'in karakteristik iki tonlu görünümü: kapak ve
+panellerin çevresinde açık gri, hafif parlak, testere dişli ya da basamaklı kenar bantları.
+Sırtta ikmal kapağı, omuz panelleri, orta "merdiven" ve motor bölmesi konturları; kanat ucunda
+"U" bandı, flaperon ve hücum kenarı flabı menteşe çizgileri; yatay kuyruk hücum kenarı ve ucu;
+dikey kuyruklarda hücum kenarına paralel bant ve iç panel; altta silah yuvası ve iniş takımı
+kapaklarının testere dişli kenarları. Chine altında ön gövde yanları koyu antrasit, radom açık
+gri ve pürüzsüzdür (testere dişli sınır). Desen UV'den değil, uçağın **durağan poz**
+koordinatlarından hesaplanır (`acp` özniteliği, `bakeRestPositions`): hareketli yüzeylerle
+birlikte döner, kaymaz, çözünürlükten bağımsızdır; çizgiler `fwidth` ile kenar yumuşatmalıdır.
+Bantlarda pürüzlülük düşer (gerçek uçaktaki gibi açıyla parlayan kenar bantları). Park halindeki
+uçaklar da aynı deseni taşır.
+
+**Boya ve dokular.** Sıcak nötr F-35 grisi, düşük parlaklık (roughness 0,66, metalness 0,16):
+eski boya mavimsi ve fazla metalik görünüyordu. Panel dokusu sadeleşti (perçin yok, ince ek
+yerleri; desenle çakışan sert çizgiler yok), makro ton değişimi daha ölçülü. Donanma ve
+Luftwaffe şemaları da buna göre ayarlandı.
+
+**İşaretler.** Düşük görünürlüklü yıldız-çubuk: yarı saydam açık gri disk ve çubuklar, boyanmamış
+yıldız, ince koyu kontur (beyaz yok). Kanat amblemi gerçek boyutuna küçüldü (1,7 m genişlik,
+kanadın dış yarısı; eskiden 3 m idi ve kanadı kaplıyordu). Seyrüsefer ve çakar ışık
+parıltıları küçüldü.
+
+**Maliyet.** Uçak 38 562 → 38 650 üçgen, 82 → 83 ağ (+1 çizim çağrısı: kanopi contalık şeridi); sahnede
+287 → 288 çizim çağrısı. Takip kamerasında kare başına çizim süresi v3.3.0 ile aynı (ölçüm gürültüsü
+içinde, 8–10 ms / 9 ms). Desen doku örneklemez, yalnızca aritmetiktir; ek doku yok.
+Boya gölgelendiricisi büyüdüğü için yükleme ekranındaki ön derleme yazılım render'ında (SwiftShader)
+4,1 → 5,9 s sürdü (gerçek GPU'da bunun çok küçük bir kesri); uçuş sırasında yeni program
+derlenmez (`hitch`: 0). Tüm geometri testleri geçer: 6 durumda 0 delik pikseli (`f35holes2`),
+kokpit gövde içinde (`inside`), flap nötrü kusursuz (`flush`), takım ve EOTS çakışması yok.
+
 ## Dünya görselleri: arazi, yollar, kasabalar ve sahil şehri (v3.3.0)
 
 Yalnızca dünya/harita görselleri değişti. Uçak, uçuş fiziği, HUD, kontroller, silahlar, kamera ve
