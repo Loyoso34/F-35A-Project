@@ -2586,15 +2586,12 @@ export class F35A {
   // Kontrol yüzeyleri ve efektler. surfaces: {elevator, aileron, rudder} -1..1 (elevator +: burun yukarı)
   update({ elevator = 0, aileron = 0, rudder = 0, flaps = 0, lef = 0, toeIn = 0, nozzle = null, gearComp = 0, gear = 1, throttle = 0, afterburner = 0, time = 0, groundSpeed = 0, dt = 0, camDist = 25 }) {
     const p = this.parts;
-    // Yüzeyler FCS'nin eyleyici çıktısını (hız sınırlı) izler; ayrıca burada da kısa
-    // bir yumuşatma yapılır ki 60 Hz çizimde 120 Hz fiziğin basamakları görünmesin.
+    // Yüzeyler FİZİĞİN eyleyici konumunu DOĞRUDAN gösterir (tek yetkili değer): FCS
+    // eyleyicisi zaten gecikmeli ve hız sınırlıdır (≤ 4 birim/s, 60 Hz'de kare başına
+    // ≤ 1,3°), ayrı bir görsel yumuşatma görüntüyü fiziğin gerisinde bırakıyordu.
     // Tüm açılar kamuya açık sınıf değerleridir; işaretler fizikle aynıdır.
-    const k = 1 - Math.exp(-Math.max(dt, 0) / 0.035);
-    const sm = this._sm || (this._sm = { e: elevator, a: aileron, r: rudder, lef, toe: toeIn });
-    if (dt > 0) {
-      sm.e += (elevator - sm.e) * k; sm.a += (aileron - sm.a) * k; sm.r += (rudder - sm.r) * k;
-      sm.lef += (lef - sm.lef) * k; sm.toe += (toeIn - sm.toe) * k;
-    } else { sm.e = elevator; sm.a = aileron; sm.r = rudder; sm.lef = lef; sm.toe = toeIn; }
+    const sm = this._sm || (this._sm = { e: 0, a: 0, r: 0, lef: 0, toe: 0 });
+    sm.e = elevator; sm.a = aileron; sm.r = rudder; sm.lef = lef; sm.toe = toeIn;
     // Tümüyle hareketli stabilatörler: simetrik yunuslama + diferansiyel yatış payı
     const stab = -sm.e * 20 * DEG;
     // Sağa yatış: sağ stabilatörün firar kenarı YUKARI (sağ flaperon gibi), sol aşağı.

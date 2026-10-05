@@ -4,7 +4,7 @@ import { APP_VERSION } from './version.js';
 import { World, LAYER_TREES, QUALITY_PRESETS, SPAWNS, spawnPose, AIRPORT_BY_ID } from './world.js';
 import { FlightModel, FIXED_DT } from './physics.js';
 import { FLEET, FLEET_ORDER, getAircraftConfig } from './fleet.js';
-import { Controls } from './controls.js';
+import { Controls, STICK_SMOOTH } from './controls.js';
 import { HUD } from './hud.js';
 import { AudioEngine } from './audio.js';
 import { CameraRig, CAMERA_NAMES, CAMERA_LABELS } from './cameras.js';
@@ -110,7 +110,7 @@ class App {
     this.settings = loadSettings();
     this.state = 'loading'; // loading | start | running | paused | crashed
     this.pausedByOrientation = false;
-    this.accumulator = 0;
+    this.accumulator = 0; this._stickSynced = false;
     this._weaponsT = null;   // silah saati: çizilen poz saati (fizik zamanı + artık), bkz. loop
     this.lastTime = 0;
     this.frameCount = 0; this.fpsTime = 0;
@@ -407,7 +407,7 @@ class App {
         this.audio.suspend();
       } else {
         this.lastTime = performance.now();
-        this.accumulator = 0;
+        this.accumulator = 0; this._stickSynced = false;
         if (this.state !== 'start') this.audio.resume();
       }
     });
@@ -816,7 +816,7 @@ class App {
     this.state = 'running';
     this.controls.setEnabled(true);
     this.lastTime = performance.now();
-    this.accumulator = 0;
+    this.accumulator = 0; this._stickSynced = false;
     this.snapPose();
     this.aq.reset();
     this.checkOrientation();
@@ -839,7 +839,7 @@ class App {
     this.controls.setEnabled(true);
     this.audio.resume();
     this.lastTime = performance.now();
-    this.accumulator = 0;
+    this.accumulator = 0; this._stickSynced = false;
   }
   togglePause() {
     if (this.state === 'running') this.pause();
@@ -856,7 +856,7 @@ class App {
     this.audio.resume();
     this.updateToggleButtons();
     this.lastTime = performance.now();
-    this.accumulator = 0;
+    this.accumulator = 0; this._stickSynced = false;
     this.syncAircraft(0);
     const sp = SPAWNS.find((s) => s.id === this.settings.spawn) || SPAWNS[0];
     const rwy = String(Math.round(sp.hdg / 10) % 36 || 36).padStart(2, '0');
@@ -1047,7 +1047,7 @@ class App {
     L.push(`       pMax ${n(f.pMax * DEGR, 0)}°/s  nTarget ${n(f.nTarget)}  nAvail ${n(f.nAvail)}`);
     L.push(`       αCmd ${n(f.aCmd * DEGR, 1)}°  g-blend ${n(f.wG)}  authority ${n(f.auth)}`);
     L.push(`<b>AERO</b>   separation ${n(d.sepFrac)}  tailEff ${n(d.tailEff)}  CLmax ${n(d.CLmaxCfg)}`);
-    L.push(`       αtrim ${n(d.alphaTrim * DEGR, 1)}°  onGround ${p.onGround ? 'yes' : 'no'}  rateClamp ${d.rateClamped ? 'YES' : 'no'}`);
+    L.push(`       αtrim ${n(d.alphaTrim * DEGR, 1)}°  onGround ${p.onGround ? 'yes' : 'no'}  rateClamp ${d.rateClamped ? 'YES' : 'no'}  forceGuard ${d.forceGuard ? 'YES' : 'no'}`);
     el.innerHTML = L.join('\n');
   }
 
@@ -1131,11 +1131,23 @@ class App {
       if (this.physics.flapIndex !== this._lastFlapIndex) { this._lastFlapIndex = this.physics.flapIndex; this.updateToggleButtons(); }
       this.controls.update(dt);
       const c = this.controls.state;
-      this.physics.setControls({ pitch: c.pitch, roll: c.roll, yaw: c.yaw, throttle: c.throttle, afterburner: c.afterburner });
+      this.physics.setControls({ throttle: c.throttle, afterburner: c.afterburner });
       this.accumulator += dt;
       let steps = 0;
       const p = this.physics;
+      // Çubuk karede bir örneklenir ama fizik karede birkaç adım atar. Eskiden kare sonu
+      // değeri tüm alt adımlarda sabit tutuluyordu: 30 fps'de (4 adım) FCS'ye basamaklı bir
+      // komut gidiyordu. Artık Controls'un üstel yumuşatması 120 Hz alt adımlarda uygulanır
+      // (üstel adımlar birleşir: kare sonunda değer aynıdır, aradaki adımlar da doğrudur).
+      // Aynı girdi her kare hızında aynı sürekli komutu üretir.
+      const raw = this.controls.raw, sc = this._stickCmd || (this._stickCmd = { pitch: 0, roll: 0, yaw: 0 });
+      if (!this._stickSynced) { sc.pitch = c.pitch; sc.roll = c.roll; sc.yaw = c.yaw; this._stickSynced = true; }
+      const kSm = 1 - Math.exp(-FIXED_DT * STICK_SMOOTH);
       while (this.accumulator >= FIXED_DT && steps < 12) {
+        sc.pitch += (raw.pitch - sc.pitch) * kSm;
+        sc.roll += (raw.roll - sc.roll) * kSm;
+        sc.yaw += (raw.yaw - sc.yaw) * kSm;
+        p.setControls(sc);
         this._prevPos.copy(p.pos); this._prevQuat.copy(p.quat);
         p.step(FIXED_DT);
         this.accumulator -= FIXED_DT;

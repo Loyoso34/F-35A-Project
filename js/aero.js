@@ -208,6 +208,16 @@ export function clMaxConfig(D, flaps) {
 }
 
 /**
+ * Verilen hücum açısında, konfigürasyon ve Mach dahil taşıma katsayısı (yüzeyler nötr,
+ * yer etkisi yok). FCS'nin negatif yük faktörü zarfı için: negatif AoA sınırında
+ * üretilebilen taşıma buradan gelir; böylece g hedefi bu sınırın ötesini istemez.
+ */
+export function clAtAlpha(D, alpha, flaps, mach) {
+  const cfg = D.CLflaps * flaps * (1 - 0.85 * smoothstep(D.sepA0, D.sepA1, Math.abs(alpha)));
+  return (clVortex(alpha, D) + cfg) * machLiftFactor(mach, D);
+}
+
+/**
  * Verilen taşıma katsayısını üreten hücum açısı (trim tahmini için).
  * Eğri tek tepeli olduğundan tepe öncesi bölgede ikiye bölme ile aranır.
  */

@@ -33,8 +33,17 @@ const F35_CFG = {
     betaRate: 0.55,           // kayma DEĞİŞİM hızı geri beslemesi (Dutch roll sönümü)
     betaAuth: 0.60,           // rad/s — koordinasyon komutunun tavanı
     yawBudgetT: 0.65,          // s — dümenin sapma oranı kurma süresi (yatış tavanı için)
+    couplingShare: 0.6,        // atalet çiftleniminin (p·q) kullanabileceği dümen yetkisi payı
+    // Kalkış/iniş kanunu (takım aşağı, yerde ve havada): çubuk = yunuslama oranı,
+    // bırakılan çubuk havada tutumu tutar, yerde burnu yavaşça indirir.
+    qPA: 12 * DEG,             // rad/s — tam çubukta yunuslama oranı komutu
+    paAttK: 1.2,               // 1/s — tutum tutma kazancı
+    thetaGround: 12 * DEG,     // yerde komut edilebilen azami tutum (kuyruk payı ~14,5°)
+    paLowerRate: 3 * DEG,      // rad/s — yerde bırakılan çubukta burun indirme hızı
   },
-  ground: { steerMax: 55 * DEG, steerV: 45, tireGrip: 0.45, rotQ: [2200, 5200], rotRate: 18 * DEG, pushRate: 10 * DEG, maxPitch: 13 * DEG, rollMu: [0.02, 0.09], brakeMu: [0.5, 0.25], stictionMu: [0.065, 0.17] },
+  // tailPitch: kuyruk (nozul altı) piste değdiğinde yunuslama — ana teker temasından nozul
+  // alt kenarına geometrik açı, ~14,5°. Rotasyon artık fizikseldir (physics.js groundDynamics).
+  ground: { steerMax: 55 * DEG, steerV: 45, tireGrip: 0.45, tailPitch: 14.5 * DEG, rollMu: [0.02, 0.09], brakeMu: [0.5, 0.25], stictionMu: [0.065, 0.17] },
   limits: { alphaWarn: 19 * DEG, hardLandVs: -6.5, landRoll: 12 * DEG, groundRoll: 15 * DEG, landPitch: [-4 * DEG, 15 * DEG], offRunwayV: [55, 60] },
   // flapNames kol üstündeki kademe adı, flapNotes ise altındaki açıklamadır (İngilizce).
   // F-35'in kanat yüzeyi açıları kamuya açık değildir; derece yazmak yerine kademe adı

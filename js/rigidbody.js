@@ -33,7 +33,11 @@ export class RigidBody {
    */
   integrateLinear(force, mass, dt) {
     const inv = 1 / Math.max(1, mass);
-    this.vel.addScaledVector(force, inv * dt);
+    // Sayısal güvenlik ağı: sonlu olmayan bir kuvvet (bir katsayıda NaN) hızı kalıcı
+    // olarak bozar ve uçak "kaybolur". Böyle bir adımda hız güncellenmez ve durum
+    // telemetride işaretlenir; fizik bu yola normalde HİÇ girmemelidir.
+    this.forceGuard = !Number.isFinite(force.x + force.y + force.z);
+    if (!this.forceGuard) this.vel.addScaledVector(force, inv * dt);
     this.pos.addScaledVector(this.vel, dt);
   }
 

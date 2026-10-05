@@ -3,11 +3,15 @@ import { clamp } from './noise.js';
 
 const STICK_RADIUS = 60; // px
 const AB_DETENT = 1.0;   // gaz kolu 0..1.15; 1.0 üzeri art yakıcı
+// Çubuk yumuşatma hızı (1/s). main.js aynı yumuşatmayı 120 Hz fizik alt adımlarında
+// uygular; böylece komut kare hızından bağımsız olarak aynı sürekli eğriyi izler.
+export const STICK_SMOOTH = 14;
 
 export class Controls {
   constructor(callbacks = {}) {
     this.cb = callbacks;
     this.state = { pitch: 0, roll: 0, yaw: 0, throttle: 0, afterburner: false };
+    this.raw = { pitch: 0, roll: 0, yaw: 0 };   // yumuşatılmamış hedef (fizik alt adımlarında yumuşatılır)
     this.lever = 0; // 0..leverMax
     this.leverMax = 1.15;   // üst %15: art yakıcı kademesi
     this.enabled = false;
@@ -430,12 +434,14 @@ export class Controls {
       this.updateRudderUI();
     }
     yaw += this.rudder;
-    // Yumuşatma: ani sıçramaları azalt
+    const r = this.raw;
+    r.pitch = clamp(pitch, -1, 1); r.roll = clamp(roll, -1, 1); r.yaw = clamp(yaw, -1, 1);
+    // Yumuşatma: ani sıçramaları azalt (kare sonu değeri; fizik aynısını alt adımlarda yapar)
     const s = this.state;
-    const sm = 1 - Math.exp(-dt * 14);
-    s.pitch += (clamp(pitch, -1, 1) - s.pitch) * sm;
-    s.roll += (clamp(roll, -1, 1) - s.roll) * sm;
-    s.yaw += (clamp(yaw, -1, 1) - s.yaw) * sm;
+    const sm = 1 - Math.exp(-dt * STICK_SMOOTH);
+    s.pitch += (r.pitch - s.pitch) * sm;
+    s.roll += (r.roll - s.roll) * sm;
+    s.yaw += (r.yaw - s.yaw) * sm;
     s.throttle = Math.min(this.lever, 1);
     s.afterburner = this.lever > AB_DETENT + 0.01;
   }

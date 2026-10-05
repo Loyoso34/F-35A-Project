@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { clamp, smoothstep } from './noise.js';
 import { WATER_LEVEL, surfaceTypeAt } from './world.js';
 import { atmosphere, G0, RHO0 } from './atmosphere.js';
-import { coefficients, clMaxConfig, alphaForCL } from './aero.js';
+import { coefficients, clMaxConfig, alphaForCL, clAtAlpha } from './aero.js';
 import { Engine } from './engine.js';
 import { FCS } from './fcs.js';
 import { RigidBody } from './rigidbody.js';
@@ -111,6 +111,9 @@ export class FlightModel {
     this.brakes = false; this.fuel = this.D.fuel;
     this.crashed = false; this.crashReason = ''; this.onGround = true; this.wasOnGround = true;
     this.time = 0; this._nz = 1; this._buffet = 0;
+    // Yer teması durumu (FCS'nin yer kanunu bir önceki adımın değerlerini kullanır)
+    const g = this.geom, mm = this.mass;
+    this._gnd = { R: mm * G, fric: 0, noseDown: true, Ipiv: this.D.Iyy + mm * g.mainGearZ * g.mainGearZ, Mgnd: g.mainGearZ * mm * G };
     this.stick.pitch = this.stick.roll = this.stick.yaw = 0;
     this.surfaces.elevator = this.surfaces.aileron = this.surfaces.rudder = 0;
     this.updateTelemetry(atmosphere(this.rb.pos.y), 0, 0, 1, 0, {});
@@ -165,9 +168,26 @@ export class FlightModel {
     return v.set(-Math.sin(th) * sp, 0, Math.cos(th) * sp);
   }
 
+  /**
+   * Yerdeyken ağırlık merkezinin pist üstündeki yüksekliği (m). Takım açıkken TAM
+   * geometri: ana tekerlerin (CG'nin a m arkasında, h m altında, ±xm yanda) ve burun
+   * tekerinin (b m önde) temas noktaları yunuslama ve yatışla döndürülür; en alçak
+   * teker CG yüksekliğini belirler. Burun kalkınca CG ana teker etrafında döner:
+   *   h_cg(θ) = h·cosθ + a·sinθ
+   * (Eskiden h + 1,0·|sinθ| yaklaşımı vardı; rotasyonda CG'yi kinematik olarak fazla
+   * yükseltiyordu.)
+   */
   requiredClearance(pitch, roll) {
     const g = this.geom;
-    if (this.gearPos > 0.5) return -g.wheelBottomY + Math.abs(Math.sin(pitch)) * g.bellyArm * 0.25;
+    if (this.gearPos > 0.5) {
+      const a = g.mainGearZ, h = -g.wheelBottomY, b = -g.noseGearZ;
+      const cp = Math.cos(pitch), sp = Math.sin(pitch), cr = Math.cos(roll);
+      const main = (h * cp + a * sp) * cr + g.mainGearX * Math.abs(Math.sin(roll));
+      const nose = (h * cp - b * sp) * cr;
+      // Ters/dik tutumlarda tekerler yukarıdadır: gövde ve kanat ucu payı alt sınırdır
+      const body = g.bellyR + Math.abs(sp) * g.bellyArm + Math.abs(Math.sin(roll)) * g.rollArmX;
+      return Math.max(main, nose, body);
+    }
     return g.bellyR + Math.abs(Math.sin(pitch)) * g.bellyArm + Math.abs(Math.sin(roll)) * g.rollArmX;
   }
 
@@ -281,19 +301,23 @@ export class FlightModel {
     const Ngyro = (D.Ixx - D.Iyy) * p * q - Ixz * q * r;
 
     const CLmaxCfg = clMaxConfig(D, flapsEff);
+    const CLneg = clAtAlpha(D, D.alphaNegSoft, flapsEff, mach);
     const alphaTrim = alphaForCL(D, m * G / Math.max(qS, 1), flapsEff);
 
-    let sur = this.fcs.sur;
-    if (!this.onGround) {
-      const fi = this._fcsIn;   // yeniden kullanılan giriş nesnesi
-      fi.alpha = alpha; fi.beta = beta; fi.V = V; fi.qbar = qbar; fi.mach = mach; fi.p = p; fi.q = q; fi.r = r;
-      fi.nz = this._nz; fi.phi = roll; fi.theta = pitch; fi.gamma = gamma;
-      fi.CLmaxCfg = CLmaxCfg; fi.mass = m; fi.alphaTrim = alphaTrim;
-      fi.Maero = qS * D.chord * c0.Cm; fi.Laero = qS * D.span * c0.Cl; fi.Naero = qS * D.span * c0.Cn;
-      fi.Mgyro = Mgyro; fi.Lgyro = Lgyro; fi.Ngyro = Ngyro;
-      fi.sepFrac = c0.sepFrac; fi.tailEff = c0.tailEff; fi.tailEff1 = 1;
-      sur = this.fcs.update(dt, this.stick, fi);
-    }
+    // FCS her adımda çalışır (yerde de): yerde yunuslama kanunu ana takım ekseni
+    // etrafındaki dinamiği kullanır; filtre ve referans durumları havalanmada bayat kalmaz.
+    const fi = this._fcsIn;   // yeniden kullanılan giriş nesnesi
+    const gs = this._gnd;
+    fi.alpha = alpha; fi.beta = beta; fi.V = V; fi.qbar = qbar; fi.mach = mach; fi.p = p; fi.q = q; fi.r = r;
+    fi.nz = this._nz; fi.phi = roll; fi.theta = pitch; fi.gamma = gamma;
+    fi.CLmaxCfg = CLmaxCfg; fi.CLneg = CLneg; fi.mass = m; fi.alphaTrim = alphaTrim;
+    fi.Maero = qS * D.chord * c0.Cm + this.engine_.thrust * (D.thrustZ || 0);
+    fi.Laero = qS * D.span * c0.Cl; fi.Naero = qS * D.span * c0.Cn;
+    fi.Mgyro = Mgyro; fi.Lgyro = Lgyro; fi.Ngyro = Ngyro;
+    fi.sepFrac = c0.sepFrac; fi.tailEff = c0.tailEff; fi.tailEff1 = 1;
+    fi.gear = this.gearPos; fi.onGround = this.onGround;
+    fi.noseDown = gs.noseDown; fi.Ipiv = gs.Ipiv; fi.Mgnd = gs.Mgnd;
+    const sur = this.fcs.update(dt, this.stick, fi);
 
     // ---------------- Aerodinamik (yüzeyler dahil) ----------------
     const uSur = this._uSur;
@@ -319,36 +343,52 @@ export class FlightModel {
     this.fuel = Math.max(0, this.fuel - this.engine_.fuelFlow * dt);
 
     // ---------------- Yer teması ----------------
+    // Yer bir KISIT'tır, yapıştırıcı değil. Takım yük taşıdığı sürece (aerodinamik +
+    // itki + ağırlığın düşey bileşkesi aşağı) uçak yerdedir; bileşke yukarı döndüğü
+    // adımda tekerler yükten kurtulur ve uçak serbestçe havalanır. Eskiden her yer
+    // adımında konum piste geri yazılıyordu: taşıma ağırlığı geçse bile uçak, düşey hızı
+    // tek adımda 1 cm'yi aşacak kadar (~1,2 m/s) birikene dek piste "kilitli" kalıyordu.
     const groundY = groundYq;
     this.groundY = groundY;
     const surface = surfaceTypeAt(pos.x, pos.z);
     const clearance = this.requiredClearance(pitch, roll);
     const agl = pos.y - groundY;
+    const paved = surface === 'runway' || surface === 'taxiway' || surface === 'apron';
     let onGround = false;
-    let Nload = 0, touchSink = 0;
+    let Nload = 0, touchSink = 0, fric = 0;
+    const penetrating = agl < clearance - 0.02;
     if (agl <= clearance + 0.01) {
-      onGround = true;
-      const paved = surface === 'runway' || surface === 'taxiway' || surface === 'apron';
-      const vy = vel.y;
       if (!this.wasOnGround) {
-        if (surface === 'water') return this.crash('Crashed into the water');
-        if (this.gearPos < 0.98) return this.crash('Landed with the gear up');
-        if (vy < LIM.hardLandVs) return this.crash('Hard landing (' + Math.abs(vy * 196.85).toFixed(0) + ' ft/min)');
-        if (Math.abs(roll) > LIM.landRoll) return this.crash('Wingtip strike on landing — too much bank');
-        if (pitch < LIM.landPitch[0] || pitch > LIM.landPitch[1]) return this.crash(pitch > 0 ? 'Tail strike' : 'Nose gear collapsed — landed nose-first');
-        if (!paved && V > LIM.offRunwayV[0]) return this.crash('Landed off the runway at high speed');
+        // Teker koyma: yalnızca piste doğru gerçekten inerken (ya da gömülmüşken). Tam
+        // havalanma anında net düşey kuvvet ~0'dır; küçük bir histerezis olmadan temas
+        // bayrağı bir-iki adım ileri geri çevriliyordu (konum değişmeden).
+        if (vel.y <= -0.02 || penetrating) {
+          const vy = vel.y;
+          if (surface === 'water') return this.crash('Crashed into the water');
+          if (this.gearPos < 0.98) return this.crash('Landed with the gear up');
+          if (vy < LIM.hardLandVs) return this.crash('Hard landing (' + Math.abs(vy * 196.85).toFixed(0) + ' ft/min)');
+          if (Math.abs(roll) > LIM.landRoll) return this.crash('Wingtip strike on landing — too much bank');
+          if (pitch < LIM.landPitch[0] || pitch > LIM.landPitch[1]) return this.crash(pitch > 0 ? 'Tail strike' : 'Nose gear collapsed — landed nose-first');
+          if (!paved && V > LIM.offRunwayV[0]) return this.crash('Landed off the runway at high speed');
+          onGround = true;
+          touchSink = Math.max(0, -vy);
+        }
       } else {
-        if (surface === 'water') return this.crash('Rolled into the water');
-        if (this.gearPos < 0.98) return this.crash('Belly landing — gear not fully down');
-        if (Math.abs(roll) > LIM.groundRoll) return this.crash('Wingtip struck the ground');
-        if (!paved && V > LIM.offRunwayV[1]) return this.crash('Lost control off the runway');
-        if (agl < clearance - 1.5) return this.crash('Crashed into the ground');
+        // Yerde kalma: takım yük taşıyorsa (net düşey kuvvet aşağı) ya da gömülmüşse
+        onGround = F.y <= 0 || penetrating;
+        if (onGround) {
+          if (surface === 'water') return this.crash('Rolled into the water');
+          if (this.gearPos < 0.98) return this.crash('Belly landing — gear not fully down');
+          if (Math.abs(roll) > LIM.groundRoll) return this.crash('Wingtip struck the ground');
+          if (!paved && V > LIM.offRunwayV[1]) return this.crash('Lost control off the runway');
+          if (agl < clearance - 1.5) return this.crash('Crashed into the ground');
+        }
       }
-      if (vel.y < 0) vel.y = 0;
-      pos.y = groundY + clearance;
-      const N = Math.max(0, m * G - L * Math.cos(pitch));
+    }
+    if (onGround) {
+      // Takımın taşıdığı yük: havadaki kuvvetlerin düşey bileşkesinin tersi
+      const N = Math.max(0, -F.y);
       Nload = N;
-      if (!this.wasOnGround) touchSink = Math.max(0, -vy);
       const rollMu = paved ? GND.rollMu[0] : GND.rollMu[1];
       const brakeMu = this.brakes ? (paved ? GND.brakeMu[0] : GND.brakeMu[1]) : 0;
       const lateralKill = 1 - Math.exp(-dt * 12);
@@ -369,11 +409,13 @@ export class FlightModel {
         // Eşiğin altında: tekerler dönmeye başlamaz, uçak yerinde durur.
         vel.addScaledVector(fwd, -vfwd);
         F.addScaledVector(fwd, -Ffwd);
+        fric = Math.abs(Ffwd);
       } else {
         const decel = (rollMu + brakeMu) * N / m;
         vel.addScaledVector(fwd, -Math.sign(vfwd) * Math.min(Math.abs(vfwd), decel * dt));
+        fric = decel * m;
       }
-      F.y = Math.max(F.y, 0);
+      F.y = 0;   // düşey yükü takım taşır; düşey hareket aşağıdaki kısıttan gelir
     }
     this.onGround = onGround;
 
@@ -392,36 +434,25 @@ export class FlightModel {
 
     // ---------------- Doğrusal entegrasyon ----------------
     rb.integrateLinear(F, m, dt);
-    if (onGround && vel.y < 0) vel.y = 0;
-    if (onGround) pos.y = Math.max(pos.y, groundY + clearance);
 
     // ---------------- Açısal hareket ----------------
-    let Mtot = 0, Ltot = 0, Ntot = 0;
+    // Toplam aerodinamik momentler (yüzeyler dahil) — hava ve yer için aynı kaynak
+    const Ltot = qS * D.span * c.Cl;
+    let Mtot = qS * D.chord * c.Cm;
+    const Ntot = qS * D.span * c.Cn;
+    // İtki ekseni düşey ofseti varsa yunuslama momenti üretir (fiziksel, yapay değil)
+    if (D.thrustZ) Mtot += thrust * D.thrustZ;
     if (onGround) {
-      this.groundRotation(dt, V, qbar, pitch, roll, vel, fwd);
+      this.groundDynamics(dt, V, pitch, roll, vel, fwd, Mtot, Nload, fric, clearance, groundY);
       this._buffet = 0;
     } else {
-      Ltot = qS * D.span * c.Cl;
-      Mtot = qS * D.chord * c.Cm;
-      Ntot = qS * D.span * c.Cn;
-      // İtki ekseni düşey ofseti varsa yunuslama momenti üretir (fiziksel, yapay değil)
-      if (D.thrustZ) Mtot += thrust * D.thrustZ;
       rb.integrateAngular(Ltot, Mtot, Ntot, D, dt);
       this._buffet = smoothstep(D.stallA0, D.stallA1, aAbs) * clamp(qbar / 4000, 0, 1);
+      const g = this.geom;
+      gs.noseDown = false; gs.R = 0; gs.fric = 0;
+      gs.Ipiv = D.Iyy + m * g.mainGearZ * g.mainGearZ; gs.Mgnd = 0;
     }
     this.rates.p = rb.p; this.rates.q = rb.q; this.rates.r = rb.r;
-
-    // Yerdeyken tutum kinematik olarak sabitlenir (teker teması)
-    if (onGround) {
-      rb.axes(this._fwd, this._up, this._right);
-      const heading = Math.atan2(this._fwd.x, -this._fwd.z);
-      let p2 = Math.asin(clamp(this._fwd.y, -1, 1));
-      if (p2 < 0) p2 = 0;
-      this._eul.set(p2, -heading, 0, 'YXZ');
-      quat.setFromEuler(this._eul);
-      if (p2 <= 0 && rb.q < 0) { rb.q = 0; this.rates.q = 0; }
-      rb.p = 0; this.rates.p = 0;
-    }
 
     // ---------------- Çarpışma ----------------
     if (!onGround && agl < clearance - 0.5) return this.crash('Crashed into the ground');
@@ -433,13 +464,20 @@ export class FlightModel {
       pos.x = clamp(pos.x, -half, half); pos.z = clamp(pos.z, -half, half);
     }
 
-    // Yük faktörü: gövde-dik özgül kuvvet (taşıma + itkinin dik bileşeni)
-    const nz = onGround ? 1 : (L * Math.cos(alpha) + thrust * Math.sin(alpha)) / (m * G);
+    // Yük faktörü: GÖVDE dik eksenindeki özgül kuvvet (ivmeölçerin okuduğu değer).
+    // Taşıma havaya diktir, sürükleme hava hızına paraleldir; gövde normaline izdüşümleri
+    // L·cosα + D·sinα'dır. İtki gövde ekseni boyuncadır ve gövde normaline bileşen
+    // vermez. (Eskiden L·cosα + T·sinα yazılıyordu: gövde ve rüzgâr eksenleri karışıyor,
+    // yüksek AoA'da g göstergesi ve g geri beslemesi itkiyle kayıyordu.)
+    const nz = onGround ? 1 : (L * Math.cos(alpha) + Dr * Math.sin(alpha)) / (m * G);
     this._nz = nz;
     this.wasOnGround = onGround;
 
-    // Görsel yüzeyler fiziğin KULLANDIĞI komutla aynıdır (ayrı animasyon yolu yok)
-    this.surfaces.elevator = sur.de;
+    // Görsel yüzeyler fiziğin KULLANDIĞI eyleyici konumudur (ayrı animasyon yolu yok).
+    // İşaret kuralı (aircraft.js ile aynı): elevator > 0 = firar kenarı YUKARI = burun
+    // yukarı. Aerodinamikte de > 0 burun AŞAĞIdır (Cmde < 0), bu yüzden ters çevrilir.
+    // (Eskiden ters çevrilmiyordu: havada stabilatörler yanlış yöne sapmış çiziliyordu.)
+    this.surfaces.elevator = -sur.de;
     this.surfaces.aileron = sur.da;
     this.surfaces.rudder = -sur.dr;
 
@@ -450,39 +488,96 @@ export class FlightModel {
     d.Lgyro = Lgyro; d.Mgyro = Mgyro; d.Ngyro = Ngyro; d.qbar = qbar; d.thrust = thrust; d.mass = m;
     d.de = sur.de; d.da = sur.da; d.dr = sur.dr;
     d.sepFrac = c.sepFrac; d.tailEff = c.tailEff; d.CLmaxCfg = CLmaxCfg; d.alphaTrim = alphaTrim;
-    d.fcs = this.fcs.dbg; d.rateClamped = rb.rateClamped;
+    d.fcs = this.fcs.dbg; d.rateClamped = rb.rateClamped; d.forceGuard = rb.forceGuard;
+    d.gearLoad = Nload; d.noseDown = gs.noseDown;
     const tx = this._tx;
     tx.V = V; tx.mach = mach; tx.qbar = qbar; tx.thrust = thrust; tx.surface = surface;
     tx.agl = agl; tx.pitch = pitch; tx.roll = roll; tx.groundY = groundY;
     this.updateTelemetry(atm, alpha, beta, nz, this.fcs.dbg.auth || 0, tx);
   }
 
-  // Yerde: kinematik teker modeli (burun tekeri dümeni, yatış sıfır, rotasyon hız gerektirir)
-  groundRotation(dt, V, qbar, pitch, roll, vel, fwd) {
-    const GND = this.gnd, rb = this.rb, st = this.stick;
+  /**
+   * Yerde açısal hareket ve düşey kısıt.
+   *
+   * YUNUSLAMA — ana takım teması etrafında FİZİKSEL dönüş (eskiden çubuktan doğrudan
+   * kinematik bir dönüş hızı yazılıyordu). Ana tekerler CG'nin a m arkasında ve h m
+   * altında, burun tekeri b m önündedir. Aerodinamik moment M_a (stabilatör dahil),
+   * takım yükü R ve teker sürtünmesi f ile:
+   *   burun tekeri yükü  N_n = (a·R + h·f − M_a) / (a + b)
+   * N_n ≥ 0 iken burun yerde kalır. N_n < 0 olduğu anda (stabilatör momenti ağırlığın ana
+   * teker etrafındaki momentini yendiğinde) burun kalkar ve uçak ana teker etrafında döner:
+   *   (I_yy + m·c₁²)·θ̈ = M_a − c₁·R − c₂·f + m·c₁·c₂·θ̇²
+   *   c₁ = a·cosθ − h·sinθ (CG'nin ana tekerin önündeki yatay uzaklığı)
+   *   c₂ = a·sinθ + h·cosθ (CG yüksekliği)
+   * Rotasyon hızı böylece hıza (q̄), ağırlığa ve stabilatör yetkisine bağlı olarak KENDİLİĞİNDEN
+   * oluşur; FCS bunu bir oran kanunuyla yönetir. Taşıma ağırlığı geçince R → 0 ve bu denklem
+   * havadaki denkleme sürekli olarak bağlanır.
+   *
+   * YATIŞ — tekerler kanatları düzler: sönümlü yay (teker koyarken tutum TEK ADIMDA
+   * sıfırlanmaz). SAPMA — burun tekeri dümeni (kinematik, lastik tutuşuyla sınırlı).
+   */
+  groundDynamics(dt, V, pitch, roll, vel, fwd, Ma, R, fric, clearance0, groundY) {
+    const GND = this.gnd, rb = this.rb, st = this.stick, g = this.geom, m = this.mass, I = this.D.Iyy;
+    const a = g.mainGearZ, h = -g.wheelBottomY, b = -g.noseGearZ;
+
+    // --- Sapma: burun tekeri dümeni ---
     const steerMax = GND.steerMax * clamp(1 - V / GND.steerV, 0.05, 1);
     const steer = st.yaw * steerMax;
-    const wheelbase = this.geom.mainGearZ - this.geom.noseGearZ;
+    const wheelbase = a + b;
     const vfwd = vel.dot(fwd);
     const rKin = (vfwd * Math.tan(steer)) / wheelbase;
     const rTireMax = GND.tireGrip * G / Math.max(Math.abs(vfwd), 1);
     // Sağ pedal (st.yaw>0) burnu SAĞA çevirir => r > 0 (bkz. rigidbody.js eksen notu)
     const rCmd = clamp(rKin, -rTireMax, rTireMax);
-    const rotAuth = smoothstep(GND.rotQ[0], GND.rotQ[1], qbar);
-    let qCmd = st.pitch > 0 ? st.pitch * GND.rotRate * rotAuth : st.pitch * GND.pushRate;
-    if (pitch <= 0.001 && qCmd < 0) qCmd = 0;
-    if (pitch > 0.001) qCmd -= 4 * DEG * (1 - rotAuth);
-    if (pitch > GND.maxPitch && qCmd > 0) qCmd = 0;
-    rb.q += (qCmd - rb.q) * (1 - Math.exp(-5 * dt));
     rb.r += (rCmd - rb.r) * (1 - Math.exp(-8 * dt));
-    rb.p += (-roll * 6 - rb.p) * (1 - Math.exp(-8 * dt));
-    rb.integrateQuaternion(dt);
-    // Yerde yüzeyler doğrudan çubuğu izler (FCS devre dışı)
-    const k = 1 - Math.exp(-10 * dt);
-    const s = this.fcs.sur;
-    s.de += (st.pitch - s.de) * k;
-    s.da += (st.roll - s.da) * k;
-    s.dr += (-st.yaw - s.dr) * k;
+
+    // --- Yunuslama: ana takım etrafında ---
+    let th = pitch, q = rb.q, qdot;
+    let noseDown = false;
+    if (th < 0) {
+      // Burun tekeri önce değdi (izin verilen burun-aşağı teker koyma): amortisör yayı
+      // burnu kısa sürede yataya getirir (ω ≈ 12 rad/s, kritik sönüme yakın).
+      qdot = -150 * th - 22 * q;
+    } else if (th <= 1e-4 && q <= 1e-6) {
+      const Nn = (a * R + h * fric - Ma) / (a + b);
+      if (Nn >= 0) { noseDown = true; qdot = 0; q = 0; th = 0; }
+      else qdot = (Ma - a * R - h * fric) / (I + m * a * a);
+    } else {
+      const c1 = a * Math.cos(th) - h * Math.sin(th), c2 = a * Math.sin(th) + h * Math.cos(th);
+      qdot = (Ma - c1 * R - c2 * fric + m * c1 * c2 * q * q) / (I + m * c1 * c1);
+    }
+    q += qdot * dt;
+    const thPrev = th;
+    th += q * dt;
+    // Burun tekeri piste iner (inelastik); kuyruk tamponu geometrik sınırdır
+    if (thPrev >= 0 && th < 0) { th = 0; if (q < 0) q = 0; noseDown = true; }
+    if (th > GND.tailPitch) { th = GND.tailPitch; if (q > 0) q = 0; }
+    rb.q = q; rb.qdot = qdot;
+
+    // --- Yatış: tekerler kanatları düzler (sönümlü yay, ω ≈ 9 rad/s) ---
+    let phi = roll, p = rb.p;
+    const pdot = -80 * phi - 16 * p;
+    p += pdot * dt;
+    phi += p * dt;
+    rb.p = p; rb.pdot = pdot;
+
+    // --- Tutum: yön + yunuslama + yatış (Euler YXZ; z açısı = −yatış) ---
+    const heading = Math.atan2(fwd.x, -fwd.z) + rb.r * dt;
+    this._eul.set(th, -heading, -phi, 'YXZ');
+    rb.quat.setFromEuler(this._eul);
+
+    // --- Düşey kısıt: CG yüksekliği teker geometrisinden; düşey hız kısıtın hızıdır ---
+    const hNew = this.requiredClearance(th, phi);
+    rb.pos.y = groundY + hNew;
+    rb.vel.y = (hNew - clearance0) / dt;
+
+    // FCS'nin yer kanunu için (bir sonraki adım): pivot ataleti ve yer momenti
+    const gs = this._gnd;
+    const c1n = a * Math.cos(th) - h * Math.sin(th), c2n = a * Math.sin(th) + h * Math.cos(th);
+    gs.noseDown = noseDown || (th <= 1e-4 && q <= 1e-6);
+    gs.R = R; gs.fric = fric;
+    gs.Ipiv = I + m * c1n * c1n;
+    gs.Mgnd = gs.noseDown ? a * R + h * fric : c1n * R + c2n * fric - m * c1n * c2n * q * q;
   }
 
   crash(reason) {
@@ -521,8 +616,12 @@ export class FlightModel {
     t.flapLabel = this.flapLabel;
     t.lef = this.lefPos;
     t.onGround = this.onGround;
-    t.stallWarn = !this.onGround && aAbs > this.lim.alphaWarn && V > 20;
-    t.stall = !this.onGround && aAbs > D.stallA1 && V > 15;
+    // Uyarı bayrakları histerezisli: AoA eşiğin çevresinde dolaşırken HUD yazısı ve
+    // uyarı sesi her adımda açılıp kapanmaz (açılış eşiği − 1,5° / − 3° altında kapanır).
+    const warnOn = t.stallWarn ? this.lim.alphaWarn - 1.5 * DEG : this.lim.alphaWarn;
+    const stallOn = t.stall ? D.stallA1 - 3 * DEG : D.stallA1;
+    t.stallWarn = !this.onGround && aAbs > warnOn && V > 20;
+    t.stall = !this.onGround && aAbs > stallOn && V > 15;
     t.buffet = this._buffet || 0;
     t.fuelKg = this.fuel; t.surface = extra.surface || 'runway'; t.thrustKN = (extra.thrust || 0) / 1000;
     t.gsKt = this.vel.length() * KT;

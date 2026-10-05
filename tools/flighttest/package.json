@@ -1,0 +1,13 @@
+{
+  "name": "f35a-flighttest",
+  "private": true,
+  "type": "module",
+  "description": "Başsız uçuş fiziği test matrisi (js/physics.js'in kendisi Node'da çalışır)",
+  "scripts": {
+    "test": "node --import ./register.mjs scenarios.mjs",
+    "nosedown": "node --import ./register.mjs nosedown.mjs"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  }
+}

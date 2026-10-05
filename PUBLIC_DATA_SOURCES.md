@@ -73,6 +73,7 @@ behaviour* statements.
 | Max speed | Mach 1.6 | **[V]** | USAF F-35A fact sheet. Used as the *target* the drag model must reproduce, not as a hard limit in code. |
 | Max load factor | 9 g | **[V]** | USAF F-35A fact sheet ("9 g" for the F-35A). Used as the FCS command limit. |
 | Service ceiling | above 50 000 ft | **[V]** | USAF F-35A fact sheet. |
+| Negative AoA envelope | soft −10°, full cut −16° | **[T]** | No public figure. Full forward stick targets −10°; the limiter is a continuous band from −10° to −16°. The negative load-factor target is limited to what −10° can produce at the current speed, altitude and Mach, so the g limit (−3 g) is reached only at sufficient speed. |
 | Maximum AoA demonstrated | ≈ 50° | **[V]** | Publicly released F-35 high-AoA flight-test information and official F-35 demonstration material. Used as the design point for the FCS AoA limiter. |
 | Lateral/directional derivatives | see `js/aerodata.js` | **[E]/[T]** | Conventional fighter values with AoA scheduling. C_nβ is reduced but **kept positive** at high AoA, reflecting the F-35's canted vertical tails, which retain directional stability where a conventional tail would not. |
 | Roll damping C_lp (total) | −0.363 | **[E]** | Not a single typed constant. The wing's share is produced by a **strip model**: at roll rate *p* the down-going wing sees local Δα = +p·(0.32b)/V and the up-going wing −Δα, and each half-wing's CL is evaluated on the *same* lift curve. In the linear region this yields C_lp(wing) = −k·1.28·K_p = −0.28 with k = 0.068. A residual −0.080 covers fuselage and tail. |
@@ -145,6 +146,29 @@ From those three public statements the model implements: a g-command law at high
 dynamic pressure blending to an AoA-command law at low dynamic pressure, an AoA
 limiter, a g limiter, velocity-vector roll, and an AoA-scheduled roll-rate limit.
 All gains are **[T]**. No claim is made that these match the real aircraft.
+
+Generic design choices, also **[T]** (common to modern fly-by-wire fighters, not
+F-35 data):
+
+- **Continuous limiters.** The AoA and g limits are smooth bands in both directions;
+  the commanded load factor saturates softly at the aerodynamic envelope (C¹ knee)
+  instead of being clipped, and no limit switches the command discontinuously.
+- **Gear-down (takeoff/landing) law.** With the gear down, on the ground and in the
+  air, the stick commands pitch rate (12°/s at full stick) with attitude hold when
+  released; the ground law limits the commanded attitude to 12°. The law blends
+  continuously into the up-and-away law while the gear retracts.
+- **Roll–pitch coupling limit.** The roll-rate ceiling falls continuously with pitch
+  rate so that the inertial yaw moment (I_xx − I_yy)·p·q stays within 60 % of the
+  rudder's authority, leaving margin for sideslip control.
+- **Actuators.** First-order lag (35 ms) with a hard rate limit (4 full-deflection
+  units/s).
+
+**Ground contact [E].** Pitch on the ground is a physical rotation about the main-gear
+contact, derived from the model's own gear geometry: main gear 0.8 m aft of and
+2.25 m below the CG, nose gear 4.3 m ahead. The nose lifts when the aerodynamic
+pitching moment overcomes the weight's moment about the main gear; the tail-strike
+attitude (~14.5°) is the geometric angle from the main-wheel contact to the nozzle
+underside. Lift-off happens when the net vertical force turns upward.
 
 ## 6. What is deliberately **not** modelled
 

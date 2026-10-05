@@ -111,6 +111,10 @@ export const F35A_AERO = {
   gMin: -3.0,                        // [E]
   alphaLimit: 50 * DEG,              // [V] kamuya açık uçuş testi ~50° AoA
   alphaSoft: 28 * DEG,               // [T] normal manevra AoA tavanı (yumuşak sınır)
+  // Negatif AoA zarfı [T]: tam ileri çubuğun hedefi −10°; sınırlayıcı −10° ile −16°
+  // arasında SÜREKLİ bir bant olarak çalışır. Negatif g hedefi −10°'nin üretebileceği
+  // yük faktörüyle sınırlanır (gMin = −3 g'ye yalnızca yeterli hızda ulaşılır).
+  alphaNegSoft: -10 * DEG, alphaNegLimit: -16 * DEG,
   rollRateMax: 270 * DEG,            // [E] modern savaş uçağı sınıfı
   pitchRateMax: 60 * DEG,
   yawRateMax: 20 * DEG,
@@ -133,7 +137,7 @@ const REQUIRED = [
   'Cnb', 'CnbFloor', 'cnbA0', 'cnbA1', 'Cnr', 'Cnp', 'Cndr', 'Cnda',
   'thrustMil', 'thrustAB', 'idleFrac', 'thrustRhoExp', 'ramA',
   'spoolUp', 'spoolDown', 'spoolIdleLag', 'abSpool', 'sfcMil', 'sfcAB',
-  'gMax', 'gMin', 'alphaLimit', 'alphaSoft',
+  'gMax', 'gMin', 'alphaLimit', 'alphaSoft', 'alphaNegSoft', 'alphaNegLimit',
   'rollRateMax', 'pitchRateMax', 'yawRateMax', 'CLref', 'alphaPeak',
 ];
 

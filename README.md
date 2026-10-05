@@ -32,7 +32,8 @@ js/atmosphere.js        ISA atmosfer (yoğunluk, ses hızı, basınç oranları)
 js/aero.js              Aerodinamik katsayı modeli — alpha/beta'nın SÜREKLİ fonksiyonları, stall eşiği yok
 js/aerodata.js          F-35A aerodinamik/itki veri seti + yükleme anında bütünlük denetimi
 js/engine.js            Motor modeli: spool dinamiği, irtifa/Mach itki kaybı, art yakıcı
-js/fcs.js               Fly-by-wire kontrol kanunu (genel mimari; gerçek F-35 kanunları gizlidir, modellenmez)
+js/fcs.js               Fly-by-wire kontrol kanunu (genel mimari; gerçek F-35 kanunları gizlidir, modellenmez):
+                        g/AoA kanunu, takım-aşağı oran kanunu, sürekli sınırlayıcılar, eyleyiciler
 PUBLIC_DATA_SOURCES.md  Her sayının kaynağı: [V] doğrulanmış kamuya açık / [E] mühendislik yaklaşımı / [T] ayarlanmış
 js/controls.js          Dokunmatik / klavye / eğim girişleri
 js/hud.js               Yeşil HUD
@@ -44,6 +45,7 @@ js/noise.js             Gürültü fonksiyonları
 js/version.js           Uygulama sürümü
 icons/                  Ana ekran ikonları (tools/make_icons.py ile üretilir)
 tools/make_icons.py     İkon üretici (yalnızca Python standart kütüphanesi)
+tools/flighttest/       Başsız uçuş fiziği test matrisi (21 senaryo + kabul denetimleri; Node, bkz. README)
 .nojekyll               GitHub Pages'in dosyaları olduğu gibi sunması için
 ```
 
@@ -147,7 +149,7 @@ Android Chrome'da adres çubuğundaki menüden **Ana ekrana ekle / Uygulamayı y
 
 ## F-35A: kalite, uçuş modeli ve görsel geçiş (v2.9.0)
 
-**Kontrol yüzeyleri (kamuya açık F-35A yerleşimi).** Kanatta artık tam açıklıklı **hücum kenarı flapları (LEF)** ve kanat başına **tek flaperon** vardır; eski modeldeki ayrı iç flap + dış kanatçık düzeni konvansiyonel bir uçağa aitti (ayrı kanatçık yalnızca F-35C'nin katlanır kanadında bulunur). Flaperonlar flap ve yatışı birlikte yapar; tümüyle hareketli stabilatörler simetrik yunuslama + diferansiyel yatış payı verir; ikiz dümenler sapmada aynı yöne döner, kalkış rotasyonunda ve yüksek AoA'da **toe-in** yapar (firar kenarları içe). FCS'nin otomatik programı: LEF havada AoA ile iner (ses üstünde toplanır; yerde kapalı). Flaperonların simetrik açısı v2.9.1'den beri **yalnızca pilotun flap kolundan** gelir (bkz. aşağıdaki v2.9.1 bölümü); yüksek AoA'daki küçük manevra kamburluğu yalnızca aerodinamikte kalır. Tüm yüzeyler eyleyici hız sınırlıdır ve çizimde ayrıca kısa bir yumuşatmadan geçer (ani sıçrama yok); LEF aerodinamiğe de girer (küçük taşıma/sürükleme artışı).
+**Kontrol yüzeyleri (kamuya açık F-35A yerleşimi).** Kanatta artık tam açıklıklı **hücum kenarı flapları (LEF)** ve kanat başına **tek flaperon** vardır; eski modeldeki ayrı iç flap + dış kanatçık düzeni konvansiyonel bir uçağa aitti (ayrı kanatçık yalnızca F-35C'nin katlanır kanadında bulunur). Flaperonlar flap ve yatışı birlikte yapar; tümüyle hareketli stabilatörler simetrik yunuslama + diferansiyel yatış payı verir; ikiz dümenler sapmada aynı yöne döner, kalkış rotasyonunda ve yüksek AoA'da **toe-in** yapar (firar kenarları içe). FCS'nin otomatik programı: LEF havada AoA ile iner (ses üstünde toplanır; yerde kapalı). Flaperonların simetrik açısı v2.9.1'den beri **yalnızca pilotun flap kolundan** gelir (bkz. aşağıdaki v2.9.1 bölümü); yüksek AoA'daki küçük manevra kamburluğu yalnızca aerodinamikte kalır. Tüm yüzeyler eyleyici hız sınırlıdır ve çizimde fiziğin eyleyici konumunu doğrudan gösterir (v3.5.0'dan beri ayrı görsel yumuşatma yok); LEF aerodinamiğe de girer (küçük taşıma/sürükleme artışı).
 
 **Model.** Arka gövde artık 2,4 m genişliğinde düz siyah bir levhayla bitmiyor: gövde nozul kılıfına doğru daralır (boat-tail), iki yanda stabilatör köklerini taşıyan kuyruk bumları vardır; nozulda çıkış dudağı, türbin arkasında merkez konisi ve değişken alanlı çıkış (rölantide açık, askeri güçte kısılı, art yakıcıda tam açık) bulunur. Kanat, stabilatör, dikey kuyruk ve dümen panelleri artık **kapalı katı**dır (uçları ve menteşe kesitleri kapalı); ana takım yuvası kabuğu artık gövde yanından aşağı sarkmaz (yüzey sorgusunun bir hatası düzeltildi), burun ucu ve hava alığı ağız tabanı kapatıldı. Piksel-kesin delik testinde (50 görünüm, tüm yüzey sapmaları, takım açık/kapalı) delik pikseli **75 349 → 133**. Gövde normalleri kırışma açısıyla (38°) hesaplanır: eğimler pürüzsüz, chine ve kenarlar keskin (eskiden tüm gövde yüz yüz düz gölgeleniyordu). Kanopi sarı plastik görünümünden koyu, altın-bronz yansımalı ITO kaplama görünümüne geçti ve tepe yüksekliği %7 düşürüldü. Kanat amblemleri profile yapışık (eskiden yüzeyden ~10 cm yukarıda asılıydı). Üçgen sayısı 9,7 bin → 12,9 bin.
 
@@ -282,6 +284,85 @@ kuyrukların dış yüzünde hücum kenarına paralel. Yalnızca 2 çizim çağr
 ışınları yalnızca ilgili bölgenin üçgenlerini tarar (sonuç birebir aynı; geometri sağlama
 toplamıyla doğrulandı; dekal ışınları ~5, takım ışınları ~2 kat hızlandı): uçağın soğuk kurulumu v3.0.0'a göre yalnızca
 ~35 ms uzun. Yeni gölgelendirici programı yok (`hitch`).
+
+## Uçuş fiziği denetimi: kesintisiz yunuslama, fiziksel kalkış, FBW sınırlayıcıları (v3.5.0)
+
+Yalnızca uçuş fiziği ve uçuş kontrol sistemi değişti (`fcs.js`, `physics.js`, `aero.js`,
+`aerodata.js`, `fleet.js`; `main.js`/`controls.js`'te çubuğun alt adımlara aktarılması;
+`aircraft.js`'te stabilatörün fizik değerini işaretiyle göstermesi). Uçak görsel modeli, dünya,
+silahlar, HUD, kamera ve arayüz değişmedi.
+
+**Tam ileri çubukta "eğil–dur–eğil" — kök neden.** `fcs.js`'teki negatif AoA tabanı sürekli bir
+sınırlayıcı değil bir ANAHTARDI: `if (α < −14°) qCmd = max(qCmd, (−14° − α)·0,8)`. Aynı anda g
+kanunu −3 g istiyordu; 150 m/s ve 3000 m'de bunun için α ≈ −18° gerekir. α −14°'yi geçtiği adımda
+yunuslama komutu −23°/s'den +0,1°/s'ye sıçrıyor, stabilatör ters dönüyor, α −14°'nin üstüne
+çıkınca tam burun aşağı komutu geri geliyordu: ~0,4 s periyotlu bir limit çevrimi (q, −19 ile
+−3°/s arasında gidip geliyordu; 5 s'de 23 yön değişimi). Eyleyici modelindeki bir hata salınımı
+keskinleştiriyordu: hız sınırlı adımın ardından ayrı bir üstel adım uygulanıyor, 4 birim/s olan
+sınır büyük komutlarda 8–18 birim/s'ye çıkıyordu; küçük komutlarda yüzey hiç gecikmeden komuta
+atlıyordu.
+
+**Düzeltme.** (1) g hedefi, negatif AoA yumuşak sınırının (−10°) o hız, irtifa ve Mach'ta
+üretebileceği yük faktörüyle sınırlanır (pozitif taraftaki CLmax zarfının aynası); g kanunu ve
+AoA sınırlayıcısı artık aynı anda karşıt yönlere çekmez. (2) Negatif AoA sınırlayıcısı, pozitif
+taraftaki gibi sürekli bir banttır (−10° → −16°, smoothstep). (3) g hedefi ve yunuslama oranı
+komutu zarfa C¹-sürekli yumuşak doyumla yaklaşır; sert kırpma yok. (4) Eyleyici tek adımlı
+birinci mertebe gecikme (τ = 35 ms) ve gerçekten uygulanan hız sınırıdır (4 birim/s). Aynı
+manevrada q artık tek ve düzgün bir tepeden kararlı değere iner: q yön değişimi 23 → 1,
+stabilatör yön değişimi 23 → 2, α −15° → −9,9°, stabilatör hızı 8,6 → 4,0 birim/s. Düşük hızda
+(95 m/s) α −18,9° → −9,6°, salınım 9 → 1.
+
+**Stabilatör: tek yetkili değer, doğru işaret.** Görsel model `elevator > 0`'ı burun yukarı
+(firar kenarı yukarı) çizer; aerodinamikte ise `de > 0` burun aşağıdır (Cm_δe < 0). Fizik değeri
+işaret çevrilmeden aktarıyordu: havada stabilatörler ters yöne sapmış çiziliyordu. Yerde çubuk
+doğrudan aerodinamik değere yazılıyordu (geri çubuk kuyruğa yukarı taşıma ekliyordu) ve
+havalanmada stabilatör +0,2'den −0,45'e sıçrıyordu. Artık fizik, görsel ve telemetri FCS
+eyleyicisinin tek değerini kullanır; ayrı görsel yumuşatma kaldırıldı.
+
+**Kalkış ve yer teması.** Eskiden yerde çubuk q̄ ile ölçeklenen KİNEMATİK bir dönüş hızı yazıyordu
+(137 kt'ta tam çubukla bile net dönüş ≈ 0), havada ise g komutuydu: havalanma anında %35 çubuk
+birden 2,7 g istiyor, burun 3°/s'den 22°/s'ye sıçrıyordu. Konum her yer adımında piste geri
+yazıldığı için taşıma ağırlığı geçse de uçak ~1 s piste yapışık kalıyordu. Şimdi:
+
+- Yerde yunuslama, ana takım teması etrafında fiziksel bir dönüştür. Burun tekeri yükü
+  N_n = (a·R + h·f − M_a)/(a + b); stabilatör momenti ağırlığın ana teker etrafındaki momentini
+  yendiğinde burun kalkar ve (I_yy + m·c₁²)·θ̈ = M_a − c₁·R − c₂·f + m·c₁·c₂·θ̇² ile döner
+  (a = 0,8 m, h = 2,25 m, b = 4,3 m; c₁, c₂ yunuslamayla değişen kollar). Rotasyonun başladığı
+  hız q̄'dan, ağırlıktan ve stabilatör yetkisinden kendiliğinden çıkar.
+- Takım aşağıyken (yerde ve havada) kalkış/iniş kanunu: çubuk = yunuslama oranı (tam çubuk
+  12°/s, doğrusal); bırakılınca havada tutum tutulur, yerde burun yavaşça iner. Yerde komut
+  edilebilen tutum 12°'dir (kuyruk sürtme açısı ~14,5°). Takım toplanırken kanun 6 s içinde
+  sürekli olarak seyir kanununa geçer.
+- Takım yük taşıdığı sürece uçak yerdedir; net düşey kuvvet yukarı döndüğü adımda serbest kalır.
+  Teker koymada yatış ve burun-aşağı tutum tek adımda sıfırlanmaz (sönümlü yay).
+
+Tam güçte aynı çubukla: yerdeki azami yunuslama 15,2° → 12°, %35 çubukla kopma 211 → 192 kt,
+%60 çubukla 188 → 180 kt; hiçbir senaryoda kuyruk sürtmesi ya da çarpma yok.
+
+**Yatış–yunuslama çiftlenimi.** Tam çekip tam yatışta (I_xx − I_yy)·p·q sapma momenti (~665 kN·m)
+dümenin tüm yetkisini tüketiyordu; kayma açısı 14°'ye çıkıyordu. Yatış tavanı artık bu momenti
+dümen yetkisinin %60'ıyla sınırlayacak şekilde |q| ile sürekli düşer, koordinasyona %20 pay
+bırakılır ve yüksek AoA'da yatış komutunun değişim hızı dümenin sapma ivmesiyle sınırlanır.
+Yuvarlanarak çekişte kayma 14° → 8,8°; 26° AoA'da tam yatışta 22,9° → 2,5° (eskiden yatış
+oranı komutun üstüne, 267°/s'ye kaçıyordu).
+
+**Kare hızı.** Fizik zaten 120 Hz sabit adımlıydı, ancak çubuk karede bir örneklenip tüm alt
+adımlarda sabit tutuluyordu (30 fps'de 4 adımlık basamaklar). Çubuk yumuşatması artık fizik alt
+adımlarında uygulanır: aynı girdi 30, 60 ve 120 fps'de bit düzeyinde aynı uçuşu üretir (önce
+30 fps'de 0,5° RMS yatış farkı).
+
+**Diğer düzeltmeler.** Yük faktörü gövde ekseninde L·cosα + D·sinα'dır (eskiden L·cosα + T·sinα;
+itki gövde normaline bileşen vermez). Düşük hızda yatış tavanındaki `sinα > 0,05` eşiği sürekli
+hale getirildi. FCS ön filtresi ve β türevi yerde de güncellenir (havalanmada bayat değer ya da
+sapma sıçraması yok). Stall uyarı bayrakları histerezisli (eşikte HUD yazısı ve ses titremez).
+
+**Test.** `tools/flighttest/` (`npm install && npm test`): `physics.js`'in kendisi Node'da
+çalıştırılarak (main.js döngüsünün birebir taklidi) 21 senaryo ölçülür ve kabul denetimlerinden
+geçer (v3.4.0 bu denetimlerin 13/21'ini, v3.5.0 21/21'ini geçer): tam ileri/geri çubuk, nötr çubuk sönümü, ±g sınırı, yüksek/düşük hızda burun
+aşağı, ses üstü, yüksek AoA, stall toparlanması, tam yatış/dümen, birleşik girdiler, kalkış (4
+çubuk miktarı), iniş flare'i, takım yukarı/aşağı uçuş, 30/60/değişken fps. NaN/sonsuz yok, oran
+güvenlik ağı hiç devreye girmedi, tam lup ve sürekli tonozda tutum kilidi yok. Fizik adımı
+~15 µs'dir (değişmedi); ek çizim çağrısı ya da tahsis yok.
 
 ## F-35A görünümü: gövde hatları, kanopi, RAM panel deseni ve boya (v3.4.0)
 
@@ -655,8 +736,8 @@ Pist, taksi yolları, apron ve işaretler arazinin yalnızca 5–10 cm üstünde
 ## Uçuş modeli
 
 - Hız vektörü gerçek ivmelenmeden gelir; dikey hız (VS) doğrudan hız vektörünün düşey bileşenidir. Burun aşağıdayken irtifa kaybı kaçınılmazdır; yapay irtifa tutucu yoktur.
-- Kontrol kanunu yük katsayısı (g) komutludur; düşük hızda hücum açısı komutuna geçer. Çubuk merkezdeyken uçak trim durumuna yakın kalır, ancak hız düştükçe burun düşer.
-- Yunuslama sönümü: dış döngü kazancı dinamik basınca göre programlanır (kapalı döngü kısa periyot sönümü ζ≈0,9), çubuk girişine ön filtre ve kontrol momentlerine 0,04 s eyleyici gecikmesi uygulanır. Çubuk bırakıldığında uçak yeni uçuş yoluna tek ve düzgün bir geçişle oturur; burun aşağı-yukarı sekmesi yoktur. Fizik 120 Hz sabit adımlı olduğundan davranış kare hızından bağımsızdır.
+- Kontrol kanunu takım yukarıyken yük katsayısı (g) komutludur; düşük hızda hücum açısı komutuna geçer. Takım aşağıyken (kalkış/iniş, yerde de) yunuslama oranı komutlu ve tutum tutucudur. g ve AoA sınırları iki yönde de süreklidir: çubuk zarfa yaklaştıkça komut yumuşakça doyar (bkz. v3.5.0).
+- Yunuslama sönümü: dış döngü kazancı dinamik basınca göre programlanır (kapalı döngü kısa periyot sönümü ζ≈0,9), çubuk girişine ön filtre, yüzeylere 35 ms gecikmeli ve 4 birim/s hız sınırlı eyleyici uygulanır. Çubuk bırakıldığında uçak yeni uçuş yoluna tek ve düzgün bir geçişle oturur; burun aşağı-yukarı sekmesi yoktur. Fizik 120 Hz sabit adımlı olduğundan davranış kare hızından bağımsızdır.
 - Taşıma/sürükleme: CL eğrisi tek sürekli ifadedir (eşik yok), indüklenmiş sürükleme (Oswald), girdap/ayrılma sürüklemesi, transonik dalga sürüklemesi, takım/flap sürüklemesi, yer etkisi (h/b oranına göre) ve ISA atmosferi.
 - Motor: yavaş tepkili itki (spool), art yakıcı ayrı kademe, yakıt tüketimi; ses motoru rumble/türbin/egzoz/art yakıcı katmanlarını buna göre karıştırır. Ses tümüyle sentezlenir (döngüye alınmış motor kaydı yoktur): gürleme, kükreme, türbin ıslığı ve egzoz katmanlarının frekans ve seviyeleri N1'i sürekli izler, böylece rölanti, spool, kalkış, seyir ve spool-down kendiliğinden ayrışır.
 - Kullanılabilir yük katsayısı, içinde bulunulan konfigürasyonun azami taşımasıyla hesaplanır (flap katkısı dahil).
