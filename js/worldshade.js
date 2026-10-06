@@ -117,6 +117,41 @@ export function hazeAll(root) {
 }
 
 // ---------------------------------------------------------------------------
+// Su optiği (v3.6.0): arazi ve su gölgelendiricilerinin PAYLAŞTIĞI tek kaynak.
+// Su altındaki arazi (deniz/göl tabanı) kendi pikselinde ışığın su içindeki yolunu uygular:
+// kanal başına Beer–Lambert soğurması (kırmızı en hızlı söner) + saçılan ışık (su kütlesinin
+// rengi). Su yüzeyi yalnızca yansıma, parıltı ve köpüktür (önceden 1,4 m'de opaklaşıyordu ve
+// taban hemen kayboluyordu). Derin suda ve harita dışında yüzey aynı saçılma rengiyle opaklaşır:
+// iki gölgelendirici aynı sabitleri kullandığı için geçişte dikiş oluşmaz.
+// Deniz: ılıman, hafif bulanık kıyı suyu (Karayip turkuazı DEĞİL). Göl/nehir: daha bulanık,
+// yeşil-kahverengi.
+export const WATER_LEVEL_GLSL = '-4.0';
+export const WATER_OPTICS = {
+  uSigSea: { value: new THREE.Vector3(0.34, 0.095, 0.115) },     // 1/m, kanal başına sönüm
+  uSigIn: { value: new THREE.Vector3(0.40, 0.16, 0.24) },
+  uScatSea: { value: new THREE.Color(0.0075, 0.031, 0.044) },    // doğrusal, saçılan ışık (derin su rengi)
+  uScatIn: { value: new THREE.Color(0.016, 0.038, 0.034) },
+  uWTime: { value: 0 },
+};
+// Su altı ışık yolu: kamera su üstündeyse görüş ışını yüzeyde kırılır (Snell, n = 1,33);
+// sudaki yol = derinlik / cosθt. Güneş ışığı da tabana inerken söner.
+export const WATER_OPTICS_GLSL = `
+  uniform vec3 uSigSea; uniform vec3 uSigIn; uniform vec3 uScatSea; uniform vec3 uScatIn; uniform float uWTime;
+  vec3 underwater(vec3 lit, vec3 wp, float inland, vec3 sunDir) {
+    float D = ${'-4.0'} - wp.y;
+    if (D <= 0.0) return lit;
+    vec3 dv = wp - cameraPosition; float dl = max(length(dv), 1e-3); vec3 dir = dv / dl;
+    float ci = clamp(-dir.y, 0.02, 1.0);
+    float cts = sqrt(1.0 - (1.0 - ci * ci) / 1.77);
+    float pathV = cameraPosition.y > ${'-4.0'} ? D / cts : dl;
+    float pathS = D / max(sunDir.y, 0.2);
+    vec3 sig = mix(uSigSea, uSigIn, inland);
+    vec3 Tv = exp(-sig * pathV);
+    vec3 Ts = exp(-sig * pathS);
+    return lit * Ts * Tv + mix(uScatSea, uScatIn, inland) * (1.0 - Tv);
+  }`;
+
+// ---------------------------------------------------------------------------
 // Arazi malzemesi
 // Köşe rengi geniş ölçekli biyomu (iklim, irtifa, orman, kıyı, kar) taşır. Piksel başına:
 //  - çok ölçekli makro değişim (4 km, 1,1 km, 290 m; döndürülmüş örneklerle döşeme izi yok),
@@ -129,7 +164,9 @@ export function hazeAll(root) {
 // land özniteliği: x tarım uygunluğu, y orman, z kentsel/yerleşim, w kuraklık.
 const TERRAIN_PARS = `
   uniform sampler2D tDetail;
-  varying vec4 vLand; varying vec3 vTWP; varying vec3 vTN; varying vec4 vMac;
+  varying vec4 vLand; varying vec3 vTWP; varying vec3 vTN; varying vec4 vMac; varying vec4 vShore;
+  uniform vec3 hzSunDir;
+  float wetK = 0.0, wlOff = 0.0;
   float tHash11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
   float tHash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 `;
@@ -218,9 +255,71 @@ const TERRAIN_FS = `
     float ny = normalize(vTN).y;
     float rk = smoothstep(0.905, 0.77, ny + (mC.g - 0.5) * 0.10 + (dA.g - 0.5) * 0.05) * (1.0 - urb);
     vec3 rockCol = vec3(0.47, 0.44, 0.40) * (0.78 + 0.44 * mix(mB.g, dA.g, nearF * 0.7));
-    rockCol *= 0.95 + 0.05 * sin(vTWP.y * 0.21 + mB.g * 9.0 + dA.g * 3.0);
+    rockCol *= 0.97 + 0.03 * sin(vTWP.y * 0.21 + mB.g * 9.0 + dA.g * 3.0);
     rockCol = mix(rockCol, rockCol * vec3(1.07, 0.98, 0.88), mA.g);
     col = mix(col, rockCol, rk);
+    // 4b) eğrilik ve nem: dereler/çukurlar daha gür ve koyu, sırtlar kuru ve açık (havadan
+    // bakınca kabartmayı okutur, büyük tek düze yeşil alanları böler); suya yakın zemin gür.
+    float curv = vShore.z;
+    col = mix(col, col * vec3(0.84, 0.97, 0.80), smoothstep(0.04, 0.55, curv) * nat * 0.65);
+    col = mix(col, col * vec3(1.10, 1.05, 0.90), smoothstep(-0.04, -0.55, curv) * nat * (1.0 - vLand.y * 0.6) * 0.55);
+    // orta ölçekli örtü lekeleri: kuru ot, bodur çalı, açık çayır (makro dokudan, ek örnek yok)
+    col = mix(col, col * vec3(1.12, 1.03, 0.80), smoothstep(0.62, 0.82, mC.r * 0.6 + mA.g * 0.4) * nat * (1.0 - vLand.y) * 0.45);
+    col = mix(col, col * vec3(0.80, 0.86, 0.74), smoothstep(0.66, 0.86, mB.g * 0.5 + mC.g * 0.5) * nat * 0.40);
+    // 4c) KIYI ŞERİDİ ve SU ALTI TABANI. Suya göre yükseklik pikselde hesaplanır (köşe
+    // çözünürlüğünden bağımsız). Kıyı tipi: 0 kum, 0,5 çakıl, 1 kaya. Islak bant dalga
+    // tırmanmasıyla düzensiz; plaj yüksekliği tip ve gürültüyle değişir; üstünde kumul otu.
+    float band = abs(vShore.w);
+    float hw = vTWP.y - (${'-4.0'});
+    // Su çizgisi pikselde gürültüyle kaydırılır (±~0,4 m): kıyı çizgisi arazi üçgenlerinin
+    // kenarlarını izleyen düz/zikzak parçalar yerine düzensiz, ızgaradan bağımsız bir hat olur.
+    // Ölçek sabit (kamera uzaklığıyla değişmez, kayma/titreme yok).
+    float wn = 0.5;
+    if (band > 0.01 && abs(hw) < 4.0) {
+      wn = texture2D(tDetail, Pr * 0.0105 + vec2(0.71, 0.27)).g * 0.65 + texture2D(tDetail, P * 0.041 + 0.57).r * 0.35;
+      wlOff = (wn - 0.5) * 0.9 * band * (1.0 - urb);
+      hw += wlOff;
+    }
+    if (band > 0.01 && hw < 10.0) {
+      float ct = clamp(vShore.x, 0.0, 1.0);
+      float inl = step(vShore.w, -0.001);
+      float nA = mix(mC.g, dA.g, nearF), nB = mix(mC.r, dB.g, nearF);
+      // su çizgisine yatay uzaklık tahmini (yükseklik / eğim): düz kıyı ovasında geniş bir
+      // halka oluşmaz, şerit genişliği metre cinsinden kıyı tipine göre sınırlanır
+      float sl = sqrt(max(1.0 - ny * ny, 0.0)) / max(ny, 0.05);
+      float dw = max(hw, 0.0) / max(sl, 0.004);
+      vec3 sand = vec3(0.72, 0.65, 0.49) * (0.92 + 0.16 * fine);
+      vec3 gravel = vec3(0.50, 0.48, 0.43) * (0.78 + 0.44 * nB);
+      vec3 rockS = vec3(0.33, 0.31, 0.28) * (0.75 + 0.50 * nA);
+      // kıyı tipi yerel olarak da değişir: kumlu koyda çakıl/kaya cepleri, kayalık kıyıda kum cepleri
+      float ctL = clamp(ct + (wn - 0.5) * 0.7 + (nB - 0.5) * 0.4, 0.0, 1.0);
+      vec3 shoreMat = ctL < 0.5 ? mix(sand, gravel, ctL * 2.0) : mix(gravel, rockS, ctL * 2.0 - 1.0);
+      // göl/nehir kıyısı: dar, çamurlu-çakıllı, otla karışık
+      shoreMat = mix(shoreMat, mix(vec3(0.42, 0.39, 0.31), gravel, 0.35 + 0.4 * nB), inl);
+      float beachH = mix(mix(4.2, 1.4, ct), 0.9, inl) + mix(2.2, 0.4, inl) * (mB.b - 0.5) + 1.2 * (nA - 0.5);
+      float beachW = mix(mix(70.0, 9.0, ct), 7.0, inl) * (0.45 + 0.7 * mB.b + 0.4 * wn);
+      float zone = (1.0 - smoothstep(beachH * 0.55, beachH, hw)) * (1.0 - smoothstep(beachW * 0.6, beachW, dw)) * band * (1.0 - urb * 0.7);
+      // kumul/kıyı otu: kumlu kıyıda plajın hemen arkasında seyrek, sararmış örtü
+      float dune = smoothstep(beachW * 0.5, beachW, dw) * (1.0 - smoothstep(beachW * 1.2, beachW * 2.6, dw)) * step(0.0, hw) * (1.0 - ct) * (1.0 - inl) * band;
+      col = mix(col, mix(col, vec3(0.62, 0.60, 0.42), 0.5), dune * 0.55 * (1.0 - urb));
+      col = mix(col, shoreMat, zone);
+      // ıslak bant: dalga tırmanması (0,3-1,1 m yükseklik, en çok ~4-25 m genişlik), düzensiz
+      float runup = (0.30 + 0.80 * nA) * (1.0 - 0.5 * ct) * mix(1.0, 0.45, inl);
+      float runW = mix(mix(25.0, 4.0, ct), 3.0, inl) * (0.5 + nA);
+      wetK = (1.0 - smoothstep(0.0, runup, hw)) * (1.0 - smoothstep(runW * 0.5, runW, dw)) * step(-0.5, hw) * band;
+      col = mix(col, col * vec3(0.52, 0.53, 0.55), wetK * 0.85);
+    }
+    if (hw < 0.0) {
+      // Taban: kumlu kıyıda açık kum ve yer yer koyu deniz çayırı, kayalık kıyıda taş/yosun.
+      // Su soğurması burada değil, ışık hesabından SONRA (underwater) uygulanır.
+      float ct = clamp(vShore.x, 0.0, 1.0);
+      vec3 bedSand = vec3(0.55, 0.51, 0.40) * (0.85 + 0.3 * fine);
+      vec3 bedRock = vec3(0.30, 0.30, 0.26) * (0.75 + 0.5 * mix(mC.g, dA.g, nearF));
+      float grass = smoothstep(0.55, 0.75, mB.g * 0.6 + mC.r * 0.4) * smoothstep(1.5, 4.0, -hw) * (1.0 - ct);
+      vec3 bed = mix(bedSand, bedRock, smoothstep(0.35, 0.8, ct + (mC.g - 0.5) * 0.5));
+      bed = mix(bed, vec3(0.20, 0.27, 0.16), grass * 0.8);
+      col = mix(col, bed, smoothstep(0.0, -0.6, hw) * (1.0 - urb * 0.5));
+    }
     // 5) ince ayrıntı
     col *= mix(1.0, 0.88 + 0.24 * fine, 1.0 - urb * 0.5);
     // Genel yansıtırlık: eski çim dokusunun (sRGB ~188/186/176) ortalama çarpanı; köşe renkleri
@@ -233,10 +332,10 @@ export function createTerrainMaterial(detailTex) {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.tDetail = { value: detailTex };
-    Object.assign(sh.uniforms, HAZE_UNIFORMS);
-    sh.vertexShader = 'attribute vec4 land;\nuniform sampler2D tDetail;\nvarying vec4 vLand; varying vec3 vTWP; varying vec3 vTN; varying vec4 vMac;\n' + HAZE_PARS_VS + '\n' + sh.vertexShader
+    Object.assign(sh.uniforms, HAZE_UNIFORMS, WATER_OPTICS);
+    sh.vertexShader = 'attribute vec4 land;\nattribute vec4 shore;\nuniform sampler2D tDetail;\nvarying vec4 vLand; varying vec3 vTWP; varying vec3 vTN; varying vec4 vMac; varying vec4 vShore;\n' + HAZE_PARS_VS + '\n' + sh.vertexShader
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-  vLand = land; vTWP = (modelMatrix * vec4(position, 1.0)).xyz; vTN = normalize(mat3(modelMatrix) * normal);
+  vLand = land; vShore = shore; vTWP = (modelMatrix * vec4(position, 1.0)).xyz; vTN = normalize(mat3(modelMatrix) * normal);
   {
     // Bulanık mip düzeyi: köşe hızında örtüşme (aliasing) olmaz
     vec3 ta = textureLod(tDetail, vTWP.xz * 0.000244, 4.0).rgb;
@@ -244,11 +343,15 @@ export function createTerrainMaterial(detailTex) {
     vMac = vec4(ta.b, ta.g, tb.b, tb.g);
   }`)
       .replace('#include <project_vertex>', '#include <project_vertex>\n' + HAZE_VS);
-    sh.fragmentShader = TERRAIN_PARS + HAZE_PARS_FS_V + '\n' + sh.fragmentShader
+    sh.fragmentShader = TERRAIN_PARS + WATER_OPTICS_GLSL + HAZE_PARS_FS_V + '\n' + sh.fragmentShader
       .replace('#include <color_fragment>', '#include <color_fragment>\n' + TERRAIN_FS)
-      .replace('#include <fog_fragment>', '').replace('#include <tonemapping_fragment>', HAZE_APPLY);
+      // ıslak kum/taş daha pürüzsüz (gökyüzünü hafifçe yansıtır)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor *= 1.0 - 0.28 * wetK;')
+      .replace('#include <fog_fragment>', '')
+      .replace('#include <tonemapping_fragment>', `gl_FragColor.rgb = underwater(gl_FragColor.rgb, vTWP + vec3(0.0, wlOff, 0.0), step(vShore.w, -0.001), hzSunDir);
+` + HAZE_APPLY);
   };
-  mat.customProgramCacheKey = () => 'terrain3';
+  mat.customProgramCacheKey = () => 'terrain4';
   mat.userData.hazed = true;
   return mat;
 }

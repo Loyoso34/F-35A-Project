@@ -285,6 +285,81 @@ kuyrukların dış yüzünde hücum kenarına paralel. Yalnızca 2 çizim çağr
 toplamıyla doğrulandı; dekal ışınları ~5, takım ışınları ~2 kat hızlandı): uçağın soğuk kurulumu v3.0.0'a göre yalnızca
 ~35 ms uzun. Yeni gölgelendirici programı yok (`hitch`).
 
+## Dünya görselleri: kıyılar, su ve arazi malzemesi (v3.6.0)
+
+Yalnızca dünya görselleri değişti (`world.js`, `worldshade.js`). Uçak modeli, uçuş fiziği,
+FCS, aerodinamik, HUD, kontroller, silahlar, kamera ve oyun mantığı birebir aynıdır (aynı 60 s
+manevra v3.5.0 ile bit düzeyinde aynı sonucu verir). Harita düzeni korunur: kıyı çizgisinin
+genel biçimi (`coastLineZ`), göllerin yeri ve boyu, nehir, yollar, şehir, kasabalar ve
+havaalanları yerindedir; yalnızca yerel ayrıntı eklendi.
+
+**Korunan bölgeler.** Yeni arazi ayrıntısı `protectW` ağırlığıyla uygulanır. İki havaalanı,
+şehir (rıhtım, marina, plaj dahil), iki kasaba ve göllerin içinden geçen yolların koridoru
+eski araziyle BİREBİR aynıdır (10 000 örnekte 0 fark; su/kara sınıfı değişmedi; bütün yol
+yüzeyleri 0 fark). Bu bölgelerde yalnızca gölgelendirme iyileşti.
+
+**Kıyı geometrisi.** Kıyıya uzaklık iki ölçekli gürültüyle bozulur: koylar, küçük burunlar,
+kayalık çıkıntılar ve adacıklar oluşur (genel çizgi aynı kalır). Kıyı tipi (kum → çakıl → kaya)
+arka kıyının yüksekliğinden ve geniş ölçekli bir gürültüden çıkar ve kıyı boyunca değişir.
+Kumlu kıyıda alçak kumul + 10–35 m'lik plaj yüzü + sığ kıyı önü ve kum seti; kayalık kıyıda
+18–45 m'lik dik yar (95–150 m genişlik, ızgaradan dar olmasın diye) ve arkasında yükselen
+kıyı yamacı, deniz tarafında daha dik taban ve yer yer resif kayalıkları. Su altı profili
+üstel derinleşir (kumlu kıyıda ~%1, kayalıkta ~%7,5 başlangıç eğimi) ve eski açık deniz
+tabanıyla birleşir. Göllerin yıldız biçimli lobları yerine iki ölçekli kıvrımlı kıyı, alçak
+kıyı şeridi (eski düz +7 m halka yerine) ve kademeli derinleşen taban. Tepelik kesimlerde
+sırtlı gürültüyle hafif aşınma oluğu/sırt ayrıntısı (nehir vadisinde ve korunan bölgelerde yok).
+Kıyıdaki arazi parçaları iki kat ızgara çözünürlüğündedir.
+
+**Kara → ıslak kıyı → sığ → derin.** Ayrı renk bantları yerine tek bir fiziksel model:
+su altındaki taban (deniz/göl), kendi pikselinde ışığın sudaki yolunu uygular — kanal başına
+Beer–Lambert soğurması (kırmızı en hızlı söner) + su kütlesinin saçtığı ışık; görüş ışını
+yüzeyde kırılır (n = 1,33), güneş ışığı da tabana inerken söner. Sığlıkta kum, çakıl, kaya ve
+yer yer deniz çayırı seçilir; derinleştikçe taban kendiliğinden su rengine döner. Su yüzeyi
+yalnızca kendi katkısını çizer (Fresnel'e göre gök yansıması, parıltı, köpük); derin suda ve
+harita kenarında aynı saçılma rengiyle opaklaşır. Arazi ve su aynı sabitleri paylaştığı için
+geçişte dikiş ya da basamak yoktur. Eskiden su 1,4 m derinlikte opaklaşıyor, kıyıda yeşil
+kara ile mavi su arasında belirgin bir çizgi ve turkuaz bir bant kalıyordu. Deniz ılıman,
+hafif bulanık kıyı suyudur (her yerde Karayip turkuazı değil); göl ve nehir daha bulanık,
+yeşil-kahverengi.
+
+**Kıyı şeridi malzemesi (piksel).** Suya göre yükseklik ve su çizgisine yatay uzaklık
+(yükseklik / eğim) pikselde hesaplanır; şerit genişliği metre cinsindendir (kumda ~30–100 m,
+kayalıkta ~5–15 m, göl/nehirde ~3–10 m), düz kıyı ovasında geniş halka oluşmaz. Kum, çakıl ve
+kaya kıyı tipine göre, yerel ceplerle karışır; kumlu kıyıda plajın arkasında seyrek kıyı otu.
+Islak bant dalga tırmanmasını izler (0,3–1,1 m, düzensiz), daha koyu ve daha az pürüzlüdür.
+Su çizgisi pikselde sabit ölçekli gürültüyle ±0,4 m kaydırılır: kıyı hattı arazi üçgenlerinin
+kenarlarını izleyen düz parçalar yerine düzensizdir.
+
+**Su gölgelendiricisi.** Dört ölçekli (~3 m … ~250 m), her biri farklı açıda döndürülmüş ve
+farklı yönde akan normal; ince ölçekler uzaklıkla söner. Kilometre ölçekli rüzgâr lekeleri
+pürüzlülüğü değiştirir (sakin ve dalgalı alanlar; tekrar eden desen görünmez). Fresnel
+(Schlick, F0 = 0,02), bakış yönüne bağlı gök yansıması, Beckmann dağılımlı güneş parıltısı
+(pürüzlülük rüzgârla ve uzaklıkla artar; uzakta geniş, sönük parıltı bandı). Karışım
+ön-çarpımlıdır: parıltı toplamalı kalır, atmosferik pus yansımaya doğru oranda uygulanır.
+Su yalnızca analitik zeminin su seviyesinin altında kaldığı yerde çizilir: uzak (kaba LOD)
+arazi alçak kıyıda su düzleminin altına inse bile karada su görünmez.
+
+**Köpük yalnızca etkileşim bölgesinde.** Kıyıya yatay uzaklık, derinliğin ekran türevlerinden
+pikselde çıkarılır. Kırılma bantları kıyıya doğru ilerler ve ~15–40 m içinde söner; en kıyıda
+ince bir yalama köpüğü. Kıyı boyunca kesintili bir maske ve köpük dokusu sürekli beyaz çizgiyi
+önler; kayalık kıyıda daha çok, kumlu kıyıda ince ve sönük; göl ve nehirde köpük yok; uzakta
+incelir.
+
+**Su ağları kıyıyı izler.** Deniz kıyı bandı, temel kıyı çizgisine göre ofsetli satırlardan
+oluşan şeritlerdir (±650 m'de 23 sık satır, ~45 m sütun; düşük kalitede 70 m), göller kutupsal
+ızgaradır (kıyı bandında ~52 m'lik halkalar). Derinlik ve kıyı tipi köşe özniteliğidir.
+
+**Arazi malzemesi.** Yeni köşe özniteliği `shore`: kıyı tipi, suya yakınlık/nem, eğrilik ve kıyı
+bandı (+ deniz / − göl, nehir). Eğrilik ve nem: dere ve çukurlar daha gür ve koyu, sırtlar
+kuru ve açık (havadan kabartmayı okutur, büyük tek düze yeşil alanları böler). Kuru ot, bodur
+çalı ve açık çayır lekeleri mevcut makro örneklerden üretilir (ek doku örneği yok).
+
+**Maliyet (orta kalite, 45 görünüm, v3.5.0 ile).** Çizim çağrısı 7 854 → 7 911 (+%0,7), üçgen
++%8,3 (kıyı görünümlerinde +%12–20; açık deniz, şehir içi ve dağlarda ~değişmez). Dünya kurulumu
+~9,7 → ~10,6 s (`terrainHeight` 3,3 → 3,6 µs). Yeni gölgelendirici programı yok (`hitch`). Su
+gölgelendiricisi kıyı dışında köpük yolunu atlar; arazi gölgelendiricisi iki ek doku örneğini
+yalnızca su çizgisinin ±4 m'sinde alır.
+
 ## Uçuş fiziği denetimi: kesintisiz yunuslama, fiziksel kalkış, FBW sınırlayıcıları (v3.5.0)
 
 Yalnızca uçuş fiziği ve uçuş kontrol sistemi değişti (`fcs.js`, `physics.js`, `aero.js`,
@@ -641,7 +716,7 @@ Haritanın güney kıyısında, üsten **yaklaşık 18 km (10 deniz mili)** uzak
 
 ## Deniz ve kıyı
 
-Haritanın güneyinde büyük bir körfez vardır. Şehrin önündeki 3,3 km'lik kıyı rıhtım, marina, plaj ve iskeleden oluşan simge bölgedir (bkz. v3.3.0). Kıyı çizgisi düz bir kenar değildir: iki ölçekli gürültüyle koylar ve burunlar oluşur (`coastLineZ`). Kıyıdan itibaren plaj eğimi, sonra kademeli derinleşen bir taban gelir; su, derinliğe göre renklenir ve çok sığ bantta köpük çıkar. Deniz yüzeyi harita sınırının 12 km ötesine kadar uzanır, böylece oyuncu su kütlesinin kenarını göremez — bu aynı zamanda haritanın güney sınırını gizler. Kıyı bandı ince, açık deniz kaba ızgarayla döşenir.
+Haritanın güneyinde büyük bir körfez vardır. Şehrin önündeki 3,3 km'lik kıyı rıhtım, marina, plaj ve iskeleden oluşan simge bölgedir (bkz. v3.3.0). Kıyı çizgisi düz bir kenar değildir: iki ölçekli gürültüyle koylar ve burunlar oluşur (`coastLineZ`). Kıyı tipi (kum, çakıl, kaya/yar) kıyı boyunca değişir; su altı tabanı sığlıkta görünür ve derinleştikçe su rengine döner, köpük yalnızca dalganın kırıldığı dar kuşaktadır (bkz. v3.6.0). Deniz yüzeyi harita sınırının 12 km ötesine kadar uzanır, böylece oyuncu su kütlesinin kenarını göremez — bu aynı zamanda haritanın güney sınırını gizler. Kıyı bandı ince, açık deniz kaba ızgarayla döşenir.
 
 Dağ kuşağı deniz tarafında oluşmaz; kıyı gerçekçi kalır.
 

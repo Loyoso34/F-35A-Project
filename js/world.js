@@ -8,7 +8,7 @@ import {
   makeChainLinkTexture, makeBarbedWireTexture, makeOliveTexture, makeFacadeTexture, makeTerrainDetailTexture,
   makeRoadAtlasTexture, makeHouseAtlasTexture,
 } from './textures.js';
-import { HAZE_UNIFORMS, HAZE_PARS_FS, SKY_GLSL, hazeAll, createTerrainMaterial } from './worldshade.js';
+import { HAZE_UNIFORMS, HAZE_PARS_FS, SKY_GLSL, hazeAll, createTerrainMaterial, WATER_OPTICS, WATER_OPTICS_GLSL } from './worldshade.js';
 import { buildStaticAircraftGeometries } from './aircraft.js';
 import { City, makeZoning, ZONE } from './city.js';
 import { Waterfront, waterfrontHeight, wfReserved, wfPaved, wfPlan, wfCityLinks } from './waterfront.js';
@@ -374,6 +374,84 @@ function roadMask(x, z) {
 const MTN_IN = 27000, MTN_OUT = 34500;
 function softplus(v, k) { return k * Math.log1p(Math.exp(v / k)); }
 
+// ---- Kıyı ve arazi ayrıntısı (v3.6.0) ---------------------------------------
+// Korunan bölgeler: havaalanları (düzlük + geçiş + pay), şehir/rıhtım etki alanı, kasabalar.
+// 1 = yeni ayrıntı uygulanır, 0 = arazi eski hâliyle BİREBİR aynı (lerp(a, b, 0) = a).
+// Şehir, binalarını ve rıhtımını bu yüksekliklerden kurar; havaalanı pistleri ve fizik de
+// aynı işlevi kullanır. Bu bölgelerde geometri değişmez, iyileştirme yalnızca gölgelendiricidedir.
+function protectW(x, z) {
+  let w = smoothstep(CITY.r + 2900, CITY.r + 4300, Math.hypot(x - CITY.x, z - CITY.z));
+  if (w <= 0) return 0;
+  w *= smoothstep(TOWN.r + 1100, TOWN.r + 1800, Math.hypot(x - TOWN.x, z - TOWN.z));
+  w *= smoothstep(TOWN2.r + 950, TOWN2.r + 1650, Math.hypot(x - TOWN2.x, z - TOWN2.z));
+  for (const a of AIRPORTS) {
+    if (w <= 0) return 0;
+    airportLocal(a, x, z, _lp);
+    const dx = Math.max(0, Math.abs(_lp.x) - a.halfX), dz = Math.max(0, Math.abs(_lp.z) - a.halfZ);
+    w *= smoothstep(a.fade, a.fade + 700, Math.hypot(dx, dz));
+  }
+  return w;
+}
+// Son terrainHeight çağrısının kıyı bilgisi: arazi/su parçası üreticileri yükseklikle aynı
+// döngüde okur (yeniden hesaplanmaz). sdD: ayrıntılı kıyı uzaklığı (+ deniz, m);
+// ct: kıyı tipi 0 kum plajı .. 0,5 çakıl .. 1 kaya/falez; lake: göl kıyısı yakınlığı 0..1.
+export const COAST_SCRATCH = { sdD: 1e9, ct: 0, lake: 0, P: 0 };
+// Eski kıyı profili (korunan bölgelerde birebir kullanılır)
+function seaFloorOld(x, z, sd) {
+  return -2 - 48 * smoothstep(0, 4200, sd) - 34 * smoothstep(3500, 13000, sd)
+    + 9 * simplex.fbm(x * 0.00035 + 61, z * 0.00035 - 17, 3, 2.0, 0.5) * smoothstep(300, 3000, sd);
+}
+// Ayrıntılı kıyı uzaklığı: temel kıyı çizgisi (coastLineZ, değişmez) iki ölçekli 2B gürültüyle
+// bükülür: 1-2 km'lik koylar/burunlar ve ~500 m'lik girinti-çıkıntılar. Böylece kıyı tek
+// değişkenli düzgün bir eğri olmaktan çıkar; yer yer küçük adacıklar ve kayalık burunlar oluşur.
+function coastDetail(x, z, sd) {
+  const n1 = simplex.fbm(x * 0.00055 + 13.1, z * 0.00055 - 4.2, 3, 2.0, 0.5);
+  const n2 = simplex.noise(x * 0.0021 - 7.7, z * 0.0021 + 3.9);
+  return sd + 300 * n1 + 70 * n2;
+}
+/**
+ * Yeni kıyı profili. h: kıyı biçimlendirmesinden önceki arazi. Kıyı tipi iç kesimin
+ * engebesinden ve kıyı boyunca değişen geniş ölçekli gürültüden gelir: alçak kıyıda kum plajı ve
+ * sığ şelf, orta engebede çakıllı kıyı, tepelik kıyıda kayalık / falez ve hızla derinleşen taban.
+ * Kara tarafında eski 820 m'lik düzleştirme yok: plaj yüzü + kumul, falezde dik yamaç.
+ */
+function coastProfile(x, z, h, sd, sdD, ct) {
+  const WL = WATER_LEVEL;
+  if (sdD < 0) {
+    const d = -sdD;
+    const face = lerp(34, 10, ct), back = lerp(170, 32, ct), blend = lerp(300, 110, ct);
+    // Falez: yüzü 18-45 m (gürültüyle), genişliği arazi ızgarasından dar değil (dişli
+    // basamak olmaz); kalan engebe arkasındaki 250-450 m'lik dik kıyı yamacıyla iner.
+    const cliffH = 18 + 27 * (0.5 + 0.5 * simplex.noise(x * 0.0011 - 21, z * 0.0011 + 6));
+    const cliffW = lerp(150, 95, ct), slopeW = lerp(450, 250, ct);
+    if (d >= Math.max(back + blend, cliffW + slopeW)) return h;
+    const dune = (1 - ct) * (1.6 + 1.6 * (0.5 + 0.5 * simplex.noise(x * 0.004 + 3, z * 0.004 - 9)));
+    const tBeach = WL + 2.3 * smoothstep(0, face, d) + dune * smoothstep(face, back, d);
+    const rise = Math.max(h - WL, 2.3);
+    const tCliff = WL + Math.min(rise, cliffH) * smoothstep(0, cliffW, d)
+      + Math.max(0, rise - cliffH) * smoothstep(cliffW * 0.6, cliffW + slopeW, d);
+    const wc = smoothstep(0.35, 0.85, ct);
+    const tgt = lerp(tBeach, tCliff, wc);
+    return lerp(h, tgt, 1 - smoothstep(lerp(back, cliffW + slopeW * 0.85, wc), lerp(back + blend, cliffW + slopeW, wc), d));
+  }
+  // Deniz tarafı: kıyıya yakın eğim kıyı tipine göre; açıkta eski tabana bağlanır
+  const s0 = lerp(0.011, 0.075, ct), L = lerp(1500, 900, ct);
+  let depth = s0 * L * (1 - Math.exp(-sdD / L));
+  depth -= (1 - ct) * 0.9 * Math.exp(-((sdD - 115) * (sdD - 115)) / 2450);            // kum barı
+  const reef = ct * Math.max(0, simplex.noise(x * 0.0062 + 41, z * 0.0062 - 5) - 0.32) * 13 * (1 - smoothstep(60, 420, sdD));
+  depth -= reef;                                                                        // kayalık sığlar / adacıklar
+  return Math.min(WL - depth, seaFloorOld(x, z, sdD));
+}
+// Tepelik bölgelerde aşınma benzeri ayrıntı: ~900 m ve ~380 m'lik sırtlı gürültü (keskin
+// sırtlar, yuvarlak dereler). Ortalaması ~0; ova ve korunan bölgelerde sönümlüdür.
+function erosionDetail(wx, wz, h) {
+  const hill = smoothstep(70, 280, h);
+  if (hill <= 0) return 0;
+  const g1 = 1 - Math.abs(simplex.noise(wx * 0.0011 + 3.7, wz * 0.0011 - 8.3));
+  const g2 = 1 - Math.abs(simplex.noise(wx * 0.0026 - 5.1, wz * 0.0026 + 2.2));
+  return ((g1 * g1 * g1 - 0.25) * 22 + (g2 * g2 - 0.33) * 7) * hill;
+}
+
 export function terrainHeight(x, z) {
   // Bölgesel karakter: harita her yerde aynı görünmesin. Çok geniş ölçekli gürültü kabartma
   // çarpanını değiştirir; bazı bölgeler yayvan ova, bazıları engebeli tepelik olur.
@@ -390,6 +468,12 @@ export function terrainHeight(x, z) {
   h += ridge * ridge * ridge * 215 * relief * smoothstep(55, 230, h);
   h += simplex.fbm(x * 0.0009 + 7, z * 0.0009 + 3, 3, 2.0, 0.5) * 26;
   h += simplex.fbm(x * 0.0034 + 21, z * 0.0034 - 9, 2, 2.0, 0.5) * 5.5;   // ince yüzey kabartması
+  const P = protectW(x, z);
+  // Aşınma ayrıntısı: korunan bölgelerde ve nehir koridorunda sıfır (köprüler/nehir yatağı aynı)
+  if (P > 0) {
+    const ero = erosionDetail(wx, wz, h);
+    if (ero !== 0) h += ero * P * smoothstep(1300, 1900, riverDist(x, z));
+  }
   h = softplus(h, 25);
   // Kenarlara doğru dağlar. Deniz tarafında dağ oluşmaz (kıyı gerçekçi kalsın).
   const sd0 = seaDist(x, z);
@@ -423,23 +507,48 @@ export function terrainHeight(x, z) {
   h = lerp(h, 12, townMask(x, z) * 0.85);
   const rm = roadMask(x, z);
   h = lerp(h, Math.min(h, 60), rm);
-  // Deniz: kıyıdan itibaren plaj eğimi, sonra derinleşen taban
+  // Deniz. Korunan bölgelerde (şehir kıyısı) eski profil birebir: kıyıdan itibaren plaj
+  // eğimi, sonra derinleşen taban. Diğer kıyılarda yeni profil (bkz. coastProfile).
   const sd = sd0;
-  if (sd > -900) {
-    const shore = smoothstep(-820, 180, sd);
-    const floor = -2 - 48 * smoothstep(0, 4200, sd) - 34 * smoothstep(3500, 13000, sd)
-      + 9 * simplex.fbm(x * 0.00035 + 61, z * 0.00035 - 17, 3, 2.0, 0.5) * smoothstep(300, 3000, sd);
-    h = lerp(h, floor, shore);
+  const C = COAST_SCRATCH;
+  C.P = P; C.sdD = sd; C.ct = 0; C.lake = 0;
+  if (sd > -1700) {
+    let hOld = h;
+    if (sd > -900) hOld = lerp(h, seaFloorOld(x, z, sd), smoothstep(-820, 180, sd));
+    if (P > 0) {
+      const sdD = coastDetail(x, z, sd);
+      const typeN = simplex.fbm(x * 0.00012 + 31, z * 0.00012 - 17, 2, 2.0, 0.5);
+      const ct = clamp(smoothstep(18, 120, h) * 0.85 + typeN * 0.7 + 0.08, 0, 1);
+      C.sdD = lerp(sd, sdD, P); C.ct = ct;
+      h = lerp(hOld, coastProfile(x, z, h, sd, sdD, ct), P);
+    } else h = hOld;
   }
   // Sahil şehri rıhtımı: teras + rıhtım önünde derin su + plaj (bkz. waterfront.js)
   h = waterfrontHeight(x, z, h);
   for (const L of LAKES) {
+    const dr = Math.hypot(x - L.x, z - L.z) / L.r;
+    if (dr > 2.4) continue;
+    // Eski göl (korunan bölgelerde birebir)
     const wob = 1 + 0.22 * simplex.noise(x * 0.0012 + L.x, z * 0.0012 + L.z);
-    const d = (Math.hypot(x - L.x, z - L.z) / L.r) * wob;
-    const outer = smoothstep(1.9, 1.05, d);
-    h = lerp(h, 7, outer);
-    const inner = smoothstep(1.06, 0.72, d);
-    h = lerp(h, -16, inner);
+    const d = dr * wob;
+    let hO = lerp(h, 7, smoothstep(1.9, 1.05, d));
+    hO = lerp(hO, -16, smoothstep(1.06, 0.72, d));
+    // Yol koridorunda eski göl kıyısı korunur: göl içinden geçen yollar (kasaba-doğu, doğu
+    // otoyolu) eski kara dillerinin üzerinde kalır, suya inmez
+    const PL = protectW(L.x, L.z) > 0 ? P * smoothstep(160, 460, ROAD_IDX.dist(x, z)) : 0;
+    if (PL <= 0) { h = hO; continue; }
+    // Yeni göl kıyısı: yıldız biçimli loblar yerine iki ölçekli, daha yumuşak kıvrımlı kıyı
+    // (koylar ve küçük burunlar); düz +7 m'lik halka yerine kıyıdan yükselen alçak bir kıyı
+    // şeridi; su altında kıyıdan merkeze kademeli derinleşme.
+    const wob2 = 1 + 0.13 * simplex.fbm(x * 0.00062 + L.x * 0.001, z * 0.00062 - L.z * 0.001, 2, 2.0, 0.5)
+      + 0.035 * simplex.noise(x * 0.0029 + 5, z * 0.0029 - 3);
+    const d2 = dr * wob2;
+    const bank = WATER_LEVEL + 1.2 + 9 * smoothstep(1.0, 1.7, d2);
+    let hN = lerp(h, Math.min(h, bank), smoothstep(2.0, 1.05, d2));
+    const lakeFloor = WATER_LEVEL - 1.5 - 13 * smoothstep(0.98, 0.45, d2);
+    hN = lerp(hN, lakeFloor, smoothstep(1.03, 0.94, d2));
+    h = lerp(hO, hN, PL);
+    C.lake = Math.max(C.lake, smoothstep(1.35, 0.98, d2) * PL);
   }
   // Nehir yatağı: kenar dağlarına yaklaşırken daralır ve sığlaşır; dağların içine kanyon oyulmaz
   const rd0 = riverDist(x, z);
@@ -739,6 +848,7 @@ export class World {
     const segHi = q.terrainSegments;
     const detail = this.track(makeTerrainDetailTexture(512));
     detail.anisotropy = q.anisotropy;
+    this.terrainDetail = detail;
     const mat = this.track(createTerrainMaterial(detail));
     this.terrainMaterial = mat;
     const C = {
@@ -763,6 +873,9 @@ export class World {
     // Su kıyıları ve üs çevresindeki parçalar 2x çözünürlük alır (nehir yatağı ızgarada kaybolmasın)
     const nMax = segHi * 2 + 1, nbMax = nMax + 2;
     const hb = new Float32Array(nbMax * nbMax);
+    // Kıyı bilgisi (terrainHeight ile aynı döngüde okunur): kıyı tipi, ayrıntılı deniz uzaklığı, göl yakınlığı
+    const ctb = new Float32Array(nbMax * nbMax), sdb = new Float32Array(nbMax * nbMax), lkb = new Float32Array(nbMax * nbMax);
+    const sgrid = new Float32Array(nMax * nMax * 4);
     const cgrid = new Float32Array(nMax * nMax * 3);
     const lgrid = new Float32Array(nMax * nMax * 4);
     const ngrid = new Float32Array(nMax * nMax * 3);
@@ -772,6 +885,8 @@ export class World {
       if (Math.hypot(cxm - CITY.x, czm - CITY.z) < CITY.r + r) return true;
       if (riverDist(cxm, czm) < r + 300 || distToPolyline(cxm, czm, RIVER_S) < r + 300) return true;
       for (const L of LAKES) if (Math.hypot(cxm - L.x, czm - L.z) < L.r * 1.9 + r) return true;
+      // Deniz kıyısı: kıyı çizgisi ve ayrıntıları (koylar, falezler) ızgarada çözülsün
+      if (Math.abs(czm - coastLineZ(cxm)) < r + 900) return true;
       return false;
     };
     // Dış dağ kuşağı: ufku oluşturan büyük sırtlar; sırt hatları kırık üçgenlere dönüşmesin diye
@@ -797,7 +912,11 @@ export class World {
         const n = segC + 1;
         const nb = n + 2; // kenarlıklı ızgara (normal hesabı için)
         const step = chunkSize / segC;
-        for (let j = 0; j < nb; j++) for (let k = 0; k < nb; k++) hb[j * nb + k] = terrainHeight(x0 + (k - 1) * step, z0 + (j - 1) * step);
+        for (let j = 0; j < nb; j++) for (let k = 0; k < nb; k++) {
+          const ii = j * nb + k;
+          hb[ii] = terrainHeight(x0 + (k - 1) * step, z0 + (j - 1) * step);
+          ctb[ii] = COAST_SCRATCH.ct; sdb[ii] = COAST_SCRATCH.sdD; lkb[ii] = COAST_SCRATCH.lake;
+        }
         const H = (j, k) => hb[(j + 1) * nb + (k + 1)];
         for (let j = 0; j < n; j++) {
           for (let k = 0; k < n; k++) {
@@ -819,17 +938,22 @@ export class World {
             // İrtifa kuşakları: ova yeşil, yayla zeytin yeşili/kahve, yüksek çayır
             tmp.lerp(C.upland, smoothstep(150, 420, h) * 0.55);
             tmp.lerp(C.alpine, smoothstep(650, 950, h) * 0.5);
-            // Kıyı: denize yakın çayır kumlu/solgun; nehir ve göl kıyısı daha gür
-            const sdv = seaDist(x, z);
-            tmp.lerp(C.coastGrass, smoothstep(-1300, -250, sdv) * 0.55);
+            // Kıyı: denize yakın çayır solgun (tuzlu rüzgâr); nehir ve göl kıyısı daha gür.
+            // Ayrıntılı kıyı uzaklığı (koylar/burunlar) kullanılır.
+            const ib = (j + 1) * nb + (k + 1);
+            const sdv = sdb[ib] < 1e8 ? sdb[ib] : seaDist(x, z);
+            tmp.lerp(C.coastGrass, smoothstep(-1100, -150, sdv) * 0.45);
             const rdv = riverDist(x, z);
             tmp.lerp(C.riverLush, smoothstep(700, 240, rdv) * 0.45);
+            tmp.lerp(C.riverLush, lkb[ib] * 0.35);
             // Yamaç yönü: güneye bakan yüzler daha açık (büyük ölçekte hacim hissi)
             tmp.offsetHSL(0, 0, clamp(-dhz * 0.35, -0.05, 0.05));
             tmp.lerp(C.forest, f * 0.85);
             // Orman üst sınırı üzerinde çalılık/bodur örtü
             tmp.lerp(C.scrub, smoothstep(520, 900, h) * (1 - smoothstep(0.55, 1.1, slope)) * 0.7);
-            if (h < WATER_LEVEL + 4) tmp.lerp(C.sand, smoothstep(WATER_LEVEL + 4, WATER_LEVEL - 4, h));
+            // Kum/çakıl/kaya kıyı şeridi ve su altı tabanı artık piksel gölgelendiricisinde
+            // (kıyı tipi + suya göre yükseklik); burada yalnızca uzak görünüm için hafif ton.
+            if (h < WATER_LEVEL && lkb[ib] < 0.01) tmp.lerp(C.sand, smoothstep(WATER_LEVEL, WATER_LEVEL - 2, h) * (1 - ctb[ib]) * 0.6);
             // Kaya ve yüksek kesim (piksel kayası gölgelendiricide; burada uzak ton)
             tmp.lerp(C.scree, smoothstep(0.75, 1.15, slope) * smoothstep(350, 650, h) * 0.6);
             tmp.lerp(C.high, smoothstep(380, 700, h) * 0.6);
@@ -853,10 +977,21 @@ export class World {
               farm *= smoothstep(-0.42, -0.05, simplex.fbm(x * 0.00011 - 5, z * 0.00011 + 9, 2, 2.0, 0.5));   // tarım bölgeleri
               for (const a of AIRPORTS) farm *= smoothstep(0.15, 0.6, airportFlatMask(a, x, z));
               farm *= (1 - Math.min(1, ud * 3)) * (1 - smoothstep(0.15, 0.5, tm));
-              farm *= smoothstep(-250, -700, sdv) * smoothstep(260, 420, rdv) * smoothstep(WATER_LEVEL + 3, WATER_LEVEL + 9, h);
+              farm *= smoothstep(-250, -700, sdv) * smoothstep(260, 420, rdv) * (1 - lkb[ib]) * smoothstep(WATER_LEVEL + 3, WATER_LEVEL + 9, h);
               farm = smoothstep(0.12, 0.5, farm);
             }
             const il = (j * n + k) * 4;
+            // shore: x kıyı tipi, y suya yakınlık/nem (deniz, göl, nehir), z eğrilik (+ dere/çukur,
+            // - sırt; ızgara aralığından bağımsız ölçek), w kıyı bandı ağırlığı (deniz/göl/nehir kıyısı)
+            const lap = (H(j, k + 1) + H(j, k - 1) + H(j + 1, k) + H(j - 1, k) - 4 * h) * (125 / step) * (125 / step);
+            const seaNear = 1 - smoothstep(0, 650, -sdv);
+            const rivNear = smoothstep(520, 140, rdv);
+            sgrid[il] = lkb[ib] > 0.01 || rivNear > 0.01 ? Math.max(ctb[ib] * seaNear, 0.12 + 0.2 * varn) : ctb[ib];
+            sgrid[il + 1] = Math.max(seaNear, lkb[ib], rivNear);
+            sgrid[il + 2] = clamp(lap / 9, -1, 1);
+            // işaret: + deniz, - göl/nehir (gölgelendirici su optiğini buna göre seçer)
+            const inl = Math.max(lkb[ib], rivNear * 0.8);
+            sgrid[il + 3] = inl > seaNear ? -Math.max(inl, 0.002) : seaNear;
             lgrid[il] = farm; lgrid[il + 1] = f; lgrid[il + 2] = Math.max(Math.min(1, ud * 1.4), smoothstep(0.35, 0.8, tm) * 0.4, wpv); lgrid[il + 3] = dry;
             cgrid[i3] = tmp.r; cgrid[i3 + 1] = tmp.g; cgrid[i3 + 2] = tmp.b;
           }
@@ -870,7 +1005,7 @@ export class World {
           const seg = segC / stride;
           const m = seg + 1;
           const nv = m * m + 4 * m;
-          const pos = new Float32Array(nv * 3), col = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), land = new Float32Array(nv * 4);
+          const pos = new Float32Array(nv * 3), col = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), land = new Float32Array(nv * 4), shr = new Float32Array(nv * 4);
           let vi = 0;
           const setV = (x, y, z, ci) => {
             pos[vi * 3] = x; pos[vi * 3 + 1] = y; pos[vi * 3 + 2] = z;
@@ -878,6 +1013,7 @@ export class World {
             nrm[vi * 3] = ngrid[ci]; nrm[vi * 3 + 1] = ngrid[ci + 1]; nrm[vi * 3 + 2] = ngrid[ci + 2];
             const li = (ci / 3) * 4;
             land[vi * 4] = lgrid[li]; land[vi * 4 + 1] = lgrid[li + 1]; land[vi * 4 + 2] = lgrid[li + 2]; land[vi * 4 + 3] = lgrid[li + 3];
+            shr[vi * 4] = sgrid[li]; shr[vi * 4 + 1] = sgrid[li + 1]; shr[vi * 4 + 2] = sgrid[li + 2]; shr[vi * 4 + 3] = sgrid[li + 3];
             vi++;
           };
           for (let j = 0; j < m; j++) for (let k = 0; k < m; k++) { const gj = j * stride, gk = k * stride; setV(x0 + gk * step, H(gj, gk), z0 + gj * step, (gj * n + gk) * 3); }
@@ -904,6 +1040,7 @@ export class World {
           g.setAttribute('color', new THREE.BufferAttribute(col, 3));
           g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
           g.setAttribute('land', new THREE.BufferAttribute(land, 4));
+          g.setAttribute('shore', new THREE.BufferAttribute(shr, 4));
           g.setIndex(idx);
           g.computeBoundingSphere();
           this.track(g);
@@ -922,28 +1059,38 @@ export class World {
     this.group.add(terrainGroup);
   }
 
-  // ---- Su: her su kütlesi için derinlik öznitelikli ızgara; analitik gökyüzü yansıması + fresnel + güneş parıltısı ----
-  waterGrid(x0, z0, w, d, nx, nz) {
-    const pos = [], dep = [], idx = [];
-    for (let j = 0; j <= nz; j++) {
-      for (let i = 0; i <= nx; i++) {
-        const x = x0 + (i / nx) * w, z = z0 + (j / nz) * d;
-        pos.push(x, WATER_LEVEL, z);
-        dep.push(WATER_LEVEL - terrainHeight(x, z));
-      }
-    }
-    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
-      const a = j * (nx + 1) + i, b = a + 1, c = a + nx + 1, dd = c + 1;
-      // Tamamen karada kalan (derinliği çok negatif) dörtgenleri atla
-      if (dep[a] < -6 && dep[b] < -6 && dep[c] < -6 && dep[dd] < -6) continue;
-      idx.push(a, c, b, b, c, dd);
-    }
+  // ---- Su: her su kütlesi için derinlik + kıyı tipi öznitelikli ızgara ----
+  // depth: su yüzeyinden tabana derinlik (m, karada negatif). wtype: kıyı tipi (0 kum .. 1 kaya;
+  // köpük ve kıyı dalgası buna göre). Kıyıda köşeler sık: derinlik pikselde doğru ara değer alır,
+  // sığlık, taban ve köpük kıyının gerçek biçimini izler.
+  waterFinish(pos, dep, typ, idx) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('depth', new THREE.Float32BufferAttribute(dep, 1));
+    g.setAttribute('wtype', new THREE.Float32BufferAttribute(typ, 1));
     g.setIndex(idx);
     g.computeBoundingSphere();
     return g;
+  }
+  // Dörtgenleri ekler; dört köşesi de karada kalanlar (derinlik < lim) atlanır
+  waterQuads(idx, dep, cols, rows, lim, flip = false, skip = null) {
+    for (let j = 0; j < rows - 1; j++) for (let i = 0; i < cols - 1; i++) {
+      const a = j * cols + i, b = a + 1, c = a + cols, dd = c + 1;
+      if (dep[a] < lim && dep[b] < lim && dep[c] < lim && dep[dd] < lim) continue;
+      if (skip && skip[a] && skip[b] && skip[c] && skip[dd]) continue;
+      if (flip) idx.push(a, b, c, b, dd, c); else idx.push(a, c, b, b, c, dd);
+    }
+  }
+  waterGrid(x0, z0, w, d, nx, nz, type = 0) {
+    const pos = [], dep = [], typ = [], idx = [];
+    for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) {
+      const x = x0 + (i / nx) * w, z = z0 + (j / nz) * d;
+      pos.push(x, WATER_LEVEL, z);
+      dep.push(WATER_LEVEL - terrainHeight(x, z));
+      typ.push(type < 0 ? COAST_SCRATCH.ct : type);
+    }
+    this.waterQuads(idx, dep, nx + 1, nz + 1, -6);
+    return this.waterFinish(pos, dep, typ, idx);
   }
   // Düzgün olmayan satırlı su ızgarası: [zf0, zf1] aralığında sık satırlar (dz), dışında seyrek
   waterGridRows(x0, w, nx, z0, z1, zf0, zf1, dz) {
@@ -952,23 +1099,51 @@ export class World {
     for (let z = zf0; z < zf1; z += dz) rows.push(z);
     for (let z = zf1; z < z1; z += 277) rows.push(z);
     rows.push(z1);
-    const pos = [], dep = [], idx = [];
-    for (const z of rows) for (let i = 0; i <= nx; i++) { const x = x0 + (i / nx) * w; pos.push(x, WATER_LEVEL, z); dep.push(WATER_LEVEL - terrainHeight(x, z)); }
-    for (let j = 0; j < rows.length - 1; j++) for (let i = 0; i < nx; i++) {
-      const a = j * (nx + 1) + i, b = a + 1, c = a + nx + 1, dd = c + 1;
-      // İnce ızgarada kıyı satırları yeterince sık: karada kalan (rıhtım terası dahil) dörtgenler atlanır
-      if (dep[a] < -1.5 && dep[b] < -1.5 && dep[c] < -1.5 && dep[dd] < -1.5) continue;
-      idx.push(a, c, b, b, c, dd);
+    const pos = [], dep = [], typ = [], idx = [];
+    for (const z of rows) for (let i = 0; i <= nx; i++) { const x = x0 + (i / nx) * w; pos.push(x, WATER_LEVEL, z); dep.push(WATER_LEVEL - terrainHeight(x, z)); typ.push(COAST_SCRATCH.ct); }
+    // İnce ızgarada kıyı satırları yeterince sık: karada kalan (rıhtım terası dahil) dörtgenler atlanır
+    this.waterQuads(idx, dep, nx + 1, rows.length, -1.5);
+    return this.waterFinish(pos, dep, typ, idx);
+  }
+  // Kıyıyı izleyen deniz şeridi. Sütunlar dx aralıklı; satırlar temel kıyı çizgisine (coastLineZ)
+  // göre ofsetlidir: ayrıntılı kıyı (koylar, burunlar, adacıklar) temel çizginin ±~400 m'sinde
+  // olduğundan ±650 m sık, sonra açık deniz ızgarasının ilk satırına (zEnd) kadar seyrekleşir.
+  waterCoastStrip(xa, xb, dx, zEnd) {
+    const fine = [-650, -540, -450, -375, -310, -255, -205, -160, -120, -85, -52, -22, 8, 38, 70, 105, 145, 195, 255, 330, 420, 520, 640];
+    const fr = [0.10, 0.24, 0.42, 0.66];
+    const nxc = Math.max(1, Math.round((xb - xa) / dx));
+    const rowsN = fine.length + fr.length + 1;
+    const pos = [], dep = [], typ = [], idx = [];
+    for (let j = 0; j < rowsN; j++) for (let i = 0; i <= nxc; i++) {
+      const x = xa + (i / nxc) * (xb - xa), c = coastLineZ(x);
+      const z0 = c + fine[fine.length - 1];
+      const z = j < fine.length ? c + fine[j] : j < rowsN - 1 ? z0 + (zEnd - z0) * fr[j - fine.length] : zEnd;
+      pos.push(x, WATER_LEVEL, z);
+      dep.push(WATER_LEVEL - terrainHeight(x, z));
+      typ.push(COAST_SCRATCH.ct);
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('depth', new THREE.Float32BufferAttribute(dep, 1));
-    g.setIndex(idx);
-    g.computeBoundingSphere();
-    return g;
+    this.waterQuads(idx, dep, nxc + 1, rowsN, -3);
+    return this.waterFinish(pos, dep, typ, idx);
+  }
+  // Göl: kutupsal ızgara. Kıyı bandı (0,8R..1,45R) sık halkalı, merkez seyrek; açısal aralık
+  // kıyıda ~55 m. Kare ızgaranın aksine sığlık ve kıyı köpüğü kıyı boyunca eşit çözünürlükte.
+  waterLake(L, segLen) {
+    const nA = Math.max(48, Math.round(2 * Math.PI * 1.15 * L.r / segLen));
+    const radii = [0, 0.25, 0.45, 0.6, 0.7, 0.77];
+    for (let r = 0.82; r < 1.47; r += 52 / L.r) radii.push(r);
+    const pos = [], dep = [], typ = [], idx = [], riv = [];
+    for (const rr of radii) for (let i = 0; i <= nA; i++) {
+      const t = (i / nA) * Math.PI * 2, x = L.x + Math.cos(t) * rr * L.r, z = L.z + Math.sin(t) * rr * L.r;
+      pos.push(x, WATER_LEVEL, z);
+      dep.push(WATER_LEVEL - terrainHeight(x, z));
+      typ.push(0.18);
+      riv.push(rr > 1.3 && riverDist(x, z) < 430);
+    }
+    this.waterQuads(idx, dep, nA + 1, radii.length, -4, true, riv);
+    return this.waterFinish(pos, dep, typ, idx);
   }
   waterStrip(pts, width, step, across) {
-    const pos = [], dep = [], idx = [];
+    const pos = [], dep = [], typ = [], idx = [], inLake = [];
     let row = 0;
     for (let i = 0; i < pts.length - 1; i++) {
       const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
@@ -983,107 +1158,150 @@ export class World {
           const x = cx + nx * off, z = cz + nz * off;
           pos.push(x, WATER_LEVEL, z);
           dep.push(WATER_LEVEL - terrainHeight(x, z));
+          inLake.push(LAKES.some((L) => Math.hypot(x - L.x, z - L.z) < 1.3 * L.r));
+          typ.push(0.22);
         }
         row++;
       }
     }
-    const cols = across + 1;
-    for (let r = 0; r < row - 1; r++) for (let q = 0; q < across; q++) {
-      const a = r * cols + q, b = a + 1, c = a + cols, dd = c + 1;
-      if (dep[a] < -6 && dep[b] < -6 && dep[c] < -6 && dep[dd] < -6) continue;
-      // Satır yönü (akış) x enine (sol normal) -> normalin yukarı bakması için sarım ters
-      idx.push(a, b, c, b, dd, c);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('depth', new THREE.Float32BufferAttribute(dep, 1));
-    g.setIndex(idx);
-    g.computeBoundingSphere();
-    return g;
+    // Satır yönü (akış) x enine (sol normal) -> normalin yukarı bakması için sarım ters
+    // Göl ağının içinde (1,3 R) kalan dörtgenler atlanır; göl ağı da 1,3 R dışındaki nehir
+    // yatağını atlar: iki saydam su katmanı üst üste binip yansımayı ikiye katlamaz
+    this.waterQuads(idx, dep, across + 1, row, -6, true, inLake);
+    return this.waterFinish(pos, dep, typ, idx);
   }
 
   buildWater() {
     const q = this.quality;
     const normals = this.track(makeWaterNormalTexture(512));
     normals.anisotropy = q.anisotropy;
-    const uniforms = THREE.UniformsUtils.merge([
-      THREE.UniformsLib.fog,
-      {
-        normalMap: { value: null }, time: { value: 0 }, sunDir: { value: this.sunDir.clone() },
-        shallowColor: { value: new THREE.Color(0x2e7f8e) }, waterColor: { value: new THREE.Color(0x0c3a55) }, deepColor: { value: new THREE.Color(0x04202e) },
-        zenith: { value: this.skyUniforms.zenith.value }, horizon: { value: this.skyUniforms.horizon.value },
-        ground: { value: this.skyUniforms.ground.value }, sunColor: { value: this.skyUniforms.sunColor.value },
-        detail: { value: q.water === 'reflective' ? 1.0 : 0.6 },
-      },
-      HAZE_UNIFORMS,
-    ]);
-    Object.assign(uniforms, HAZE_UNIFORMS);   // merge kopyalar; pus değerleri paylaşılmalı
-    uniforms.normalMap.value = normals;
-    const mat = this.track(new THREE.ShaderMaterial({
-      uniforms,
-      vertexShader: `
-        attribute float depth;
-        varying vec3 vWorldPos; varying float vDepth;
-        #include <fog_pars_vertex>
+    // Su yüzeyi yalnızca yüzeyin kendi katkısını çizer: Fresnel'e göre gök yansıması, güneş
+    // parıltısı ve köpük. Su altındaki taban, arazi gölgelendiricisinde ışığın su içindeki
+    // yolu (soğurma + saçılma, WATER_OPTICS) uygulanmış olarak zaten görünür: sığlıkta kum ve
+    // kaya seçilir, derinleştikçe su kütlesinin rengine döner. Derin suda ve harita kenarında
+    // (altında arazi yok) yüzey aynı saçılma rengiyle opaklaşır, geçişte basamak oluşmaz.
+    const uniforms = {
+      normalMap: { value: normals }, macroMap: { value: this.terrainDetail }, time: { value: 0 }, sunDir: { value: this.sunDir.clone() },
+      zenith: { value: this.skyUniforms.zenith.value }, horizon: { value: this.skyUniforms.horizon.value },
+      ground: { value: this.skyUniforms.ground.value }, sunColor: { value: this.skyUniforms.sunColor.value },
+      detail: { value: q.water === 'reflective' ? 1.0 : 0.6 }, inland: { value: 0 },
+      mapHalf: { value: MAP_SIZE / 2 },
+    };
+    Object.assign(uniforms, HAZE_UNIFORMS, WATER_OPTICS);   // pus ve su optiği değerleri paylaşılır
+    const vertexShader = `
+        attribute float depth; attribute float wtype;
+        varying vec3 vWorldPos; varying float vDepth; varying float vType;
         void main() {
           vec4 wp = modelMatrix * vec4(position, 1.0);
-          vWorldPos = wp.xyz; vDepth = depth;
-          vec4 mvPosition = viewMatrix * wp;
-          gl_Position = projectionMatrix * mvPosition;
-          #include <fog_vertex>
-        }`,
-      fragmentShader: `
-        uniform sampler2D normalMap; uniform float time; uniform vec3 sunDir; uniform vec3 shallowColor; uniform vec3 waterColor; uniform vec3 deepColor;
+          vWorldPos = wp.xyz; vDepth = depth; vType = wtype;
+          gl_Position = projectionMatrix * (viewMatrix * wp);
+        }`;
+    const fragmentShader = `
+        uniform sampler2D normalMap; uniform sampler2D macroMap; uniform float time; uniform vec3 sunDir;
         uniform vec3 zenith; uniform vec3 horizon; uniform vec3 ground; uniform vec3 sunColor; uniform float detail;
-        varying vec3 vWorldPos; varying float vDepth;
+        uniform float inland; uniform float mapHalf;
+        varying vec3 vWorldPos; varying float vDepth; varying float vType;
         ${HAZE_PARS_FS}
+        ${WATER_OPTICS_GLSL}
+        vec2 rot(vec2 p, float a) { float c = cos(a), s = sin(a); return vec2(c * p.x - s * p.y, s * p.x + c * p.y); }
+        vec3 nrm(vec2 uv) { return texture2D(normalMap, uv).xyz * 2.0 - 1.0; }
         void main() {
-          vec2 uv = vWorldPos.xz * 0.018;
-          // Pürüzlülük değişimi: büyük ölçekli yavaş desen (sakin/rüzgarlı bölgeler)
-          float rough = 0.55 + 0.45 * texture2D(normalMap, vWorldPos.xz * 0.00045 + time * 0.0015).b;
-          vec3 n1 = texture2D(normalMap, uv + time * vec2(0.020, 0.014)).xyz * 2.0 - 1.0;
-          vec3 n2 = texture2D(normalMap, uv * 2.9 - time * vec2(0.011, 0.023)).xyz * 2.0 - 1.0;
-          vec3 n3 = texture2D(normalMap, uv * 0.23 + time * vec2(0.004, -0.003)).xyz * 2.0 - 1.0;
-          float dist = length(cameraPosition - vWorldPos);
-          float fadeFine = clamp(1.0 - dist / 2200.0, 0.0, 1.0);
-          float fadeCoarse = clamp(1.0 - dist / 7000.0, 0.08, 1.0);
-          vec3 nt = ((n1 + n2 * 0.35) * fadeFine + n3 * 0.9 * fadeCoarse) * detail * rough;
-          vec3 n = normalize(vec3(nt.x * 0.13, 1.0, nt.y * 0.13));
-          vec3 V = normalize(cameraPosition - vWorldPos);
-          vec3 R = reflect(-V, n);
-          R.y = abs(R.y) + 0.02;
-          vec3 sky = skyColor(normalize(R), sunDir, zenith, horizon, ground, sunColor, 0.35);
-          float cosT = max(dot(V, n), 0.0);
-          float fres = 0.03 + 0.97 * pow(1.0 - cosT, 5.0);
-          fres = clamp(fres, 0.10, 0.75);
-          // Derinliğe göre renk: sığda turkuaz, derinde koyu
-          float dNorm = clamp(vDepth / 10.0, 0.0, 1.0);
-          vec3 base = mix(shallowColor, mix(waterColor, deepColor, clamp((vDepth - 6.0) / 10.0, 0.0, 1.0)), smoothstep(0.0, 0.6, dNorm));
-          base = mix(base, base * 1.25, clamp(cosT * 0.6, 0.0, 1.0));
-          vec3 col = mix(base, sky, fres);
-          // Güneş parıltısı: pürüzlülüğe göre yayılım
-          float rs = max(dot(normalize(R), sunDir), 0.0);
-          // Uzakta dalga eğimleri piksel altında kalır: parıltı yolu dar noktalar yerine geniş,
-          // yumuşak bir ışıltı bandı olur (enerji yaklaşık korunur)
-          float farG = smoothstep(900.0, 9000.0, dist);
-          float shine = mix(1400.0, 250.0, rough) * mix(1.0, 0.06, farG);
-          col += sunColor * (pow(rs, shine) * (2.4 - rough) * mix(1.0, 0.22, farG) + pow(rs, 50.0) * 0.10);
-          // Kıyı köpüğü: çok sığ bantta hafif beyaz
-          float foamN = texture2D(normalMap, vWorldPos.xz * 0.06 + time * vec2(0.03, 0.02)).r;
-          float foam = (1.0 - smoothstep(0.05, 1.1, vDepth)) * smoothstep(-0.3, 0.2, vDepth) * (0.35 + 0.65 * foamN);
-          col = mix(col, vec3(0.85, 0.9, 0.92), foam * 0.45);
-          // Atmosferik pus (arazi ve yapılarla aynı)
-          col = worldHaze(col, vWorldPos);
-          float alpha = smoothstep(-0.35, 1.4, vDepth);
-          gl_FragColor = vec4(col, alpha);
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-        }`,
-      fog: false, transparent: true, depthWrite: false,
-    }));
+          vec3 wp = vWorldPos;
+          vec3 dv = cameraPosition - wp; float dist = length(dv); vec3 V = dv / dist;
+          // Rüzgâr lekeleri: büyük ölçekli (km) sakin/dalgalı alanlar; tekrar eden deseni kırar
+          vec4 mac = texture2D(macroMap, wp.xz * 0.000043 + vec2(time * 0.00016, -time * 0.00011));
+          float wind = clamp(0.25 + 1.1 * mac.b - 0.25 * inland, 0.12, 1.15);
+          // Dört ölçek, her biri farklı açıda döndürülmüş ve farklı yönde akan normal (~3 m .. ~250 m)
+          vec2 p = wp.xz;
+          vec3 n0 = nrm(rot(p, 0.6) * 0.0042 + time * vec2(0.0021, 0.0013));
+          vec3 n1 = nrm(rot(p, -0.9) * 0.0175 + time * vec2(0.0150, -0.0080));
+          vec3 n2 = nrm(rot(p, 2.1) * 0.061 - time * vec2(0.024, 0.031));
+          vec3 n3 = nrm(rot(p, -2.6) * 0.23 + time * vec2(0.055, -0.040));
+          float fineF = 1.0 - smoothstep(500.0, 2600.0, dist);
+          float midF = 1.0 - smoothstep(2500.0, 11000.0, dist);
+          // Kıyıya çok yakın sığlıkta dalgacıklar sönümlü (taban net görünür)
+          float shoal = smoothstep(0.0, 2.5, vDepth);
+          vec2 sl = (n0.xy * 0.55 + n1.xy * 0.55 * midF + (n2.xy * 0.45 + n3.xy * 0.30) * fineF) * detail * wind * mix(0.45, 1.0, shoal);
+          vec3 n = normalize(vec3(sl.x * 0.135, 1.0, sl.y * 0.135));
+          float NdV = max(dot(n, V), 0.02);
+          // Fresnel (Schlick, su F0 = 0,02)
+          float F = 0.02 + 0.98 * pow(1.0 - NdV, 5.0);
+          vec3 R = reflect(-V, n); R.y = abs(R.y) + 0.01;
+          vec3 sky = skyColor(normalize(R), sunDir, zenith, horizon, ground, sunColor, 0.0);
+          // Güneş parıltısı: Beckmann dağılımı; pürüzlülük rüzgârla ve uzaklıkla artar (piksel
+          // altındaki dalga eğimleri parıltıyı geniş, sönük bir banda yayar - enerji korunur)
+          vec3 H = normalize(V + sunDir);
+          float NdH = max(dot(n, H), 0.0), NdL = max(dot(n, sunDir), 0.0);
+          float m = clamp(mix(0.065, 0.13, wind) + 0.16 * smoothstep(800.0, 14000.0, dist), 0.05, 0.3);
+          float c2 = NdH * NdH, t2 = (1.0 - c2) / max(c2, 1e-4);
+          float D = exp(-t2 / (m * m)) / (3.14159 * m * m * c2 * c2);
+          float Fs = 0.02 + 0.98 * pow(1.0 - max(dot(H, V), 0.0), 5.0);
+          vec3 spec = sunColor * 2.6 * min(D * Fs * NdL / (4.0 * NdV * max(NdL, 0.1)), 6.0) * step(0.0, sunDir.y);
+          // Su kütlesi opaklığı: derin su (ışık tabana ulaşıp dönemez) ve harita dışı (altında arazi yok)
+          float edge = smoothstep(mapHalf - 900.0, mapHalf - 60.0, max(abs(wp.x), wp.z));
+          float op = max(smoothstep(30.0, 85.0, vDepth) * (1.0 - inland), edge);
+          vec3 scat = mix(uScatSea, uScatIn, inland);
+          // Köpük: YALNIZCA dalganın kırıldığı yerde. Kıyıya doğru ilerleyen kırılma bantları
+          // (derinliğe bağlı faz) + kıyı boyunca kesintili maske; kaya kıyıda daha çok, kumda
+          // ince ve sönük. Uzakta incelir; kıyı boyunca sürekli beyaz çizgi oluşmaz.
+          float foam = 0.0;
+          if (vDepth < 2.5 && vDepth > -0.4 && inland < 0.5) {
+            // Kıyıya yatay uzaklık: derinlik / derinlik eğimi (ekran türevlerinden, dünya xz'de).
+            // Köpük metre cinsinden dar bir kuşakta kalır; sığ ve düz kıyıda geniş beyaz şerit olmaz.
+            vec2 px = dFdx(wp.xz), py = dFdy(wp.xz);
+            float ddx = dFdx(vDepth), ddy = dFdy(vDepth);
+            float det = px.x * py.y - px.y * py.x;
+            vec2 gD = abs(det) > 1e-6 ? vec2(py.y * ddx - px.y * ddy, -py.x * ddx + px.x * ddy) / det : vec2(0.0);
+            float sDist = max(vDepth, 0.0) / max(length(gD), 0.004);
+            vec2 fp = rot(p, 0.35);
+            float seg = texture2D(macroMap, fp * 0.0011 + vec2(time * 0.002, 0.0)).g;
+            float seg2 = texture2D(macroMap, rot(p, 1.7) * 0.0047 - time * 0.003).r;
+            float mask = smoothstep(0.32, 0.72, seg * 0.65 + seg2 * 0.35 + vType * 0.2);
+            float tex = smoothstep(0.40, 0.78, texture2D(normalMap, fp * 0.085 + time * vec2(0.02, 0.013)).r * 0.6
+                                              + texture2D(normalMap, fp * 0.031 - time * 0.011).g * 0.4);
+            // kırılma bantları kıyıya doğru ilerler (faz uzaklığa bağlı), kıyıdan uzaklaştıkça söner
+            float surfW = mix(38.0, 14.0, vType) * (0.6 + 0.8 * seg);
+            float ph = fract(sDist / mix(13.0, 6.0, vType) + time * 0.11 + seg2 * 1.7);
+            float bandW = smoothstep(0.0, 0.12, ph) * (1.0 - smoothstep(0.2, 0.6, ph));
+            float reach = 1.0 - smoothstep(surfW * 0.35, surfW, sDist);
+            float swash = 1.0 - smoothstep(1.0, mix(7.0, 3.5, vType), sDist);
+            foam = (bandW * reach * 0.75 + swash * 0.55) * tex * mask * mix(0.55, 1.0, vType);
+            foam *= mix(1.0, 0.4, smoothstep(1500.0, 9000.0, dist));
+          }
+          foam = clamp(foam, 0.0, 0.9);
+          // Ön-çarpımlı birleşim: yansıma (F) + opak su kütlesi + köpük; parıltı toplamalı
+          vec3 foamCol = vec3(0.80, 0.83, 0.84) * (0.55 + 0.45 * max(sunDir.y, 0.0));
+          float a = F + (1.0 - F) * op;
+          vec3 Cp = sky * F + scat * (1.0 - F) * op;
+          Cp = Cp * (1.0 - foam) + foamCol * foam;
+          a = a * (1.0 - foam) + foam;
+          spec *= 1.0 - foam;
+          // Atmosferik pus: ön-çarpımlı biçimde (arka plan zaten kendi pusunu taşır)
+          vec4 hz = hazeAt(wp);
+          vec3 col = hazeMix(Cp / max(a, 1e-3), hz);
+          spec *= 1.0 - hz.a;
+          // Ton eşleme ve sRGB dönüşümü burada (karışım ön-çarpımlı)
+          #ifdef TONE_MAPPING
+            col = toneMapping(col); spec = toneMapping(spec);
+          #endif
+          vec4 o = linearToOutputTexel(vec4(col, 1.0));
+          vec4 s = linearToOutputTexel(vec4(spec, 1.0));
+          // Su yalnızca analitik zeminin su seviyesinin altında kaldığı yerde: uzak (kaba LOD)
+          // arazi üçgenleri alçak kıyıda su düzleminin altına inse de su karada parlak kenar yapmaz
+          float wet = smoothstep(-0.5, 0.1, vDepth);
+          gl_FragColor = vec4(o.rgb * a + s.rgb, a) * wet;
+        }`;
+    const mkMat = (inl) => {
+      const u = Object.assign({}, uniforms, { inland: { value: inl } });
+      return this.track(new THREE.ShaderMaterial({
+        uniforms: u, vertexShader, fragmentShader,
+        fog: false, transparent: true, depthWrite: false, premultipliedAlpha: true,
+      }));
+    };
+    const seaMat = mkMat(0), inMat = mkMat(1);
     this.waterUniforms = uniforms;
     this.waterMeshes = [];
-    const addWater = (g) => {
+    const addWater = (g, mat = seaMat) => {
       this.track(g);
       const m = new THREE.Mesh(g, mat);
       m.renderOrder = 1;
@@ -1091,21 +1309,25 @@ export class World {
       this.group.add(m);
       this.waterMeshes.push(m);
     };
-    for (const L of LAKES) {
-      const R = L.r * 1.75;
-      addWater(this.waterGrid(L.x - R, L.z - R, 2 * R, 2 * R, 48, 48));
-    }
-    addWater(this.waterStrip(RIVER_S, 820, 40, 12));
-    // Deniz: kıyı bandı ince ızgarayla (koylar/burunlar çözülsün), açık deniz kaba ızgarayla.
-    // Ufka kadar uzanır; oyuncu su kütlesinin kenarını göremez (harita sınırını da gizler).
+    // Göller kutupsal ızgarayla (kıyı bandı sık), nehir kendi şeridiyle; ikisi de iç su rengi
+    for (const L of LAKES) addWater(this.waterLake(L, q.water === 'reflective' ? 55 : 80), inMat);
+    addWater(this.waterStrip(RIVER_S, 820, 40, 12), inMat);
+    // Deniz: ufka kadar uzanır; oyuncu su kütlesinin kenarını göremez (harita sınırını da gizler).
     const SX0 = -MAP_SIZE / 2 - 12000, SW = MAP_SIZE + 24000;
-    // Kıyı bandı üç parça: rıhtım bölgesi (x 1280..7680) ince ızgarayla (rıhtım önünde derin su,
-    // marina ve plaj kıyısı doğru renk/saydamlık alsın), kalanlar eski kaba ızgarayla. Parça
-    // sınırları kaba ızgaranın sütunlarına hizalıdır.
+    // Kıyı bandı: rıhtım bölgesi (x 1280..7680) eski ince ızgarasıyla (rıhtım/marina/plaj
+    // planına göre), kalanı kıyı çizgisini izleyen şeritlerle (±650 m sık satır, ~45 m sütun).
+    // Harita dışındaki kıyı (altında arazi yok, su opak) seyrek sütunlu.
     const cw = SW / 150, i0 = Math.round((1280 - SX0) / cw), i1 = Math.round((7680 - SX0) / cw);
     const xa = SX0 + i0 * cw, xb = SX0 + i1 * cw;
-    addWater(this.waterGrid(SX0, COAST_Z - 3200, xa - SX0, 7200, i0, 26));
-    addWater(this.waterGrid(xb, COAST_Z - 3200, SX0 + SW - xb, 7200, 150 - i1, 26));
+    const zEnd = COAST_Z + 4000;
+    const dx = q.water === 'reflective' ? 45 : 70;
+    const strip = (x0, x1, d) => {
+      const n = Math.max(1, Math.round((x1 - x0) / 6000));
+      for (let k = 0; k < n; k++) addWater(this.waterCoastStrip(x0 + (x1 - x0) * k / n, x0 + (x1 - x0) * (k + 1) / n, d, zEnd));
+    };
+    const half = MAP_SIZE / 2;
+    strip(SX0, -half, 400); strip(-half, xa, dx);
+    strip(xb, half, dx); strip(half, SX0 + SW, 400);
     addWater(this.waterGridRows(xa, xb - xa, Math.round((xb - xa) / 45), COAST_Z - 3200, COAST_Z + 4000, 19900, 22700, 36));
     addWater(this.waterGrid(SX0, COAST_Z + 4000, SW, 26000, 40, 18));          // açık deniz
     this.water = this.waterMeshes[0];
@@ -2731,6 +2953,7 @@ export class World {
       if (lod !== ch.lod) { ch.meshes[ch.lod].visible = false; ch.meshes[lod].visible = true; ch.lod = lod; }
     }
     this.waterUniforms.time.value = this.time;
+    WATER_OPTICS.uWTime.value = this.time;
     // Üs ışıkları ve tel örgü: uzakta piksel altı kalıp parıldadıkları için 3B mesafeye göre kapatılır
     const baseDist = Math.hypot(cx, cy, cz);
     const fx = this.perf ? this.perf.effects : 1;
