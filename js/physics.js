@@ -15,6 +15,7 @@
 import * as THREE from 'three';
 import { clamp, smoothstep } from './noise.js';
 import { WATER_LEVEL, surfaceTypeAt } from './world.js';
+import { classifyImpact, WRECK_PARAMS } from './crash.js';
 import { atmosphere, G0, RHO0 } from './atmosphere.js';
 import { coefficients, clMaxConfig, alphaForCL, clAtAlpha } from './aero.js';
 import { Engine } from './engine.js';
@@ -109,7 +110,8 @@ export class FlightModel {
     this.lefPos = 0; this.camber = 0; this.toeIn = 0;
     this.gearComp = 0.07; this._gcv = 0;
     this.brakes = false; this.fuel = this.D.fuel;
-    this.crashed = false; this.crashReason = ''; this.onGround = true; this.wasOnGround = true;
+    this.crashed = false; this.crashReason = ''; this.crashInfo = null; this.wreck = null; this.lastLanding = null;
+    this.onGround = true; this.wasOnGround = true;
     this.time = 0; this._nz = 1; this._buffet = 0;
     // Yer teması durumu (FCS'nin yer kanunu bir önceki adımın değerlerini kullanır)
     const g = this.geom, mm = this.mass;
@@ -193,7 +195,7 @@ export class FlightModel {
 
   // =========================================================================
   step(dt) {
-    if (this.crashed) return;
+    if (this.crashed) { this.wreckStep(dt); return; }
     this.time += dt;
     const D = this.D, SYS = this.sys, GND = this.gnd, LIM = this.lim, LAW = this.law;
     const rb = this.rb, pos = rb.pos, vel = rb.vel, quat = rb.quat;
@@ -364,12 +366,12 @@ export class FlightModel {
         // bayrağı bir-iki adım ileri geri çevriliyordu (konum değişmeden).
         if (vel.y <= -0.02 || penetrating) {
           const vy = vel.y;
-          if (surface === 'water') return this.crash('Crashed into the water');
-          if (this.gearPos < 0.98) return this.crash('Landed with the gear up');
-          if (vy < LIM.hardLandVs) return this.crash('Hard landing (' + Math.abs(vy * 196.85).toFixed(0) + ' ft/min)');
-          if (Math.abs(roll) > LIM.landRoll) return this.crash('Wingtip strike on landing — too much bank');
-          if (pitch < LIM.landPitch[0] || pitch > LIM.landPitch[1]) return this.crash(pitch > 0 ? 'Tail strike' : 'Nose gear collapsed — landed nose-first');
-          if (!paved && V > LIM.offRunwayV[0]) return this.crash('Landed off the runway at high speed');
+          // Teker koyma / ilk temas: tüm büyüklükler birlikte sınıflandırılır (bkz. crash.js).
+          // Takım yukarıyken dik ve hızlı bir çarpma artık "gear up" değil, gerçek nedeniyle
+          // (aşırı dikey hız / yüksek hızda yer teması / arazi) raporlanır.
+          const res = this.classify(surface === 'water' ? 'water' : 'touchdown', surface, pitch, roll);
+          if (res.crash) return this.crash(res);
+          this.lastLanding = res;      // normal / sert (sınır içinde) iniş: arayüz bildirimi için
           onGround = true;
           touchSink = Math.max(0, -vy);
         }
@@ -377,11 +379,11 @@ export class FlightModel {
         // Yerde kalma: takım yük taşıyorsa (net düşey kuvvet aşağı) ya da gömülmüşse
         onGround = F.y <= 0 || penetrating;
         if (onGround) {
-          if (surface === 'water') return this.crash('Rolled into the water');
-          if (this.gearPos < 0.98) return this.crash('Belly landing — gear not fully down');
-          if (Math.abs(roll) > LIM.groundRoll) return this.crash('Wingtip struck the ground');
-          if (!paved && V > LIM.offRunwayV[1]) return this.crash('Lost control off the runway');
-          if (agl < clearance - 1.5) return this.crash('Crashed into the ground');
+          if (surface === 'water') return this.crash(this.classify('water', surface, pitch, roll));
+          if (this.gearPos < 0.98) return this.crash(this.classify('touchdown', surface, pitch, roll));
+          if (Math.abs(roll) > LIM.groundRoll || (!paved && V > LIM.offRunwayV[1]) || agl < clearance - 1.5) {
+            return this.crash(this.classify('ground', surface, pitch, roll));
+          }
         }
       }
     }
@@ -455,9 +457,9 @@ export class FlightModel {
     this.rates.p = rb.p; this.rates.q = rb.q; this.rates.r = rb.r;
 
     // ---------------- Çarpışma ----------------
-    if (!onGround && agl < clearance - 0.5) return this.crash('Crashed into the ground');
-    if (surface === 'water' && pos.y - 1.0 < WATER_LEVEL) return this.crash('Crashed into the water');
-    if (this.world.hitsBuilding(pos.x, pos.y, pos.z, 4)) return this.crash('Crashed into a building');
+    if (!onGround && agl < clearance - 0.5) return this.crash(this.classify('terrain', surface, pitch, roll));
+    if (surface === 'water' && pos.y - 1.0 < WATER_LEVEL) return this.crash(this.classify('water', surface, pitch, roll));
+    if (this.world.hitsBuilding(pos.x, pos.y, pos.z, 4)) return this.crash(this.classify('obstacle', surface, pitch, roll));
     if (pos.y > 25000) { pos.y = 25000; if (vel.y > 0) vel.y = 0; }
     const half = this.world.halfSize - 100;
     if (Math.abs(pos.x) > half || Math.abs(pos.z) > half) {
@@ -580,13 +582,131 @@ export class FlightModel {
     gs.Mgnd = gs.noseDown ? a * R + h * fric : c1n * R + c2n * fric - m * c1n * c2n * q * q;
   }
 
-  crash(reason) {
+  /**
+   * Çarpma olayını sınıflandırır (crash.js). Hız yere göre, adımın BAŞINDAKİ değerdir
+   * (kısıt ve entegrasyondan önce): çarpmanın gerçek enerjisi.
+   */
+  classify(type, surface, pitch, roll) {
+    const v = this.rb.vel, pos = this.rb.pos;
+    // Zemin normali (sonlu farklar): yamaçta yere dik çarpma hızı için
+    const h = this.world.heightAt, e = 4;
+    const dx = (h.call(this.world, pos.x + e, pos.z) - h.call(this.world, pos.x - e, pos.z)) / (2 * e);
+    const dz = (h.call(this.world, pos.x, pos.z + e) - h.call(this.world, pos.x, pos.z - e)) / (2 * e);
+    const nl = 1 / Math.hypot(dx, 1, dz);
+    return classifyImpact({
+      type, vx: v.x, vy: v.y, vz: v.z, nx: -dx * nl, ny: nl, nz: -dz * nl, slope: Math.hypot(dx, dz),
+      pitch, roll, gear: this.gearPos, surface, lim: this.lim,
+    });
+  }
+
+  /**
+   * Kaza: uçak DONDURULMAZ ve ışınlanmaz. Çarpma anındaki hız ve dönüş korunur, şiddete göre
+   * enkaz dinamiğine (wreckStep) geçilir: yere dik hız sekme katsayısıyla tersine döner,
+   * sürtünme yavaşlatır, dönme sönümlenir. Kaza bir kez tetiklenir (crashed bayrağı).
+   * res: classifyImpact sonucu (ya da eski kullanım için bir metin).
+   */
+  crash(res) {
+    if (this.crashed) return;
+    if (typeof res === 'string') res = { crash: true, cause: 'terrain', severity: 'critical', title: 'CRITICAL IMPACT', reason: res, notes: [], data: {} };
     this.crashed = true;
-    this.crashReason = reason;
-    this.rb.vel.set(0, 0, 0);
+    this.crashInfo = res;
+    this.crashReason = res.reason;
+    const P = WRECK_PARAMS[res.severity] || WRECK_PARAMS.critical;
+    const rb = this.rb;
+    // Gövde açısal hızı (rad/s): çarpma anındaki dönüş + şiddete bağlı belirlenimci tork
+    // (rastgele değil: aynı çarpma aynı sonucu verir)
+    const fwd = this._fwd, up = this._up, right = this._right;
+    rb.axes(fwd, up, right);
+    const sideSlip = Math.sign(this.rb.vel.dot(right) || 1);
+    // rigidbody.js: yerel ω = (q, −r, −p) (x sağ, y yukarı, z geri) => dünya ω = sağ·q − yukarı·r + ileri·p
+    const w = new THREE.Vector3()
+      .addScaledVector(right, rb.q)          // yunuslama
+      .addScaledVector(up, -rb.r)            // sapma
+      .addScaledVector(fwd, rb.p);           // yatış
+    w.multiplyScalar(0.6);
+    w.addScaledVector(up, P.spin * 0.6 * sideSlip).addScaledVector(fwd, P.spin * 0.5 * sideSlip).addScaledVector(right, -P.spin * 0.25);
+    this.wreck = {
+      t: 0, P, w, rest: false, sev: res.severity, water: res.cause === 'water',
+      // Gövde yerde: takım çökmüşse gövde, takım açık ve hafifse teker yüksekliği
+      ride: this.gearPos >= 0.98 && res.severity === 'minor' ? -this.geom.wheelBottomY : this.geom.bellyR,
+      contacts: 0, destroyed: res.severity === 'catastrophic',
+    };
     this.rb.p = this.rb.q = this.rb.r = 0;
     this.rates.p = this.rates.q = this.rates.r = 0;
-    this.engine_.reset();
+    // Motor: yıkıcı çarpmada anında durur; diğerlerinde gaz kesilir ve doğal olarak söner
+    if (this.wreck.destroyed) this.engine_.reset();
+    this.throttle = 0; this.afterburner = false;
+    // Takım: çöken takım görsel olarak da içeri girer (sert iniş/gövde üstü kayma)
+    if (res.severity !== 'minor') this.gearCmd = 0;
+    this.onGround = false;
+  }
+
+  /** Çarpma sonrası enkaz dinamiği (fizik adımında, kaza durumunda). */
+  wreckStep(dt) {
+    const W = this.wreck;
+    if (!W || W.rest) return;
+    W.t += dt;
+    this.time += dt;
+    const rb = this.rb, pos = rb.pos, vel = rb.vel, P = W.P;
+    // Motor gazı kesik: doğal sönüm (ses de bunu izler)
+    if (!W.destroyed) this.engine_.update(dt, 0, false, atmosphere(pos.y), 0);
+    this.gearPos = clamp(this.gearPos + Math.sign(this.gearCmd - this.gearPos) * 3 * dt, 0, 1);
+    vel.y -= G * dt;
+    // Hava direnci: ½·ρ·S·CD/m ≈ 1,1e-4 1/m (CD ~0,08, gövde parçalanmamış)
+    const vv = vel.length();
+    if (vv > 1) vel.multiplyScalar(Math.max(0, 1 - 1.1e-4 * vv * dt));
+    const gY = this.world.heightAt(pos.x, pos.z);
+    const water = W.water || gY < WATER_LEVEL;
+    const floor = water ? WATER_LEVEL - Math.min(4, W.t * 0.6) + 0.4 : gY + W.ride;
+    let contact = false;
+    if (pos.y + vel.y * dt <= floor) {
+      contact = true;
+      pos.y = Math.max(pos.y, floor);
+      if (vel.y < 0) {
+        // Çarpma darbesi: yere dik hız sekme katsayısıyla döner (sert çarpmada ezilme enerjiyi
+        // yutar: katsayı düşer); yatay hız Coulomb sürtünme DARBESİYLE azalır (Δv_yatay = μ·Δv_dik).
+        // 480 kt'lık dik çarpma böylece ilk temasta hızının çoğunu kaybeder; gövde üstü inişte
+        // (dik hız ~4 m/s) yatay kayıp küçüktür ve uçak kayarak durur.
+        W.contacts++;
+        const vn = -vel.y, e = vn < 2.5 ? 0 : P.bounce * Math.min(1, 10 / vn);
+        vel.y = vn * e;
+        const vh0 = Math.hypot(vel.x, vel.z);
+        if (vh0 > 1e-3) { const k0 = Math.max(0, vh0 - P.mu * (1 + e) * vn) / vh0; vel.x *= k0; vel.z *= k0; }
+      }
+      // Yerde kayarken sürtünme yukarıdaki darbeden gelir: duran temasta her adımda dik hız
+      // g·dt'dir, yatay kayıp μ·g·dt olur (Coulomb). Suda ek olarak hıza bağlı su direnci.
+      const vh = Math.hypot(vel.x, vel.z);
+      if (water && vh > 1e-3) {
+        const k = Math.max(0, vh - (0.5 + 0.05 * vh) * G * dt) / vh;
+        vel.x *= k; vel.z *= k;
+      }
+      // Dönme yerde hızla söner; tutum yere yatar (yatış ve yunuslama sönümlenir)
+      W.w.multiplyScalar(Math.exp(-dt * (water ? 3 : 2.2) / P.settle));
+      this._eul.setFromQuaternion(rb.quat, 'YXZ');
+      const settle = 1 - Math.exp(-dt * 2.5 / P.settle);
+      this._eul.x += (clamp(this._eul.x, -0.12, 0.12) - this._eul.x) * settle;
+      this._eul.z += (clamp(this._eul.z, -0.10, 0.10) - this._eul.z) * settle;
+      rb.quat.setFromEuler(this._eul);
+    } else {
+      W.w.multiplyScalar(Math.exp(-dt * 0.4));
+    }
+    pos.addScaledVector(vel, dt);
+    // Dönüş: dünya ekseninde açısal hız
+    const wl = W.w.length();
+    if (wl > 1e-4) {
+      this._qi.setFromAxisAngle(this._vb.copy(W.w).multiplyScalar(1 / wl), wl * dt);
+      rb.quat.premultiply(this._qi).normalize();
+    }
+    this.groundY = gY;
+    this.onGround = contact;
+    // Dinlenme: yerde, yavaş ve çarpmadan bu yana yeterli süre
+    if (contact && W.t > 0.8 && Math.hypot(vel.x, vel.z) < 0.4 && Math.abs(vel.y) < 0.4 && W.w.length() < 0.05) {
+      vel.set(0, 0, 0); W.w.set(0, 0, 0); W.rest = true;
+    }
+    // Telemetri: hız ve konum çarpma sonrası da doğru (arayüz/kamera/ses için)
+    const t = this.telemetry;
+    t.tas = vel.length(); t.gsKt = t.tas * KT; t.altFt = pos.y * FT; t.aglFt = (pos.y - gY) * FT; t.vsFpm = vel.y * FT * 60;
+    t.engine = this.engine_.n; t.ab = 0; t.onGround = contact; t.stall = false; t.stallWarn = false; t.buffet = 0;
   }
 
   updateTelemetry(atm, alpha, beta, nz, authority, extra = {}) {

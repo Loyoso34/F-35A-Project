@@ -314,6 +314,20 @@ export class AudioEngine {
     this._noise(this._buf('w', 2.0, 'white', 91), t, 0.35, 0.3 * g, 'lowpass', lp * 1.6, 400, 0.4);
   }
 
+  /**
+   * Uçak çarpması: şiddete göre gövde darbesi + ezilme gürültüsü + metal sürtünmesi; yıkıcı
+   * çarpmada patlama. Ses hızı gecikmesi ve uzaklık sönümü explosion() ile aynıdır.
+   */
+  crashImpact(severity, dist = 30, scrapeSec = 1.5) {
+    if (!this.ready || this.muted) return;
+    const S = { minor: 0.45, major: 0.7, critical: 0.9, catastrophic: 1 }[severity] || 0.8;
+    const t = this.ctx.currentTime + Math.min(3, dist / 343), g = 1 / (1 + dist / 220);
+    this._tone(t, 85, 30, 0.6 + 0.6 * S, 0.7 * S * g);
+    this._noise(this._buf('b', 2.0, 'brown', 93), t, 0.5 + S, 0.9 * S * g, 'lowpass', 1400, 140, 0.6);
+    this._noise(this._buf('w', 2.0, 'white', 91), t + 0.02, Math.min(1.9, scrapeSec), 0.16 * S * g, 'bandpass', 2600, 900, 1.4);
+    if (severity === 'catastrophic') this.explosion(dist);
+  }
+
   // Art yakıcı ateşleme darbesi: kısa düşük frekanslı patlama
   thump() {
     const ctx = this.ctx, t = ctx.currentTime;

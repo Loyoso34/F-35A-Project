@@ -155,8 +155,72 @@ export class CameraRig {
    */
   shake(amount) { this.trauma = Math.min(1, (this.trauma || 0) + amount); }
 
+  // ---------------------------------------------------------------------------
+  // Kaza kamerası. Gövdeye bağlı görünümler (kokpit, kanat, takım) ve gövde eksenini izleyen
+  // takip kamerası takla atan enkazla birlikte döneceği için, kaza anında kamera o anki
+  // pozundan (ışınlanmadan) dışarıdan bakan bir kaza görünümüne YUMUŞAKÇA geçer: konum
+  // doğrusal, yönelim küresel ara değerle, ~1,2 s smoothstep. Serbest kamera ve uçuş geçişi
+  // kamerası zaten dışarıdan baktığı için korunur. Sarsıntı şiddetle orantılıdır.
+  // ---------------------------------------------------------------------------
+  beginCrash(fm, severity, shake) {
+    const cam = this.camera;
+    const keep = this.mode === 'orbit' || this.mode === 'flyby';
+    this.crash = {
+      t: 0, keep, severity,
+      fromPos: cam.position.clone(), fromQuat: cam.quaternion.clone(),
+      impact: fm.pos.clone(),
+      off: new THREE.Vector3(), look: fm.pos.clone(), pos: cam.position.clone(),
+    };
+    // Kaza görünümünün ofseti: çarpmadan önceki hareket yönünün gerisinde, yanda ve yukarıda
+    // (dünya ekseninde sabit: enkaz takla atsa da kamera dönmez)
+    const v = this._v.copy(fm.vel); v.y = 0;
+    if (v.lengthSq() < 1) v.set(0, 0, -1).applyQuaternion(fm.quat).setY(0);
+    v.normalize();
+    const side = this._right.set(-v.z, 0, v.x);
+    const sev = { minor: 0.8, major: 1, critical: 1.25, catastrophic: 1.6 }[severity] || 1;
+    this.crash.off.copy(v).multiplyScalar(-34 * sev).addScaledVector(side, 16 * sev).setY(10 + 6 * sev);
+    if (this.aircraft) this.aircraft.setCockpitView(false);
+    if (!keep && this.cfg) { cam.near = 1.0; cam.fov = this.cfg.chase.fov; cam.updateProjectionMatrix(); }
+    this.shake(shake);
+  }
+  endCrash() {
+    this.crash = null;
+    this.trauma = 0;
+    this.applyMode();
+    this.initialized = false;
+  }
+  _updateCrash(dt, fm) {
+    const C = this.crash, cam = this.camera;
+    C.t += dt;
+    if (C.keep) { this._update(dt, fm); return; }
+    // Geçişin başlangıç KONUMU önceki kipin canlı pozudur (kokpit/takip enkazla birlikte
+    // ilerler, kamera geride kopup kalmaz); başlangıç YÖNELİMİ ise kaza anında dondurulur
+    // (takla atan gövdeyle birlikte dönmez).
+    if (C.t < 1.2) { this._update(dt, fm); C.fromPos.copy(cam.position); }
+    // Bakış hedefi: enkaz (yıkıcı çarpmada çarpma noktasına yakın: ateş topu oradadır)
+    const target = this._v2.copy(fm.pos);
+    if (C.severity === 'catastrophic') target.lerp(C.impact, 0.55);
+    const k = 1 - Math.exp(-dt / 0.35);
+    C.look.lerp(target, k);
+    C.pos.lerp(this._v.copy(C.look).add(C.off), k);
+    if (this.world) {
+      const g = this.world.heightAt(C.pos.x, C.pos.z);
+      if (C.pos.y < g + 3) C.pos.y = g + 3;
+    }
+    // Hedef poz
+    const tq = this._q2;
+    this._eye.copy(C.pos);
+    cam.position.copy(C.pos); cam.up.set(0, 1, 0); cam.lookAt(this._look.copy(C.look).setY(C.look.y + 1.5));
+    tq.copy(cam.quaternion);
+    // Geçiş: kaza anındaki pozdan hedef poza (ışınlanma yok)
+    const u = Math.min(1, C.t / 1.2), s = u * u * (3 - 2 * u);
+    cam.position.lerpVectors(C.fromPos, this._eye, s);
+    cam.quaternion.slerpQuaternions(C.fromQuat, tq, s);
+  }
+
   update(dt, fm) {
-    this._update(dt, fm);
+    if (this.crash) this._updateCrash(dt, fm);
+    else this._update(dt, fm);
     if (this.trauma > 0.001) {
       const t = (fm.time || 0), k = this.trauma * this.trauma;
       const ax = (Math.sin(t * 39.1) * 0.6 + Math.sin(t * 71.7 + 1.3) * 0.4) * 0.022 * k;

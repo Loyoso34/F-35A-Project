@@ -81,6 +81,28 @@ export function makeAsphaltTexture(size = 512) {
   return finishTexture(new THREE.CanvasTexture(c));
 }
 
+// Pist/taksi yolu kaplaması: yaşlanmış GRİ asfalt (yeni asfaltın kömür siyahı değil; havadan
+// pistler açık gri okunur). Agrega taneleri (açık ve koyu noktalar), iki ölçekli ton
+// değişimi ve ince bitüm lekeleri. Döşenebilir; lastik izi ve aşınma gölgelendiricide.
+export function makePavementTexture(size = 512, { base = 92, contrast = 1 } = {}) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const n1 = periodicNoise(size, 4, 41, 4, 0.55);
+  const n2 = periodicNoise(size, 3, 42, 24, 0.6);
+  const rand = mulberry32(43);
+  for (let i = 0; i < size * size; i++) {
+    let v = base + ((n1[i] - 0.5) * 22 + (n2[i] - 0.5) * 12) * contrast;
+    const r = rand();
+    if (r < 0.035) v += 26 + rand() * 30;          // açık agrega
+    else if (r < 0.08) v -= 18 + rand() * 14;      // koyu tane / boşluk
+    else v += (rand() - 0.5) * 10;
+    img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v + 3; img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return finishTexture(new THREE.CanvasTexture(c));
+}
+
 export function makeConcreteTexture(size = 512) {
   const c = makeCanvas(size, size);
   const ctx = c.getContext('2d');
@@ -632,9 +654,11 @@ export function makeRoadTexture(w = 128, h = 256) {
   const ctx = c.getContext('2d');
   const img = ctx.createImageData(w, h);
   const rand = mulberry32(601);
+  const n = periodicNoise(w, 4, 602, 4, 0.55);
   for (let i = 0; i < w * h; i++) {
-    const v = 58 + (rand() - 0.5) * 18;
-    img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v + 2; img.data[i * 4 + 3] = 255;
+    // orta gri yaşlanmış asfalt (eskiden ~58: havadan siyah çizgi gibi okunuyordu)
+    const v = 82 + (n[i % (w * w)] - 0.5) * 20 + (rand() - 0.5) * 16;
+    img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v + 3; img.data[i * 4 + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
   ctx.fillStyle = '#d8d8d0';
@@ -667,7 +691,9 @@ export function makeRoadAtlasTexture(w = 256, h = 256) {
       } else {
         const u = (x - g0) / (w - g0);
         const wear = Math.exp(-Math.pow((u - 0.30) / 0.06, 2)) + Math.exp(-Math.pow((u - 0.70) / 0.06, 2));
-        let v = 50 + (pn - 0.5) * 26 + (gn - 0.5) * 10 + (rand() - 0.5) * 12 - wear * 7;
+        // Yaşlanmış asfalt orta gridir (sRGB ~80-90, yansıtırlık ~0,10-0,12). Eskiden ~50'ydi:
+        // yollar havadan kömür siyahı ince çizgiler gibi okunuyordu. Tekerlek izleri daha koyu.
+        let v = 84 + (pn - 0.5) * 24 + (gn - 0.5) * 10 + (rand() - 0.5) * 12 - wear * 12;
         r = v; g = v; b = v + 3;
       }
       img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255;

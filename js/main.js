@@ -1,7 +1,8 @@
 // F-35A Simülatör – uygulama giriş noktası.
 import * as THREE from 'three';
 import { APP_VERSION } from './version.js';
-import { World, LAYER_TREES, QUALITY_PRESETS, SPAWNS, spawnPose, AIRPORT_BY_ID } from './world.js';
+import { World, LAYER_TREES, QUALITY_PRESETS, SPAWNS, spawnPose, AIRPORT_BY_ID, surfaceTypeAt, WATER_LEVEL } from './world.js';
+import { fmtCrashData } from './crash.js';
 import { FlightModel, FIXED_DT } from './physics.js';
 import { FLEET, FLEET_ORDER, getAircraftConfig } from './fleet.js';
 import { Controls, STICK_SMOOTH } from './controls.js';
@@ -108,7 +109,7 @@ class App {
   constructor() {
     this.ui = new UI();
     this.settings = loadSettings();
-    this.state = 'loading'; // loading | start | running | paused | crashed
+    this.state = 'loading'; // loading | start | running | paused | crashing (kaza sahnesi) | crashed (sonuç ekranı)
     this.pausedByOrientation = false;
     this.accumulator = 0; this._stickSynced = false;
     this._weaponsT = null;   // silah saati: çizilen poz saati (fizik zamanı + artık), bkz. loop
@@ -369,6 +370,7 @@ class App {
     el.btnSettings.addEventListener('click', () => { ui.hide('pause'); ui.show('settings'); });
     el.btnSettingsClose.addEventListener('click', () => { ui.hide('settings'); if (this.state === 'paused') ui.show('pause'); });
     el.btnCrashRestart.addEventListener('click', () => { ui.hide('crash'); this.restart(); });
+    if (el.btnCrashHangar) el.btnCrashHangar.addEventListener('click', () => { ui.hide('crash'); this.clearCrash(); this.showSelect(); });
     el.btnUpdate.addEventListener('click', () => location.reload());
     ui.bindSeg(el.qualitySeg, 'q', (v) => this.setQuality(v));
     ui.bindSeg(el.tiltSeg, 't', async (v) => {
@@ -691,6 +693,7 @@ class App {
 
   showSelect() {
     if (this.state === 'running') this.controls.setEnabled(false);
+    if (this.crashSeq || (this.cameraRig && this.cameraRig.crash)) this.clearCrash();
     this.state = 'select';
     if (this.weapons) this.weapons.reset();
     this.ui.setMenu(false);
@@ -845,13 +848,25 @@ class App {
     if (this.state === 'running') this.pause();
     else if (this.state === 'paused') this.resume();
   }
+  /** Kaza sahnesinin geçici durumunu temizler: enkaz görünürlüğü, kaza kamerası, efektler, girdi. */
+  clearCrash() {
+    this.crashSeq = null;
+    if (this.aircraft) this.aircraft.group.visible = true;
+    if (this.cameraRig.crash) this.cameraRig.endCrash();
+    this.cameraRig.trauma = 0;
+    if (this.weapons) this.weapons.reset();     // füzeler + parçacıklar + krater izleri
+    this._weaponsT = null;
+    this.controls.resetInputs();
+  }
   restart() {
+    this.clearCrash();
+    this.ui.hide('crash');
     this.physics.reset(spawnPose(this.settings.spawn));
-    this.weapons.reset(); this._weaponsT = null;
     this.lightsOn = false; this.aircraft.setLandingLights(false); this.ui.setToggle(this.ui.el.btnLights, false);
     this.controls.resetLever(0);
     this.controls.setEnabled(true);
     this.cameraRig.reset();
+    this.ui.show('touch');
     this.state = 'running';
     this.audio.resume();
     this.updateToggleButtons();
@@ -859,7 +874,8 @@ class App {
     this.accumulator = 0; this._stickSynced = false;
     this.syncAircraft(0);
     const sp = SPAWNS.find((s) => s.id === this.settings.spawn) || SPAWNS[0];
-    const rwy = String(Math.round(sp.hdg / 10) % 36 || 36).padStart(2, '0');
+    // Pist tanımlayıcısı pist geometrisinden hesaplanır (world.js / runway.js), uçak başından değil
+    const rwy = sp.runway;
     const flaps0 = (getAircraftConfig(this.aircraftId).systems.flapNames || ['UP'])[0];
     this.ui.message(`Runway ${rwy} threshold — brakes released, throttle idle, flaps ${flaps0}`);
   }
@@ -1051,6 +1067,94 @@ class App {
     el.innerHTML = L.join('\n');
   }
 
+  // ---- Kaza sahnesi ----
+  // 1) Çarpma algılanır (fizik, tek sefer) ve sınıflandırılır (crash.js).
+  // 2) Enkaz dinamiği sürer (fizik wreckStep, 120 Hz): uçak donmaz/ışınlanmaz.
+  // 3) Kamera kaza görünümüne yumuşak geçer, şiddetle orantılı sarsılır; çarpma sesi ve
+  //    yüzeye/şiddete uygun efektler (toz, kıvılcım, enkaz, sıçrama; yalnızca yıkıcı
+  //    çarpmada ateş topu ve yangın).
+  // 4) Şiddete göre ~1,7-2,6 s sonra (ya da enkaz durunca) sonuç ekranı sinematik olarak açılır;
+  //    sahne arkada akmaya devam eder.
+  beginCrash() {
+    const p = this.physics, info = p.crashInfo || { severity: 'critical', cause: 'terrain', data: {} };
+    const P = p.wreck ? p.wreck.P : { shake: 0.8, delay: 2.4 };
+    this.state = 'crashing';
+    this.controls.setEnabled(false);
+    this.ui.setMenu(false);
+    this.ui.hide('touch'); this.ui.hide('guide');
+    const pos = p.pos, gY = Math.max(this.world.heightAt(pos.x, pos.z), WATER_LEVEL);
+    const surface = surfaceTypeAt(pos.x, pos.z);
+    const paved = surface === 'runway' || surface === 'taxiway' || surface === 'apron';
+    const dir = p.vel.clone().setY(0); const vh = dir.length(); if (vh > 0.1) dir.multiplyScalar(1 / vh);
+    this.crashSeq = {
+      t: 0, delay: P.delay, info, destroyed: info.severity === 'catastrophic', paved, dir, scrapeT: 0, fireT: 0,
+      fire: info.severity === 'catastrophic' || (info.severity === 'critical' && (info.data.impactSpeedKt || 0) > 175 && info.cause !== 'water'),
+      impact: pos.clone(),
+    };
+    this.cameraRig.beginCrash(this.pose, info.severity, P.shake);
+    const fx = this.weapons.fx;
+    const intensity = { minor: 0.45, major: 0.7, critical: 1.0, catastrophic: 1.4 }[info.severity] || 1;
+    if (info.cause === 'water' || surface === 'water') { fx.splash(pos, WATER_LEVEL); if (intensity > 0.9) fx.splash(pos.clone().addScaledVector(dir, 12), WATER_LEVEL); }
+    else if (this.crashSeq.destroyed) {
+      // Yıkıcı çarpma: birkaç ateş topu (yakıt), toz ve enkaz; ana kütle kısa sürede durur
+      // (ölçek: ~1 tonluk iç yakıtın küçük bir kısmının alev alması; füze harp başlığının ~2,5 katı)
+      fx.explode(pos, 'ground', gY, 2.6);
+      fx.explode(pos.clone().addScaledVector(dir, 18).setY(gY + 4), 'ground', gY, 1.8);
+      fx.explode(pos.clone().addScaledVector(dir, 40).setY(gY + 6), 'air', gY, 1.4);
+      fx.impactDust(pos, gY, intensity, paved, dir);
+    } else fx.impactDust(pos, gY, intensity, paved, dir);
+    this.audio.crashImpact(info.severity, this.camera.position.distanceTo(pos), this.crashSeq.destroyed ? 0.6 : 1.8);
+    this.needsRender = true;
+  }
+
+  updateCrash(dt) {
+    const p = this.physics, C = this.crashSeq;
+    if (!C) return;
+    C.t += dt;
+    this.accumulator += dt;
+    let steps = 0;
+    while (this.accumulator >= FIXED_DT && steps < 12) {
+      this._prevPos.copy(p.pos); this._prevQuat.copy(p.quat);
+      p.step(FIXED_DT);
+      this.accumulator -= FIXED_DT; steps++;
+    }
+    if (steps >= 12) this.accumulator = 0;
+    this.interpolatePose(this.accumulator / FIXED_DT);
+    this.syncAircraft(dt);
+    // Yıkıcı çarpma: model ateş topunun içinde kalır ve parçalanmış sayılır (enkaz parçacıkları sürer)
+    if (C.destroyed && C.t > 0.22 && this.aircraft.group.visible) this.aircraft.group.visible = false;
+    this.cameraRig.update(dt, this.pose);
+    // Süren efektler: kayma izi (kıvılcım/toz) ve varsa yangın dumanı
+    const fx = this.weapons.fx, pos = this.pose.pos;
+    const gY = Math.max(this.world.heightAt(pos.x, pos.z), WATER_LEVEL);
+    const vh = Math.hypot(p.vel.x, p.vel.z);
+    C.scrapeT -= dt;
+    if (p.onGround && vh > 4 && C.scrapeT <= 0 && !C.destroyed && !(p.wreck && p.wreck.water)) {
+      C.scrapeT = 0.07;
+      const d = C.dir.set(p.vel.x, 0, p.vel.z).multiplyScalar(1 / vh);
+      const sf = surfaceTypeAt(pos.x, pos.z);
+      fx.scrape(pos, gY, vh, sf === 'runway' || sf === 'taxiway' || sf === 'apron', d);
+    }
+    if (C.fire) {
+      C.fireT -= dt;
+      if (C.fireT <= 0) {
+        C.fireT = C.t < 3 ? 0.09 : 0.22;
+        const heat = Math.max(0, 1 - C.t / 14);
+        fx.fireSmoke(C.destroyed ? C.impact.clone().lerp(pos, 0.5) : pos, gY, heat, C.destroyed ? 1.8 : 1.2);
+      }
+    }
+    this._wind = p.windAt(gY + 8, p.time);
+    const poseT = p.time + this.accumulator;
+    const wdt = this._weaponsT === null ? dt : Math.min(0.1, Math.max(0, poseT - this._weaponsT));
+    this._weaponsT = poseT;
+    this.weapons.update(wdt || dt, this.pose, this.camera, this._wind);
+    // Sonuç ekranı: şiddete göre gecikme ya da enkaz durduktan kısa süre sonra
+    if (this.state === 'crashing' && (C.t > C.delay || (p.wreck && p.wreck.rest && C.t > C.delay * 0.6))) {
+      this.state = 'crashed';
+      this.ui.showCrash(p.crashInfo, fmtCrashData);
+    }
+  }
+
   /** Çizim pozunu son iki fizik durumu arasında kurar (a: 0..1, adım kesri). */
   interpolatePose(a) {
     const p = this.physics, pose = this.pose;
@@ -1157,10 +1261,12 @@ class App {
       // kendi kendini besleyen bir gecikme sarmalına girmez.
       if (steps >= 12) this.accumulator = 0;
       this.interpolatePose(this.accumulator / FIXED_DT);
-      if (this.physics.crashed) {
-        this.state = 'crashed';
-        this.controls.setEnabled(false);
-        this.ui.showCrash(this.physics.crashReason);
+      if (this.physics.crashed) this.beginCrash();
+      else if (p.lastLanding && p.lastLanding !== this._lastLandingShown) {
+        // Teker koyma bildirimi: alçalma hızı (normal / sert ama sınır içinde)
+        this._lastLandingShown = p.lastLanding;
+        const fpm = Math.round(Math.abs(p.lastLanding.data.verticalSpeedFpm));
+        this.ui.message(`${p.lastLanding.cause === 'firm' ? 'Firm touchdown' : 'Touchdown'} · ${fpm} ft/min`, 2200);
       }
       this.syncAircraft(dt);
       this.cameraRig.update(dt, this.pose);
@@ -1174,19 +1280,26 @@ class App {
       this.weapons.update(wdt, this.pose, this.camera, this._wind);
       if (this.physDebug) this.drawPhysDebug();
     }
-    if (running || this.needsRender) {
+    const wrecking = this.state === 'crashing' || this.state === 'crashed';
+    if (wrecking) this.updateCrash(dt);
+    if (running || wrecking || this.needsRender) {
       this.world.setWind(this.physics.windAt(this.physics.groundY + 8, this.physics.time), this.physics.wind.kt);
-      this.world.update(running ? dt : 0, this.camera, this.pose.pos);
+      this.world.update(running || wrecking ? dt : 0, this.camera, this.pose.pos);
       this.renderer.render(this.scene, this.camera);
-      const cockpit = this.cameraRig.mode === 'cockpit';
-      this.hud.draw(this.physics.telemetry, this.camera, this.pose, {
-        visible: cockpit, externalOnly: !cockpit,
-        dt, safe: this.safe, cameraName: CAMERA_NAMES[this.cameraRig.mode],
-      });
+      if (wrecking) this.hud.clear();
+      else {
+        const cockpit = this.cameraRig.mode === 'cockpit';
+        this.hud.draw(this.physics.telemetry, this.camera, this.pose, {
+          visible: cockpit, externalOnly: !cockpit,
+          dt, safe: this.safe, cameraName: CAMERA_NAMES[this.cameraRig.mode],
+        });
+      }
       this.needsRender = false;
     }
-    this.audio.setListener(this.cameraRig.mode === 'cockpit' ? 'cockpit' : 'external', this.cameraRig.doppler, this.cameraRig.distance);
-    this.audio.update(dt, this.physics.telemetry, running);
+    const crashCam = wrecking && this.cameraRig.crash && !this.cameraRig.crash.keep;
+    this.audio.setListener(this.cameraRig.mode === 'cockpit' && !crashCam ? 'cockpit' : 'external', this.cameraRig.doppler, this.cameraRig.distance);
+    // Kaza sahnesinde motor sesi (yıkıcı değilse) gaz kesik hâlde doğal olarak söner
+    this.audio.update(dt, this.physics.telemetry, running || (wrecking && this.crashSeq && !this.crashSeq.destroyed));
     // ---- Uyarlanabilir kalite (perf.js): ham kare aralığıyla, yalnızca uçuşta ölçülür ----
     if (running) this.aq.sample(frameDt, this.frameMs);
     // FPS göstergesi

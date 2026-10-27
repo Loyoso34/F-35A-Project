@@ -500,7 +500,7 @@ export class WeaponSystem {
   /** Yerde durunca füzeler yeniden yüklenir. */
   rearmCheck(dt) {
     const p = this.physics;
-    if (!p || this.count === this.stations.length) { this._rearmT = 0; return; }
+    if (!p || p.crashed || this.count === this.stations.length) { this._rearmT = 0; return; }   // enkaz yeniden silahlanmaz
     if (p.onGround && p.vel.length() < 2 && this.bays.every((b) => b.state === 'closed')) {
       this._rearmT = (this._rearmT || 0) + dt;
       if (this._rearmT > 2) {

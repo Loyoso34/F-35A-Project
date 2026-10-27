@@ -225,6 +225,7 @@ export class City {
     this.tiers = [];       // { mesh(es), dist, visible } — mesafeye göre açılıp kapanır
     this.zoneAt = makeZoning(this.cfg);
     this.heightAt = opts.heightAt;
+    this.surfaceAt = opts.surfaceHeight || null;   // görünen arazi yüzeyi (yollar buna oturur)
     this.landAt = (x, z) => this.heightAt(x, z) > 2.5;
     // Ayrılmış alan (ör. rıhtım şeridi): bina, sokak, ağaç ve otopark buraya yerleşmez
     this.reserved = opts.reserved || (() => false);
@@ -271,9 +272,19 @@ export class City {
     }
   }
 
-  // Poliline'dan araziye oturan şerit geometrisi
-  ribbon(pts, width, yOff) {
-    if (pts.length < 2) return null;
+  // Poliline'dan araziye oturan şerit geometrisi. Uzun düz parçalar ~20 m'de bir örneklenir ve
+  // her kesit GÖRÜNEN arazi yüzeyine (LOD üçgenleri) oturur: eskiden yalnızca köşe noktalarında
+  // yükseklik alınıyordu, yüzlerce metrelik düz caddeler arada araziye gömülüyor ya da havada
+  // kalıyordu. Kenarlar merkezden en fazla 0,5 m sapar (şerit düz kalır, gömülmez).
+  ribbon(pts0, width, yOff) {
+    if (pts0.length < 2) return null;
+    const pts = [];
+    for (let i = 0; i < pts0.length - 1; i++) {
+      const [ax, az] = pts0[i], [bx, bz] = pts0[i + 1];
+      const L = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(L / 20));
+      for (let k = i === 0 ? 0 : 1; k <= n; k++) pts.push([ax + (bx - ax) * k / n, az + (bz - az) * k / n]);
+    }
+    const H = this.surfaceAt || this.heightAt;
     const positions = [], uvs = [], idx = [];
     let v = 0, dist = 0;
     for (let i = 0; i < pts.length; i++) {
@@ -283,8 +294,12 @@ export class City {
       const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
       const nx = -tz, nz = tx;
       if (i > 0) dist += Math.hypot(p[0] - prev[0], p[1] - prev[1]);
-      const y = this.heightAt(p[0], p[1]) + yOff;
-      positions.push(p[0] - nx * width / 2, y, p[1] - nz * width / 2, p[0] + nx * width / 2, y, p[1] + nz * width / 2);
+      const yc = H(p[0], p[1]);
+      const lx = p[0] - nx * width / 2, lz = p[1] - nz * width / 2, rx = p[0] + nx * width / 2, rz = p[1] + nz * width / 2;
+      // kenar: kendi noktasındaki yüzeye oturur ama merkezden ±0,5 m'den fazla sapmaz; hiçbir
+      // zaman yüzeyin altına inmez
+      const edgeY = (x, z) => { const ys = H(x, z); return Math.max(Math.min(Math.max(ys, yc - 0.5), yc + 0.5), ys) + yOff; };
+      positions.push(lx, edgeY(lx, lz), lz, rx, edgeY(rx, rz), rz);
       uvs.push(0, dist / 22, 1, dist / 22);
       if (i > 0) { const a = v - 2, b = v - 1, c = v, d = v + 1; idx.push(a, b, c, b, d, c); }
       v += 2;

@@ -6,12 +6,14 @@ import {
   makeAsphaltTexture, makeConcreteTexture, makeWaterNormalTexture,
   makeHangarWallTexture, makeHangarDoorTexture, makeTextTexture, makeCloudTexture, makeRoadTexture, makeWindowsTexture,
   makeChainLinkTexture, makeBarbedWireTexture, makeOliveTexture, makeFacadeTexture, makeTerrainDetailTexture,
-  makeRoadAtlasTexture, makeHouseAtlasTexture,
+  makeRoadAtlasTexture, makeHouseAtlasTexture, makePavementTexture,
 } from './textures.js';
 import { HAZE_UNIFORMS, HAZE_PARS_FS, SKY_GLSL, hazeAll, createTerrainMaterial, WATER_OPTICS, WATER_OPTICS_GLSL } from './worldshade.js';
 import { buildStaticAircraftGeometries } from './aircraft.js';
 import { City, makeZoning, ZONE } from './city.js';
 import { Waterfront, waterfrontHeight, wfReserved, wfPaved, wfPlan, wfCityLinks } from './waterfront.js';
+import { makeAirfieldPlan, planSurfaceAt, buildAirfield } from './airfield.js';
+import { buildRunway, buildLightPoints, runwayDesignators, designatorText, trueHeadingFromEnds, MARKING_STANDARDS, MAGNETIC_VARIATION_DEG, LIGHT_COLORS } from './runway.js';
 
 export const MAP_SIZE = 72000;   // 72 x 72 km: iki havaalanı arası uçuş anlamlı bir mesafe olsun
 export const WATER_LEVEL = -4;
@@ -142,30 +144,54 @@ export function urbanDensity(x, z) {
 }
 // İkinci yerleşim: sivil havalimanının yanındaki kasaba
 const TOWN2 = { x: 21200, z: -13600, r: 1050 };
+// Batı yolunun bittiği yol köyü: evler yalnızca ana yol boyunca dizilir (sokak ağı yok)
+const HAMLET = { x: -11150, z: 1440, r: 720 };
 
 // ---- Havaalanları ----------------------------------------------------------
 // Her havaalanı kendi yerel çerçevesinde tanımlanır: (x, z) merkez, hdg pist yönü (derece,
 // 90 = doğu). Yerel koordinatlarda +X pist ekseni, +Z pistin sağ tarafıdır. Böylece ikinci
 // havaalanı döndürülebilir ve tüm sorgular (yüzey tipi, düzleştirme) tek kod yolundan geçer.
+// Pist numaraları burada YAZILMAZ: pist uçlarının dünya konumundan (gerçek yön) ve manyetik
+// sapmadan hesaplanır (bkz. runway.js). magVar: doğu +, derece; kurgusal dünyada veri yok -> 0.
+// markings: işaret standardı (ICAO / FAA). pad: pist ucu öncesi kaplamalı alan (m).
 export const AIRPORTS = [
   {
     id: 'base', name: 'Anadolu Air Base', sub: 'Military base', kind: 'military',
     x: 0, z: 0, hdg: 90, elev: 0, halfX: 4600, halfZ: 1500, fade: 2400,
-    rwy: { len: 3000, w: 45 }, marks: ['09', '27'],
+    rwy: { len: 3000, w: 45, pad: 80, suffix: '' }, magVar: MAGNETIC_VARIATION_DEG, markings: 'ICAO', tdzPattern: 'coded',
   },
   {
     id: 'civil', name: 'Yesilova Airport', sub: 'Civil airport', kind: 'civil',
     x: 24000, z: -10000, hdg: 120, elev: 185, halfX: 2900, halfZ: 1250, fade: 2600,
-    rwy: { len: 3400, w: 45 }, marks: ['12', '30'],
+    rwy: { len: 3400, w: 45, pad: 90, suffix: '' }, magVar: MAGNETIC_VARIATION_DEG, markings: 'ICAO', tdzPattern: 'coded',
   },
 ];
 export const AIRPORT_BY_ID = Object.fromEntries(AIRPORTS.map((a) => [a.id, a]));
+for (const a of AIRPORTS) {
+  const r = a.hdg * Math.PI / 180; a.cos = Math.cos(r); a.sin = Math.sin(r);
+  // Pist geometrisinden gerçek yön: A ucu (yerel −X) -> B ucu (yerel +X)
+  const A = airportWorld(a, -a.rwy.len / 2, 0), B = airportWorld(a, a.rwy.len / 2, 0);
+  a.rwyTrueHdg = trueHeadingFromEnds(A.x, A.z, B.x, B.z);
+  const std = MARKING_STANDARDS[a.markings] || MARKING_STANDARDS.ICAO;
+  a.desig = runwayDesignators(a.rwyTrueHdg, { magVar: a.magVar, leadingZero: std.leadingZero, suffix: a.rwy.suffix });
+  a.marks = [designatorText(a.desig.a), designatorText(a.desig.b)];
+}
+/** Kalkış noktasının pist ucunu ve tanımlayıcısını verir (uçak yönüne göre A ya da B ucu). */
+export function spawnRunway(sp) {
+  const a = AIRPORT_BY_ID[sp.airport];
+  const d = Math.abs(((sp.hdg - a.rwyTrueHdg + 540) % 360) - 180);
+  return d < 90 ? a.marks[0] : a.marks[1];
+}
 // Kalkış noktaları: pist başında, pist yönüne dönük. Seçim ekranı bu listeden beslenir.
 export const SPAWNS = [
-  { id: 'base', airport: 'base', name: 'Anadolu Air Base', sub: 'Military base · Runway 09/27 · 3000 m', lx: -1400, lz: 0, hdg: 90 },
-  { id: 'civil', airport: 'civil', name: 'Yesilova Airport', sub: 'Civil airport · Runway 12/30 · 3400 m · Elevation 185 m', lx: -1600, lz: 0, hdg: 120 },
+  { id: 'base', airport: 'base', name: 'Anadolu Air Base', kindLabel: 'Military base', lx: -1400, lz: 0, hdg: 90 },
+  { id: 'civil', airport: 'civil', name: 'Yesilova Airport', kindLabel: 'Civil airport', lx: -1600, lz: 0, hdg: 120 },
 ];
-for (const a of AIRPORTS) { const r = a.hdg * Math.PI / 180; a.cos = Math.cos(r); a.sin = Math.sin(r); }
+for (const sp of SPAWNS) {
+  const a = AIRPORT_BY_ID[sp.airport];
+  sp.runway = spawnRunway(sp);
+  sp.sub = `${sp.kindLabel} · Runway ${a.marks[0]}/${a.marks[1]} · ${a.rwy.len} m` + (a.elev ? ` · Elevation ${a.elev} m` : '');
+}
 // Dünya -> havaalanı yerel koordinatı. hdg=90 için birim dönüşüm (lx = x, lz = z).
 export function airportLocal(a, x, z, out) {
   const dx = x - a.x, dz = z - a.z;
@@ -187,25 +213,42 @@ export function spawnPose(spawnId) {
   const w = airportWorld(a, sp.lx, sp.lz);
   return { x: w.x, z: w.z, hdg: sp.hdg, id: sp.id };
 }
-// Yollar (poligon çizgileri) – hepsi düzlük koridorunda
+// Yollar (poligon çizgileri). Her yolun iki ucu da anlamlı bir yere bağlanır: başka bir yol
+// (kavşak), bir kapı, bir yerleşim ya da bir tesis (otopark, kargo alanı). Kaldırılanlar:
+//  - town-north: town-city ile aynı koridorda, 300 m yanında koşup tarlada biten kopya yol,
+//  - base-perimeter / base-cargo: uçları kapısız çit hattında biten yollar (cargo depoların
+//    içinden geçiyordu),
+//  - civil-town / civil-apron: sivil havalimanının YANLIŞ (terminalsiz) tarafında, pistin 750 m
+//    yanında çimde biten ve yayladan 125 m'lik bir yarma açan yol.
+// Havaalanı yerel noktaları dünya koordinatına çevrilerek yazılır (pist döndürülmüştür).
+const CIVIL_W = (lx, lz) => { const w = airportWorld(AIRPORTS[1], lx, lz); return [w.x, w.z]; };
 const ROADS = [
   { name: 'base-town', w: 9, pts: [[0, 1050], [300, 2200], [1000, 3400], [1700, 4200], [2100, 5200], [2500, 6100], [2600, 6900]] },
   { name: 'town-east', w: 8, pts: [[2600, 6900], [3800, 7100], [5200, 6900], [6700, 6500], [7600, 6200]] },
-  // Yollar kenar dağlarından önce biter: yol koridoru düzleştirmesi dağların içine kanyon açmasın
-  { name: 'base-west', w: 9, pts: [[-1200, 1050], [-2500, 1300], [-4500, 1500], [-7500, 1700], [-10500, 1500]] },
-  { name: 'town-north', w: 7, over: true, pts: [[2600, 6900], [2650, 8300], [2900, 10200]] },
+  // Batı kapısından batıya; batı göl kıyısındaki dinlenme alanında (otopark) biter
+  // Batı kapısından batıya; yol boyunca dizilmiş bir köyde (HAMLET) biter
+  { name: 'base-west', w: 9, pts: [[-1200, 1050], [-1200, 1110], [-2500, 1300], [-4500, 1500], [-7500, 1700], [-10500, 1500], [-11800, 1350]] },
   // Doğu otoyolu: kasabadan sivil havalimanına — iki havaalanı arasındaki koridoru görünür kılar
   { name: 'highway-east', w: 11, pts: [[7600, 6200], [10200, 4200], [12600, 1600], [15200, -2200], [18000, -6200], [20400, -9600], [21200, -12600]] },
-  { name: 'civil-town', w: 9, pts: [[21200, -13600], [22600, -12400], [23600, -11200]] },
-  { name: 'civil-apron', w: 8, pts: [[23600, -11200], [24300, -10700]] },
   // Üs -> kasaba -> ŞEHİR ana otoyolu: haritanın belkemiği. Kasabadan güneye iner,
   // şehrin çevre yoluna bağlanır. Oyuncu havadan bu hattı takip ederek şehri bulur.
   { name: 'town-city', w: 13, pts: [[2600, 6900], [2950, 8000], [3350, 9200], [3800, 10400], [4200, 11600], [4430, 12800], [4480, 13500]] },
   // Şehir çevre yolundan sanayi bölgesine ve limana giden bağlantı
   { name: 'city-port', w: 11, pts: [[1600, 16000], [900, 17200], [500, 18400], [600, 19700]] },
-  // Havaalanı çevre yolu ve ticari bölge erişimi
-  { name: 'base-perimeter', w: 8, over: true, pts: [[-1900, 1050], [-1900, 1650], [1500, 1650], [1900, 1300], [1900, 1050]] },
-  { name: 'base-cargo', w: 8, pts: [[1200, 1050], [1250, 1720], [1900, 1900], [2500, 1980]] },
+  // Üssün güney cephesi: iki kapıyı ve kargo alanını bağlayan servis yolu (çitin 60 m dışında)
+  { name: 'base-frontage', w: 8, pts: [[-1200, 1110], [1600, 1110]] },
+  // Kargo/lojistik alanı erişimi + otopark girişleri (depo sıralarının batısından)
+  { name: 'cargo-access', w: 8, pts: [[1600, 1110], [1600, 2230]] },
+  { name: 'cargo-lot-1', w: 7, pts: [[1600, 1898], [1660, 1898]] },
+  { name: 'cargo-lot-2', w: 7, pts: [[1600, 2048], [1660, 2048]] },
+  { name: 'cargo-lot-3', w: 7, pts: [[1600, 2198], [1660, 2198]] },
+  // Batı kapısı dışındaki otel/ofis bölgesi: base-west'ten ayrılır, otoparkta biter
+  { name: 'hotel-access', w: 7, from: { road: 'base-west', x: -2240 }, pts: [[-2240, 1700]] },
+  // Sivil havalimanı erişim yolu: otoyoldan ayrılır, pistin batı ucunun güneyinden dolanır
+  // (yaklaşma ışıklarının ve pist ucu emniyet alanının dışında) ve terminal otoparkına girer.
+  { name: 'civil-access', w: 10, from: { road: 'highway-east', near: CIVIL_W(-2950, 2150) }, pts: [CIVIL_W(-2500, 1500), CIVIL_W(-1950, 1010), CIVIL_W(-600, 960), CIVIL_W(0, 960), CIVIL_W(0, 866)] },
+  // Kargo apronu servis yolu (terminal yolundan)
+  { name: 'civil-cargo', w: 8, from: { road: 'civil-access', near: CIVIL_W(0, 960) }, pts: [CIVIL_W(1450, 960), CIVIL_W(1450, 431)] },
 ];
 // Yol kıvrımları: her köşe, yol sınıfına göre yarıçaplı bir yayla yumuşatılır (gerçek yollar
 // düzlükler + kavislerden oluşur). Yarıçap komşu parçaların uzunluğuyla sınırlıdır; kontrol
@@ -231,8 +274,113 @@ function filletPath(pts, radius, step = 25) {
   out.push([pts[pts.length - 1][0], pts[pts.length - 1][1]]);
   return out;
 }
-for (const r of ROADS) r.pts = filletPath(r.pts, r.w >= 11 ? 900 : r.over ? 70 : 420);
-const ROAD_IDX = new SegIndex(ROADS.map((r) => r.pts), 620);
+// Bir yolun (yumuşatılmış) çizgisi üzerinde en yakın nokta
+function nearestOnPolyline(pts, x, z) {
+  let best = null, bd = Infinity;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+    const vx = bx - ax, vz = bz - az, L2 = vx * vx + vz * vz || 1;
+    const t = clamp(((x - ax) * vx + (z - az) * vz) / L2, 0, 1);
+    const px = ax + vx * t, pz = az + vz * t, d = Math.hypot(px - x, pz - z);
+    if (d < bd) { bd = d; best = [px, pz]; }
+  }
+  return best;
+}
+// Kollar ana yoldan çıkar: başlangıç noktası ana yolun YUMUŞATILMIŞ çizgisinden hesaplanır
+// (kontrol noktası değil), böylece kol ana yolun tam üstünde başlar — boşluk ya da bindirme yok.
+for (const r of ROADS) {
+  if (r.from) continue;
+  r.pts = filletPath(r.pts, r.w >= 11 ? 900 : r.over ? 70 : 420);
+}
+for (const r of ROADS) {
+  if (!r.from) continue;
+  const host = ROADS.find((q) => q.name === r.from.road);
+  let p0;
+  if (r.from.x !== undefined) {
+    // ana yolun verilen x'teki noktası
+    for (let i = 0; i < host.pts.length - 1 && !p0; i++) {
+      const [ax, az] = host.pts[i], [bx, bz] = host.pts[i + 1];
+      if ((ax - r.from.x) * (bx - r.from.x) <= 0 && ax !== bx) { const t = (r.from.x - ax) / (bx - ax); p0 = [r.from.x, az + (bz - az) * t]; }
+    }
+  } else p0 = nearestOnPolyline(host.pts, r.from.near[0], r.from.near[1]);
+  r.pts = filletPath([p0, ...r.pts], r.w >= 11 ? 600 : 160);
+}
+// Yol dizini: en yakın parça + yol boyunca konum (yol profili için)
+class RoadSegIndex extends SegIndex {
+  constructor(roads, reach, cell) {
+    super(roads.map((r) => r.pts), reach, cell);
+    this.meta = [];
+    roads.forEach((r, ri) => {
+      let acc = 0;
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        const L = Math.hypot(r.pts[i + 1][0] - r.pts[i][0], r.pts[i + 1][1] - r.pts[i][1]);
+        this.meta.push([ri, acc, L]); acc += L;
+      }
+    });
+  }
+  nearest(x, z, out) {
+    out.d = Infinity;
+    const l = this.map.get(Math.floor(x / this.cell) * 65536 + Math.floor(z / this.cell));
+    if (!l) return out;
+    let best = Infinity, bi = -1, bt = 0;
+    for (let i = 0; i < l.length; i++) {
+      const s = this.segs[l[i]];
+      const vx = s[2] - s[0], vz = s[3] - s[1], wx = x - s[0], wz = z - s[1];
+      const L2 = vx * vx + vz * vz || 1;
+      let t = (wx * vx + wz * vz) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const dx = s[0] + vx * t - x, dz = s[1] + vz * t - z, d = dx * dx + dz * dz;
+      if (d < best) { best = d; bi = l[i]; bt = t; }
+    }
+    if (bi < 0) return out;
+    const m = this.meta[bi];
+    out.d = Math.sqrt(best); out.ri = m[0]; out.s = m[1] + bt * m[2];
+    return out;
+  }
+}
+const ROAD_IDX = new RoadSegIndex(ROADS, 620);
+// Yol boyuna doğal arazi profili (yol düzleştirmesinden ÖNCEKİ arazi, ±250 m kayan ortalama).
+// Yol koridoru bu profilin üstündeki tümsekleri keser, altındaki çukurları doldurmaz. Eskiden
+// koridor sabit 60 m'ye kesiliyordu: 185 m'lik yaylada pistin yanında 125 m derin, 1 km genişlikte
+// bir yarma ve havaalanı kenarında biten bir "kanyon" oluşuyordu.
+let ROAD_PROFILE_PASS = false;
+let ROAD_PROF = null;
+function roadProfileAt(ri, s) {
+  if (!ROAD_PROF) {
+    ROAD_PROFILE_PASS = true;
+    try {
+      ROAD_PROF = ROADS.map((r) => {
+        const samples = [];
+        let acc = 0;
+        for (let i = 0; i < r.pts.length - 1; i++) {
+          const [ax, az] = r.pts[i], [bx, bz] = r.pts[i + 1];
+          const L = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(L / 25));
+          for (let k = i === 0 ? 0 : 1; k <= n; k++) samples.push([acc + L * k / n, terrainHeight(ax + (bx - ax) * k / n, az + (bz - az) * k / n)]);
+          acc += L;
+        }
+        const S = Float32Array.from(samples.map((q) => q[0]));
+        let H = Float32Array.from(samples.map((q) => q[1]));
+        for (let pass = 0; pass < 2; pass++) {
+          const out = new Float32Array(H.length);
+          for (let i = 0; i < H.length; i++) {
+            let sum = 0, n = 0;
+            for (let j = i; j >= 0 && S[i] - S[j] <= 250; j--) { sum += H[j]; n++; }
+            for (let j = i + 1; j < H.length && S[j] - S[i] <= 250; j++) { sum += H[j]; n++; }
+            out[i] = sum / n;
+          }
+          H = out;
+        }
+        return { S, H };
+      });
+    } finally { ROAD_PROFILE_PASS = false; }
+  }
+  const P = ROAD_PROF[ri], S = P.S;
+  let lo = 0, hi = S.length - 1;
+  if (s <= S[0]) return P.H[0];
+  if (s >= S[hi]) return P.H[hi];
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (S[m] <= s) lo = m; else hi = m; }
+  const t = (s - S[lo]) / (S[hi] - S[lo] || 1);
+  return P.H[lo] + (P.H[hi] - P.H[lo]) * t;
+}
 // Kasaba sokakları (yalnızca yol ağı ve ev yerleşimi için; arazi düzleştirmesine dahil değil).
 // Izgara yerine organik plan: merkezden geçen ana yollar (ROADS) + bükülmüş iç ve dış halka
 // yolu + halkaları bağlayan, ana yol yönlerinden kaçınan ara sokaklar + dış halkadan kırsala
@@ -366,9 +514,21 @@ function townMask(x, z) {
 function roadMask(x, z) {
   const d = ROAD_IDX.dist(x, z);
   if (d > 520) return 0;
-  // Dağ bölgesinde koridor düzleştirmesi sönümlenir (güvenlik payı)
   const edge = Math.max(Math.abs(x), Math.abs(z));
   return smoothstep(520, 230, d) * (1 - smoothstep(MTN_IN - 3000, MTN_IN + 500, edge));
+}
+const _rn = { d: 0, ri: 0, s: 0 };
+// Yol koridoru: yolun 230 m yakınında tam, 520 m'de sıfır. Üst sınır: 60 m (eski ova davranışı,
+// şehir/kasaba yakınında arazi birebir aynı kalır) ya da yolun kendi doğal profili, hangisi yüksekse.
+function roadAdjust(x, z, h) {
+  ROAD_IDX.nearest(x, z, _rn);
+  if (_rn.d > 520) return h;
+  // Dağ bölgesinde koridor düzleştirmesi sönümlenir (güvenlik payı)
+  const edge = Math.max(Math.abs(x), Math.abs(z));
+  const rm = smoothstep(520, 230, _rn.d) * (1 - smoothstep(MTN_IN - 3000, MTN_IN + 500, edge));
+  if (rm <= 0) return h;
+  const cap = Math.max(60, roadProfileAt(_rn.ri, _rn.s) + 1.5);
+  return lerp(h, Math.min(h, cap), rm);
 }
 // Dağ kuşağının başladığı ve doruğa ulaştığı kenar mesafeleri (harita yarısı 36 km)
 const MTN_IN = 27000, MTN_OUT = 34500;
@@ -505,8 +665,8 @@ export function terrainHeight(x, z) {
   const cm = cityFlatMask(x, z);
   if (cm > 0.001) h = lerp(h, CITY.elev + 8 * smoothstep(0, 1, cm), cm * 0.88);
   h = lerp(h, 12, townMask(x, z) * 0.85);
-  const rm = roadMask(x, z);
-  h = lerp(h, Math.min(h, 60), rm);
+  if (ROAD_PROFILE_PASS) return h;      // yol profili örneklemesi: yol koridorundan önceki arazi
+  h = roadAdjust(x, z, h);
   // Deniz. Korunan bölgelerde (şehir kıyısı) eski profil birebir: kıyıdan itibaren plaj
   // eğimi, sonra derinleşen taban. Diğer kıyılarda yeni profil (bkz. coastProfile).
   const sd = sd0;
@@ -586,8 +746,9 @@ export const AIRBASE = {
   runwayLength: 3000, runwayWidth: 45, runwayZ: 0,
   taxiwayZ: 200, taxiwayNorthZ: -200, taxiwayWidth: 23,
   apron: { x0: -760, x1: 760, z0: 211.5, z1: 580 },
-  links: [-1450, -725, 0, 725, 1450],
-  linksNorth: [-1450, 0, 1450],
+  // Uç bağlantılar pist eşiğinde (tam uzunluk kalkış için); paralel taksi yolu onlarla biter
+  links: [-1480, -725, 0, 725, 1480],
+  linksNorth: [-1480, 0, 1480],
   hangars: [-560, -280, 0, 280, 560].map((x) => ({ x, z: 700, w: 72, d: 62, h: 14, arch: 7 })),
   shelters: [-560, -400, -240, -80, 80, 240, 400, 560].map((x) => ({ x, z: 480, w: 34, d: 30, h: 8 })),
   parking: Array.from({ length: 16 }, (_, i) => ({ x: -600 + i * 80, z: 330 })),
@@ -601,14 +762,47 @@ export const AIRBASE = {
   gateZ: 1050,
 };
 AIRBASE.fuel = [{ x: -1010, z: 380, r: 10, h: 8 }, { x: -975, z: 380, r: 10, h: 8 }, { x: -1010, z: 410, r: 10, h: 8 }, { x: -975, z: 410, r: 10, h: 8 }];
+// Üs içi servis yolları (çit içinde). TEK bağlı ağ: her yol ya başka bir yola, ya kapıya, ya da
+// bir tesise (otopark, apron kenarı, yakıt sahası, depo, sığınak) bağlanır. Eskiden aynı hat
+// üzerinde düz asfalt levha + servis yolu üst üste çiziliyordu, bazı yollar atölyelerin içinden
+// geçiyordu, bazıları da çimenin ortasında bitiyordu.
+const BASE_FENCE = { x0: -2080, x1: 2080, z0: -820, z1: AIRBASE.gateZ };
+const PI_ = 14;   // çevre yolunun çitten içeri uzaklığı
+export const BASE_ROADS = [
+  // Çevre yolu (kapalı halka; düz bir kenarın ortasından başlar, köşeler yuvarlatılır)
+  { id: 'perimeter', w: 6, closed: true, pts: [[0, BASE_FENCE.z0 + PI_], [BASE_FENCE.x1 - PI_, BASE_FENCE.z0 + PI_], [BASE_FENCE.x1 - PI_, BASE_FENCE.z1 - PI_], [BASE_FENCE.x0 + PI_, BASE_FENCE.z1 - PI_], [BASE_FENCE.x0 + PI_, BASE_FENCE.z0 + PI_], [0, BASE_FENCE.z0 + PI_]] },
+  { id: 'main-gate', w: 8, pts: [[0, AIRBASE.gateZ], [0, 800]] },                                   // ana kapı -> hangar yolu
+  { id: 'hangar-road', w: 8, pts: [[-870, 800], [1450, 800]] },                                    // hangarların arkası
+  { id: 'west-road', w: 6, pts: [[-870, BASE_FENCE.z1 - PI_], [-870, 800]] },
+  { id: 'east-road', w: 6, pts: [[830, BASE_FENCE.z1 - PI_], [830, 530]] },
+  { id: 'hq-road', w: 6, pts: [[830, 530], [1150, 530]] },                                         // HQ otoparkı ve depolar
+  { id: 'depot-road', w: 6, pts: [[1450, 800], [1450, 895]] },                                     // araç deposu otoparkı
+  { id: 'barracks-road', w: 6, pts: [[-450, 800], [-450, 1008], [-330, 1008]] },                   // kışla otoparkı
+  { id: 'generator-road', w: 5, pts: [[300, 800], [300, 952]] },
+  // Batı kapısı -> depolar -> yakıt sahası kuzey kapısı; yakıt sahası doğu kapısı -> apron
+  { id: 'west-gate', w: 6, pts: [[-1200, AIRBASE.gateZ], [-1200, 905], [-1120, 765], [-1065, 700], [-990, 640], [-990, 451]] },
+  { id: 'west-lot', w: 5, pts: [[-1230, 885], [-1190, 885]] },
+  { id: 'fuel-apron', w: 7, pts: [[-926, 395], [-761, 395]] },
+  // HAS arkası: çevre yolunun iki yakasını bağlar; mühimmat sahası ondan ayrılır
+  { id: 'has-back', w: 6, pts: [[BASE_FENCE.x0 + PI_, -560], [BASE_FENCE.x1 - PI_, -560]] },
+  { id: 'munitions', w: 6, pts: [[-1700, -560], [-1700, -668]] },
+  { id: 'igloo-front', w: 6, pts: [[-1790, -668], [-1340, -668]] },
+];
+for (const r of BASE_ROADS) r.pts = filletPath(r.pts, 28, 6);
+function baseRoadDist(x, z) {
+  let best = Infinity;
+  for (const r of BASE_ROADS) best = Math.min(best, distToPolyline(x, z, r.pts) - r.w / 2);
+  return best;
+}
 
 // Sivil havalimanı yerleşimi (yerel koordinat: +X pist ekseni, +Z pistin kuzey tarafı)
 export const CIVIL = {
   rwyHalf: 1700, rwyW: 45,
   taxiZ: 190, taxiW: 23, taxiHalf: 1760,
-  links: [-1420, -700, 0, 700, 1420],
+  links: [-1680, -700, 0, 700, 1680],
   apron: { x0: -940, x1: 940, z0: 201.5, z1: 560 },
-  cargo: { x0: 1080, x1: 1560, z0: 215, z1: 430 },
+  // Kargo apronu taksi yoluna bitişik (eskiden arada 13,5 m çim vardı: apron erişilemezdi)
+  cargo: { x0: 1080, x1: 1560, z0: 201.5, z1: 430 },
   terminal: { x: 0, z: 655, w: 430, d: 68, h: 23 },
   pier: { x: 0, z: 585, w: 300, d: 22, h: 8 },
   tower: { x: 610, z: 640, r: 5.5, h: 42 },
@@ -618,28 +812,60 @@ export const CIVIL = {
   carPark: { x: 0, z: 800, w: 380, d: 130 },
 };
 
+// ---- Kaplama planları (airfield.js): çizim ve fizik yüzey sorgusu AYNI veriden ----
+// Taksi yolları birbirine bindirilmez; bağlantılar pist kenarından paralel taksi yolu kenarına
+// uzanır, kavşak köşeleri dolgu yaylarıyla kapanır. Apronlar taksi yolu kenarına bitişiktir.
+function basePlanDef() {
+  const A = AIRBASE, tw = A.taxiwayWidth, h = tw / 2, W2 = A.runwayWidth / 2, L2 = A.runwayLength / 2;
+  const endX = A.links[A.links.length - 1] + h;           // paralel taksi yolları uç bağlantılarla biter
+  const taxiways = [
+    { id: 'A', axis: 'x', c: A.taxiwayZ, from: -endX, to: endX, w: tw },
+    { id: 'B', axis: 'x', c: A.taxiwayNorthZ, from: -endX, to: endX, w: tw },
+    { id: 'C', axis: 'x', c: A.hasLaneZ, from: -810, to: 810, w: tw },
+    ...A.links.map((x, i) => ({ id: 'A' + (i + 1), axis: 'z', c: x, from: W2, to: A.taxiwayZ - h, w: tw })),
+    ...A.linksNorth.map((x, i) => ({ id: 'B' + (i + 1), axis: 'z', c: x, from: A.taxiwayNorthZ + h, to: -W2, w: tw })),
+    { id: 'C1', axis: 'z', c: 0, from: A.hasLaneZ + h, to: A.taxiwayNorthZ - h, w: tw },
+  ];
+  const ap = A.apron;
+  const aprons = [
+    { x0: ap.x0, x1: ap.x1, z0: ap.z0, z1: ap.z1, id: 'main apron' },
+    { x0: -700, x1: 700, z0: ap.z1, z1: 770, id: 'hangar apron' },
+    // Sığınak önleri: sığınak tabanından HAS şeridinin kenarına kadar (eskiden 26 m çim boşluk vardı)
+    ...A.has.map((s) => ({ x0: s.x - (s.w + 16) / 2, x1: s.x + (s.w + 16) / 2, z0: s.z - s.d / 2 + 2, z1: A.hasLaneZ - h, id: 'HAS', kind: 'pad' })),
+    { x0: A.tower.x - 100, x1: A.tower.x + 100, z0: 260, z1: 460, id: 'tower', kind: 'pad' },
+    { x0: -1050, x1: -930, z0: 345, z1: 445, id: 'fuel', kind: 'pad' },
+    { x0: 1075, x1: 1165, z0: 610, z1: 670, id: 'water tower', kind: 'pad' },
+    { x0: A.radar.x - 30, x1: A.radar.x + 30, z0: A.radar.z - 30, z1: A.radar.z + 30, id: 'radar', kind: 'pad' },
+  ];
+  return { runway: { len: A.runwayLength, w: A.runwayWidth, pad: AIRPORT_BY_ID.base.rwy.pad }, taxiways, aprons, filletR: 30 };
+}
+function civilPlanDef() {
+  const C = CIVIL, tw = C.taxiW, h = tw / 2, W2 = C.rwyW / 2;
+  const endX = C.links[C.links.length - 1] + h;
+  const taxiways = [
+    { id: 'A', axis: 'x', c: C.taxiZ, from: -endX, to: endX, w: tw },
+    ...C.links.map((x, i) => ({ id: 'A' + (i + 1), axis: 'z', c: x, from: W2, to: C.taxiZ - h, w: tw })),
+  ];
+  const T = C.terminal, front = T.z + T.d / 2 + 30;
+  const aprons = [
+    { x0: C.apron.x0, x1: C.apron.x1, z0: C.apron.z0, z1: C.apron.z1, id: 'main apron' },
+    { x0: C.cargo.x0, x1: C.cargo.x1, z0: C.cargo.z0, z1: C.cargo.z1, id: 'cargo apron' },
+    { x0: C.apron.x1, x1: C.cargo.x0, z0: C.apron.z0, z1: 330, id: 'cargo link' },
+    { x0: -(T.w + 20) / 2, x1: (T.w + 20) / 2, z0: C.apron.z1, z1: front, id: 'terminal', kind: 'pad' },
+    { x0: -35, x1: 35, z0: front, z1: C.carPark.z - C.carPark.d / 2, id: 'curb', kind: 'lot' },
+    { x0: C.carPark.x - C.carPark.w / 2, x1: C.carPark.x + C.carPark.w / 2, z0: C.carPark.z - C.carPark.d / 2, z1: C.carPark.z + C.carPark.d / 2, id: 'car park', kind: 'lot' },
+  ];
+  return { runway: { len: C.rwyHalf * 2, w: C.rwyW, pad: AIRPORT_BY_ID.civil.rwy.pad }, taxiways, aprons, filletR: 30 };
+}
+export const AIRFIELD_PLANS = { base: makeAirfieldPlan(basePlanDef()), civil: makeAirfieldPlan(civilPlanDef()) };
+
 const _sp = { x: 0, z: 0 };
 export function surfaceTypeAt(x, z) {
-  const C = CIVIL, ca = AIRPORT_BY_ID.civil;
-  airportLocal(ca, x, z, _sp);
-  const lx = _sp.x, lz = _sp.z, ctw = C.taxiW / 2;
-  if (Math.abs(lx) <= C.rwyHalf && Math.abs(lz) <= C.rwyW / 2) return 'runway';
-  if (Math.abs(lx) <= C.taxiHalf && Math.abs(lz - C.taxiZ) <= ctw) return 'taxiway';
-  for (const cl of C.links) if (Math.abs(lx - cl) <= ctw && lz >= 0 && lz <= C.apron.z0 + 1) return 'taxiway';
-  if (lx >= C.apron.x0 && lx <= C.apron.x1 && lz >= C.apron.z0 && lz <= C.apron.z1) return 'apron';
-  if (lx >= C.cargo.x0 && lx <= C.cargo.x1 && lz >= C.cargo.z0 && lz <= C.cargo.z1) return 'apron';
-  if (Math.abs(lx) <= C.pier.w / 2 + 40 && lz > C.apron.z1 && lz <= C.terminal.z - C.terminal.d / 2) return 'apron';
-  const A = AIRBASE;
-  const L2 = A.runwayLength / 2, tw = A.taxiwayWidth / 2;
-  if (Math.abs(x) <= L2 && Math.abs(z - A.runwayZ) <= A.runwayWidth / 2) return 'runway';
-  if (Math.abs(x) <= L2 && Math.abs(z - A.taxiwayZ) <= tw) return 'taxiway';
-  if (Math.abs(x) <= L2 && Math.abs(z - A.taxiwayNorthZ) <= tw) return 'taxiway';
-  for (const lx of A.links) if (Math.abs(x - lx) <= tw && z >= 0 && z <= (Math.abs(lx) <= 725 ? A.apron.z0 + 1 : A.taxiwayZ)) return 'taxiway';
-  for (const lx of A.linksNorth) if (Math.abs(x - lx) <= tw && z <= 0 && z >= A.taxiwayNorthZ) return 'taxiway';
-  if (Math.abs(x) <= 800 && Math.abs(z - A.hasLaneZ) <= tw) return 'taxiway';
-  for (const lx of [0]) if (Math.abs(x - lx) <= tw && z <= A.taxiwayNorthZ && z >= A.hasLaneZ) return 'taxiway';
-  if (x >= A.apron.x0 && x <= A.apron.x1 && z >= A.apron.z0 && z <= A.apron.z1) return 'apron';
-  if (Math.abs(x) <= 700 && z >= A.apron.z1 && z <= 770) return 'apron';
+  for (const a of AIRPORTS) {
+    airportLocal(a, x, z, _sp);
+    const t = planSurfaceAt(AIRFIELD_PLANS[a.id], _sp.x, _sp.z);
+    if (t) return t;
+  }
   if (terrainHeight(x, z) < WATER_LEVEL) return 'water';
   return 'grass';
 }
@@ -1355,6 +1581,7 @@ export class World {
       for (const a of AIRPORTS) { airportLocal(a, x, z, _lp); if (Math.abs(_lp.x) < a.halfX * 0.62 && Math.abs(_lp.z) < a.halfZ * 0.95) return true; }
       if (Math.hypot(x - TOWN.x, z - TOWN.z) < TOWN.r + 150) return true;
       if (Math.hypot(x - TOWN2.x, z - TOWN2.z) < TOWN2.r + 150) return true;
+      if (Math.hypot(x - HAMLET.x, z - HAMLET.z) < HAMLET.r + 100 && ROAD_IDX.dist(x, z) < 90) return true;
       if (wfReserved(x, z, 'building')) return true;
       return roadMask(x, z) > 0.9 && distToPolylineAny(x, z) < 22;
     };
@@ -1784,7 +2011,7 @@ export class World {
       return !TOWN_BLOCKS.some((B) => Math.abs(x - B[0]) < B[2] / 2 + r + 5 && Math.abs(z - B[1]) < B[3] / 2 + r + 5);
     };
     const houses = [];
-    for (const T of [TOWN, TOWN2]) {
+    for (const T of [TOWN, TOWN2, HAMLET]) {
       const streets = [
         ...ROADS.filter((r) => r.pts.some(([x, z]) => Math.hypot(x - T.x, z - T.z) < T.r * 1.1)).map((r) => ({ ...r, main: true })),
         ...TOWN_STREETS.filter((r) => r.town === T),
@@ -1847,7 +2074,7 @@ export class World {
     const m4 = new THREE.Matrix4(), p = new THREE.Vector3(), qu = new THREE.Quaternion(), sc = new THREE.Vector3(), tint = new THREE.Color();
     const up = new THREE.Vector3(0, 1, 0);
     this.townMeshes = [...(this.townStreetMeshes || [])];
-    for (const T of [TOWN, TOWN2]) {
+    for (const T of [TOWN, TOWN2, HAMLET]) {
       for (const kind of KINDS) {
         const list = houses.filter((h) => h.town === T && h.kind === kind);
         if (!list.length) continue;
@@ -1869,7 +2096,7 @@ export class World {
     // Bahçe ağaçları: evlerin arka bahçesinde (kasabada orman ağacı yoktur; bu katman yeşil
     // dokuyu verir). Ağaç geometrisi ve malzemesi orman ağaçlarıyla ortaktır.
     if (this.treeAssets) {
-      for (const T of [TOWN, TOWN2]) {
+      for (const T of [TOWN, TOWN2, HAMLET]) {
         const list = [];
         for (const hh of houses) {
           if (hh.town !== T || rand() > 0.3) continue;
@@ -2054,6 +2281,7 @@ export class World {
       center: CITY,
       quality: this.quality,
       heightAt: terrainHeight,
+      surfaceHeight: (x, z) => this.surfaceHeight(x, z),
       coastZ: coastLineZ,
       reserved: wfReserved,
     });
@@ -2099,13 +2327,6 @@ export class World {
     g.name = 'civil-airport';
     g.position.set(ap.x, ap.elev, ap.z);
     g.rotation.y = -(ap.hdg - 90) * Math.PI / 180;
-    const asphalt = this.track(makeAsphaltTexture(512));
-    const concrete = this.track(makeConcreteTexture(512));
-    asphalt.anisotropy = q.anisotropy; concrete.anisotropy = q.anisotropy;
-    const asphaltMat = this.track(new THREE.MeshStandardMaterial({ map: asphalt, roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
-    const concreteMat = this.track(new THREE.MeshStandardMaterial({ map: concrete, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -3 }));
-    const whiteMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe6e6e0, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
-    const yellowMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd8b52a, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
     const flat = (w, d, x, z, y, uvScale = 1) => {
       const pg = new THREE.PlaneGeometry(w, d);
       pg.rotateX(-Math.PI / 2); pg.translate(x, y, z);
@@ -2113,58 +2334,16 @@ export class World {
       for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (w / uvScale), uv.getY(i) * (d / uvScale));
       return pg;
     };
-    const tw = C.taxiW;
-    // Asfalt: pist, paralel taksi yolu, bağlantılar
-    const asphaltGeos = [
-      flat(C.rwyHalf * 2, C.rwyW, 0, 0, 0.05, 18),
-      flat(C.taxiHalf * 2, tw, 0, C.taxiZ, 0.05, 18),
-    ];
-    const z0 = C.rwyW / 2, z1 = C.taxiZ - tw / 2;
-    for (const lx of C.links) asphaltGeos.push(flat(tw, z1 - z0, lx, (z0 + z1) / 2, 0.05, 18));
-    // Taksi yolundan aprona bağlantılar
-    for (const lx of [-700, 0, 700]) asphaltGeos.push(flat(tw, C.apron.z0 - (C.taxiZ + tw / 2), lx, (C.apron.z0 + C.taxiZ + tw / 2) / 2, 0.05, 18));
-    // Pist sonu emniyet sahaları
-    for (const side of [-1, 1]) asphaltGeos.push(flat(90, C.rwyW, side * (C.rwyHalf + 45), 0, 0.04, 18));
-    const am = new THREE.Mesh(this.track(mergeGeometries(asphaltGeos, false)), asphaltMat);
-    am.receiveShadow = q.shadows; g.add(am);
-    // Beton: apron, kargo apronu, terminal önü, otopark
-    const conGeos = [
-      flat(C.apron.x1 - C.apron.x0, C.apron.z1 - C.apron.z0, (C.apron.x0 + C.apron.x1) / 2, (C.apron.z0 + C.apron.z1) / 2, 0.06, 14),
-      flat(C.cargo.x1 - C.cargo.x0, C.cargo.z1 - C.cargo.z0, (C.cargo.x0 + C.cargo.x1) / 2, (C.cargo.z0 + C.cargo.z1) / 2, 0.06, 14),
-      // Terminal önü: terminalin tamamı beton üzerinde otursun, apronla arada boşluk kalmasın
-      flat(C.terminal.w + 20, C.terminal.z + C.terminal.d / 2 + 30 - C.apron.z1, 0, (C.apron.z1 + C.terminal.z + C.terminal.d / 2 + 30) / 2, 0.06, 14),
-      flat(C.carPark.w, C.carPark.d, C.carPark.x, C.carPark.z, 0.06, 14),
-      // Otopark bağlantısı ve kargo apronu bağlantısı
-      flat(70, C.carPark.z - C.carPark.d / 2 - (C.terminal.z + C.terminal.d / 2 + 30), 0, (C.terminal.z + C.terminal.d / 2 + 30 + C.carPark.z - C.carPark.d / 2) / 2, 0.06, 14),
-      flat(C.cargo.x0 - C.apron.x1, 60, (C.apron.x1 + C.cargo.x0) / 2, 300, 0.06, 14),
-    ];
-    const cm = new THREE.Mesh(this.track(mergeGeometries(conGeos, false)), concreteMat);
-    cm.receiveShadow = q.shadows; g.add(cm);
-    // Pist işaretleri: orta çizgi, eşik şeritleri, kenar çizgileri, temas bölgesi
-    const marks = [];
-    for (let x = -C.rwyHalf + 40; x < C.rwyHalf - 40; x += 60) marks.push(flat(30, 0.9, x, 0, 0.11));
-    for (const side of [-1, 1]) {
-      marks.push(flat(C.rwyHalf * 2, 0.35, 0, side * (C.rwyW / 2 - 0.6), 0.11));
-      for (let k = 0; k < 8; k++) marks.push(flat(28, 1.6, side * (C.rwyHalf - 60), (k - 3.5) * 3.6, 0.11));   // eşik tarağı
-      for (const d of [150, 300, 450]) for (const s2 of [-1, 1]) marks.push(flat(22, 2.6, side * (C.rwyHalf - d), s2 * 9, 0.11));
-    }
-    const mm = new THREE.Mesh(this.track(mergeGeometries(marks, false)), whiteMat);
-    g.add(mm);
-    // Taksi yolu ve apron sarı çizgileri
-    const yel = [flat(C.taxiHalf * 2, 0.6, 0, C.taxiZ, 0.11)];
-    for (const st of C.stands) { yel.push(flat(0.6, 92, st.x, st.z + 46, 0.12)); yel.push(flat(34, 0.6, st.x, st.z, 0.12)); }
-    for (const lx of C.links) yel.push(flat(0.6, z1 - z0, lx, (z0 + z1) / 2, 0.11));
-    const ym = new THREE.Mesh(this.track(mergeGeometries(yel, false)), yellowMat);
-    g.add(ym);
-    // Pist numaraları (12 / 30)
-    for (const [i, side] of [[0, -1], [1, 1]]) {
-      const tex = this.track(makeTextTexture(ap.marks[i], 256, 128));
-      const pg = new THREE.PlaneGeometry(26, 42);
-      pg.rotateX(-Math.PI / 2); pg.rotateY(side > 0 ? Math.PI : 0);
-      const nm = new THREE.Mesh(this.track(pg), this.track(new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -9 })));
-      nm.position.set(side * (C.rwyHalf - 105), 0.12, 0);
-      g.add(nm);
-    }
+    // Pist, taksi yolları, apronlar, işaretler, levhalar, pist/taksi ışıkları: ortak kurucu
+    // (bkz. buildAirportSurfaces). Kule tepesindeki engel ışığı da aynı ışık nesnesinde.
+    const tw0 = C.tower;
+    this.civilLights = this.buildAirportSurfaces(ap, g, [{ x: tw0.x, y: tw0.h + 8, z: tw0.z, colA: LIGHT_COLORS.RED }]);
+    // Apron duraklarının sarı giriş çizgileri ve durma çizgileri
+    const yellowMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe2b72e, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
+    const yel = [flat(C.apron.x1 - C.apron.x0 - 40, 0.3, 0, 245, 0.09)];
+    // giriş çizgisi apron taksi şeridinden (z 245) durma çizgisine (körük ucunun önü)
+    for (const st of C.stands) { yel.push(flat(0.3, st.z + 50 - 245, st.x, (245 + st.z + 50) / 2, 0.1)); yel.push(flat(8, 0.3, st.x, st.z + 48, 0.1)); }
+    g.add(new THREE.Mesh(this.track(mergeGeometries(yel, false)), yellowMat));
     // Terminal: uzun cam cepheli bina + parmak iskele
     const winTex = this.track(makeWindowsTexture(512, 256, 16, 3));
     const glassMat = this.track(new THREE.MeshStandardMaterial({ map: winTex, roughness: 0.45, metalness: 0.25 }));
@@ -2226,32 +2405,42 @@ export class World {
     };
     addM(hangarGeos, wallMat, true);
     addM(tankGeos, this.track(new THREE.MeshStandardMaterial({ color: 0xc8ccce, roughness: 0.6, metalness: 0.3 })), true);
-    // Pist kenar ışıkları ve yaklaşma ışıkları (uzakta gizlenir: piksel altı parıldamayı önler)
-    const lights = [];
-    const lg = new THREE.SphereGeometry(0.42, 5, 4);
-    for (let x = -C.rwyHalf; x <= C.rwyHalf; x += 60) for (const s2 of [-1, 1]) { const b = lg.clone(); b.translate(x, 0.45, s2 * (C.rwyW / 2 + 1.6)); lights.push(b); }
-    for (let k = 1; k <= 8; k++) for (const s2 of [-1, 1]) { const b = lg.clone(); b.translate(s2 * (C.rwyHalf + k * 55), 0.5, 0); lights.push(b); }
-    const lm = new THREE.Mesh(this.track(mergeGeometries(lights, false)), this.track(new THREE.MeshStandardMaterial({ color: 0xf2f4e2, emissive: 0xfff3c8, emissiveIntensity: 0.55, roughness: 0.5 })));
-    g.add(lm);
-    this.civilLights = lm;
     this.civilCenter = new THREE.Vector3(ap.x, ap.elev, ap.z);
     this.group.add(g);
     this.civilGroup = g;
   }
 
+  // Pist + taksi yolları + apronlar + işaretler + levhalar + ışıklar (runway.js / airfield.js).
+  // Havaalanının yerel çerçevesindeki bir gruba eklenir (sivilde grup döndürülmüştür).
+  buildAirportSurfaces(ap, parent, extraLights = []) {
+    const q = this.quality;
+    if (!this._paveTex) {
+      this._paveTex = this.track(makePavementTexture(512, { base: 94 }));
+      this._taxiTex = this.track(makePavementTexture(512, { base: 86, contrast: 1.15 }));
+      this._concTex = this.track(makeConcreteTexture(512));
+      for (const t of [this._paveTex, this._taxiTex, this._concTex]) t.anisotropy = q.anisotropy;
+      this.runwayLayouts = {};
+    }
+    const rw = buildRunway({
+      length: ap.rwy.len, width: ap.rwy.w, standard: ap.markings, tdzPattern: ap.tdzPattern, centerlineW: 0.9,
+      ends: [{ text: ap.desig.a.num, suffix: ap.desig.a.suffix, pad: ap.rwy.pad }, { text: ap.desig.b.num, suffix: ap.desig.b.suffix, pad: ap.rwy.pad }],
+      pavementMap: this._paveTex, shadows: q.shadows,
+    });
+    parent.add(rw.group);
+    rw.disposables.forEach((d) => this.track(d));
+    const af = buildAirfield(AIRFIELD_PLANS[ap.id], { asphaltMap: this._taxiTex, concreteMap: this._concTex, shadows: q.shadows, holdDist: 90, runwayLabel: ap.marks });
+    parent.add(af.group);
+    af.disposables.forEach((d) => this.track(d));
+    const pts = buildLightPoints([...rw.lights, ...af.lights, ...extraLights]);
+    parent.add(pts);
+    this.track(pts.geometry); this.track(pts.material);
+    this.runwayLayouts[ap.id] = rw.layout;
+    return pts;
+  }
+
   buildAirbase() {
     const A = AIRBASE;
     const q = this.quality;
-    const asphalt = this.track(makeAsphaltTexture(512));
-    const concrete = this.track(makeConcreteTexture(512));
-    asphalt.anisotropy = q.anisotropy; concrete.anisotropy = q.anisotropy;
-    // Derinlik katmanlaması: arazi (0) < asfalt < beton < yollar < işaretler < pist numaraları.
-    // polygonOffset "units" pencere-derinlik çözünürlüğü cinsinden olduğundan her mesafede z-fighting'i keser
-    // (5–10 cm'lik fiziksel yükseklik farkları uzaktan çözülemez).
-    const asphaltMat = this.track(new THREE.MeshStandardMaterial({ map: asphalt, roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
-    const concreteMat = this.track(new THREE.MeshStandardMaterial({ map: concrete, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -3 }));
-    const whiteMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe6e6e0, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
-    const yellowMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd8b52a, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
     const base = new THREE.Group();
     base.name = 'airbase';
     const flat = (w, d, x, z, y, uvScale = 1) => {
@@ -2262,78 +2451,25 @@ export class World {
       for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (w / uvScale), uv.getY(i) * (d / uvScale));
       return g;
     };
-    const L = A.runwayLength / 2, W = A.runwayWidth, tw = A.taxiwayWidth;
+    const tw = A.taxiwayWidth;
     const y = 0.09;
-
-    // Asfalt: pist, iki paralel taksi yolu, bağlantılar, HAS şeridi, üs yolları
-    const asphaltGeos = [
-      flat(A.runwayLength, W, 0, A.runwayZ, 0.05, 18),
-      flat(A.runwayLength + 60, tw, 0, A.taxiwayZ, 0.05, 18),
-      flat(A.runwayLength + 60, tw, 0, A.taxiwayNorthZ, 0.05, 18),
-      flat(1620, tw, 0, A.hasLaneZ, 0.05, 18),
-      flat(tw, (A.taxiwayNorthZ - tw / 2) - (A.hasLaneZ + tw / 2), 0, ((A.taxiwayNorthZ - tw / 2) + (A.hasLaneZ + tw / 2)) / 2, 0.05, 18),
-    ];
-    // Bağlantı taksi yolları yalnızca pist kenarı ile taksi yolu kenarı arasında (çakışan eş düzlemli yüzey yok;
-    // apron kenarı taksi yolunun uzak kenarıyla çakışık olduğundan ek parça gerekmez)
-    const linkZ0 = W / 2, linkZ1 = A.taxiwayZ - tw / 2;
-    for (const lx of A.links) asphaltGeos.push(flat(tw, linkZ1 - linkZ0, lx, (linkZ0 + linkZ1) / 2, 0.05, 18));
-    const nZ0 = A.taxiwayNorthZ + tw / 2, nZ1 = -W / 2;
-    for (const lx of A.linksNorth) asphaltGeos.push(flat(tw, nZ1 - nZ0, lx, (nZ0 + nZ1) / 2, 0.05, 18));
-    // Pist kenarı toprak sahalar (kırılma sahası)
-    for (const side of [-1, 1]) asphaltGeos.push(flat(80, W, side * (L + 40), 0, 0.04, 18));
-    // Üs iç yolları
-    // (kesişimlerde çakışma olmaması için yollar parçalara bölünür; z=800 yolu tam geçer, dikey yollar ona kadar gelir)
-    asphaltGeos.push(flat(1720, 10, 0, 800, 0.06, 20));
-    asphaltGeos.push(flat(10, 235, -830, 687.5, 0.06, 20), flat(10, 245, -830, 927.5, 0.06, 20));   // batı yolu (z 570–795, 805–1050)
-    asphaltGeos.push(flat(10, 295, 830, 647.5, 0.06, 20));                                          // doğu yolu (z 500–795)
-    asphaltGeos.push(flat(10, 25, 0, 782.5, 0.06, 20), flat(10, 245, 0, 927.5, 0.06, 20));         // orta yol (beton bitişi 770'ten 795'e, 805–1050)
-    asphaltGeos.push(flat(240, 10, 1000, 500, 0.06, 20));
-    const asphaltMesh = new THREE.Mesh(this.track(mergeGeometries(asphaltGeos, false)), asphaltMat);
-    asphaltMesh.receiveShadow = q.shadows;
-    base.add(asphaltMesh);
-
-    // Beton: ana apron, hangar önleri, HAS önleri, HQ çevresi, yakıt çiftliği
     const ap = A.apron;
-    const concreteGeos = [flat(ap.x1 - ap.x0, ap.z1 - ap.z0, (ap.x0 + ap.x1) / 2, (ap.z0 + ap.z1) / 2, 0.06, 30)];
-    concreteGeos.push(flat(1400, 190, 0, 675, 0.06, 30));
-    for (const s of A.has) concreteGeos.push(flat(s.w + 16, 100, s.x, s.z + s.d / 2 + 50 - 20, 0.06, 30));
-    concreteGeos.push(flat(200, 200, A.tower.x, 360, 0.06, 30));
-    concreteGeos.push(flat(120, 100, -990, 395, 0.06, 30));
-    concreteGeos.push(flat(90, 60, 1120, 640, 0.06, 30));
-    concreteGeos.push(flat(60, 60, A.radar.x, A.radar.z, 0.06, 30));
-    const concreteMesh = new THREE.Mesh(this.track(mergeGeometries(concreteGeos, false)), concreteMat);
-    concreteMesh.receiveShadow = q.shadows;
-    base.add(concreteMesh);
+    const t = A.tower, wt = A.waterTower, rd = A.radar;
+    // Kaplama, pist işaretleri, taksi yolu işaretleri, levhalar ve ışıklar: ortak kurucu.
+    // Engel ışıkları (kırmızı, çok yönlü) aynı ışık nesnesine eklenir: tek çizim çağrısı.
+    const red = LIGHT_COLORS.RED;
+    this.runwayLights = this.buildAirportSurfaces(AIRPORT_BY_ID.base, base, [
+      { x: t.x, y: t.h + 15, z: t.z, colA: red }, { x: wt.x, y: 33, z: wt.z, colA: red }, { x: rd.x, y: 24, z: rd.z, colA: red },
+    ]);
 
-    // Pist işaretleri (beyaz)
-    const white = [];
-    white.push(flat(A.runwayLength, 0.9, 0, W / 2 - 0.6, y));
-    white.push(flat(A.runwayLength, 0.9, 0, -W / 2 + 0.6, y));
-    for (const side of [-1, 1]) {
-      const xs = side * (L - 6 - 15);
-      for (let i = 0; i < 12; i++) { const z = -W / 2 + 3.6 + i * ((W - 7.2) / 11); white.push(flat(30, 1.8, xs, z, y)); }
-      const xa = side * (L - 300 - 25);
-      white.push(flat(50, 8, xa, 10, y)); white.push(flat(50, 8, xa, -10, y));
-      for (const [dist, count] of [[150, 3], [450, 2], [600, 2], [750, 1], [900, 1]]) {
-        const xt = side * (L - dist - 11);
-        for (let k = 0; k < count; k++) { const off = 9 + k * 3; white.push(flat(22, 1.8, xt, off, y)); white.push(flat(22, 1.8, xt, -off, y)); }
-      }
-    }
-    for (let x = -L + 120; x < L - 120; x += 50) white.push(flat(30, 0.9, x + 15, 0, y));
-    base.add(new THREE.Mesh(this.track(mergeGeometries(white, false)), whiteMat));
-    const numMat = (t) => this.track(new THREE.MeshBasicMaterial({ map: this.track(makeTextTexture(t, { w: 256, h: 256, font: 'bold 190px Arial', color: '#e8e8e2' })), transparent: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -8 }));
-    const numGeo = this.track(new THREE.PlaneGeometry(18, 18));
-    const n09 = new THREE.Mesh(numGeo, numMat('09')); n09.rotation.set(-Math.PI / 2, 0, -Math.PI / 2); n09.position.set(-L + 75, 0.1, 0); base.add(n09);
-    const n27 = new THREE.Mesh(numGeo, numMat('27')); n27.rotation.set(-Math.PI / 2, 0, Math.PI / 2); n27.position.set(L - 75, 0.1, 0); base.add(n27);
-
-    // Sarı taksi hatları ve park yerleri
-    const yellow = [flat(A.runwayLength + 20, 0.35, 0, A.taxiwayZ, y), flat(A.runwayLength + 20, 0.35, 0, A.taxiwayNorthZ, y), flat(1600, 0.35, 0, A.hasLaneZ, y)];
-    for (const lx of A.links) yellow.push(flat(0.35, linkZ1 - linkZ0 - 2, lx, (linkZ0 + linkZ1) / 2 + 1, y));
-    for (const lx of A.linksNorth) yellow.push(flat(0.35, nZ1 - nZ0 - 2, lx, (nZ0 + nZ1) / 2 - 1, y));
-    yellow.push(flat(0.35, -A.hasLaneZ + A.taxiwayNorthZ, 0, (A.taxiwayNorthZ + A.hasLaneZ) / 2, y));
-    yellow.push(flat(ap.x1 - ap.x0 - 40, 0.35, 0, 300, y));
-    for (const p of A.parking) { yellow.push(flat(0.35, 40, p.x, p.z + 10, y + 0.01)); yellow.push(flat(24, 0.35, p.x, p.z - 6, y + 0.01)); }
-    for (const s of A.has) yellow.push(flat(0.35, 110, s.x, s.z + 55, y));
+    // Apron işaretleri (sarı): apron taksi şeridi, park yerleri, sığınak giriş çizgileri.
+    // Taksi yolu ve pist işaretleri airfield.js / runway.js'tedir.
+    const yellowMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe2b72e, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 }));
+    const yellow = [];
+    yellow.push(flat(ap.x1 - ap.x0 - 40, 0.3, 0, 300, y));
+    for (const p of A.parking) { yellow.push(flat(0.3, 40, p.x, p.z + 10, y + 0.01)); yellow.push(flat(24, 0.3, p.x, p.z - 6, y + 0.01)); }
+    // HAS giriş çizgisi: sığınağın içinden HAS şeridinin orta çizgisine kadar
+    for (const s of A.has) { const z0 = s.z - 10, z1 = A.hasLaneZ; yellow.push(flat(0.3, z1 - z0, s.x, (z0 + z1) / 2, y)); }
     base.add(new THREE.Mesh(this.track(mergeGeometries(yellow, false)), yellowMat));
 
     // Hangarlar
@@ -2379,7 +2515,6 @@ export class World {
     { const uv = hqGeo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 2, uv.getY(i)); }
     hqGeo.translate(A.hq.x, A.hq.h / 2, A.hq.z);
     base.add(new THREE.Mesh(this.track(hqGeo), hqMat));
-    const t = A.tower;
     const shaft = new THREE.CylinderGeometry(t.r, t.r * 1.4, t.h, 12); shaft.translate(t.x, t.h / 2, t.z); plainGeos.push(shaft);
     const cabBase = new THREE.CylinderGeometry(t.r * 2.0, t.r * 1.2, 2.5, 12); cabBase.translate(t.x, t.h + 1.25, t.z); plainGeos.push(cabBase);
     const glassMat = this.track(new THREE.MeshStandardMaterial({ color: 0x1e2c3a, roughness: 0.35, metalness: 0.3 }));
@@ -2390,12 +2525,10 @@ export class World {
     const tankGeos = [];
     for (const f of A.fuel) { const g = new THREE.CylinderGeometry(f.r, f.r, f.h, 18); g.translate(f.x, f.h / 2, f.z); tankGeos.push(g); }
     // Su kulesi
-    const wt = A.waterTower;
     for (const [dx, dz] of [[-4, -4], [4, -4], [-4, 4], [4, 4]]) { const leg = new THREE.CylinderGeometry(0.35, 0.45, 22, 6); leg.translate(wt.x + dx, 11, wt.z + dz); tankGeos.push(leg); }
     const tank = new THREE.CylinderGeometry(7, 5, 8, 16); tank.translate(wt.x, 26, wt.z); tankGeos.push(tank);
     const tankTop = new THREE.ConeGeometry(7, 2.5, 16); tankTop.translate(wt.x, 31.2, wt.z); tankGeos.push(tankTop);
     // Radar kubbesi
-    const rd = A.radar;
     const rTower = new THREE.CylinderGeometry(3, 4, 12, 10); rTower.translate(rd.x, 6, rd.z); plainGeos.push(rTower);
     const dome = new THREE.SphereGeometry(6.5, 18, 12); dome.translate(rd.x, 17, rd.z); tankGeos.push(dome);
     // Rüzgar tulumu: direk sabit, tulum gerçek rüzgar yönüne döner (setWind ile güncellenir)
@@ -2427,32 +2560,6 @@ export class World {
     addMerged(plainGeos, plainMat);
     addMerged(tankGeos, tankMat);
 
-    // Işıklar (instanced, kendinden ışıklı)
-    const lights = [];
-    const push = (x, z, color, yy = 0.35) => lights.push({ x, z, color, y: yy });
-    const cWhite = new THREE.Color(0xffffff), cGreen = new THREE.Color(0x30ff60), cRed = new THREE.Color(0xff3030), cBlue = new THREE.Color(0x3060ff), cAmber = new THREE.Color(0xffb020);
-    for (let x = -L; x <= L; x += 60) { push(x, W / 2 + 1.5, cWhite); push(x, -W / 2 - 1.5, cWhite); }
-    for (const side of [-1, 1]) {
-      for (let z = -W / 2; z <= W / 2; z += 3) { push(side * (L + 1), z, cGreen); push(side * (L + 4), z, cRed); }
-      for (let d = 30; d <= 900; d += 30) {
-        push(side * (L + d), 0, cWhite);
-        if (d % 150 === 0) for (const zz of [-6, -4, -2, 2, 4, 6]) push(side * (L + d), zz, cWhite);
-      }
-      for (let k = 0; k < 4; k++) push(side * (L - 300), -(W / 2 + 12 + k * 3), k < 2 ? cWhite : cRed);
-    }
-    for (const tz of [A.taxiwayZ, A.taxiwayNorthZ]) for (let x = -L + 20; x <= L - 20; x += 60) { push(x, tz + tw / 2 + 1, cBlue); push(x, tz - tw / 2 - 1, cBlue); }
-    for (const lx of A.links) for (let z = 30; z < A.taxiwayZ - 10; z += 30) { push(lx + tw / 2 + 1, z, cBlue); push(lx - tw / 2 - 1, z, cBlue); }
-    for (let x = ap.x0; x <= ap.x1; x += 90) push(x, ap.z1 + 3, cAmber);
-    push(t.x, t.z, cRed, t.h + 15); push(wt.x, wt.z, cRed, 33); push(rd.x, rd.z, cRed, 24);
-    const lightGeo = this.track(new THREE.SphereGeometry(0.28, 6, 4));
-    const lightMat = this.track(new THREE.MeshBasicMaterial({ color: 0xbfbfbf }));
-    const lightMesh = new THREE.InstancedMesh(lightGeo, lightMat, lights.length);
-    const m4 = new THREE.Matrix4();
-    lights.forEach((l, i) => { m4.makeTranslation(l.x, l.y, l.z); lightMesh.setMatrixAt(i, m4); lightMesh.setColorAt(i, l.color); });
-    lightMesh.instanceMatrix.needsUpdate = true; if (lightMesh.instanceColor) lightMesh.instanceColor.needsUpdate = true;
-    lightMesh.frustumCulled = false;
-    base.add(lightMesh);
-    this.runwayLights = lightMesh;
     // Apron aydınlatma direkleri
     const poleMat = this.track(new THREE.MeshStandardMaterial({ color: 0x777c80, roughness: 0.6, metalness: 0.3 }));
     const poles = [];
@@ -2483,20 +2590,33 @@ export class World {
       console.warn('Could not build parked aircraft', e);
     }
 
-    // Araçlar (basit kutular)
+    // Araçlar (basit kutular): HQ otoparkında ve kasaba sokaklarının kenarında park halinde.
+    // (Eskiden kasaba çevresine rastgele konum ve yönle dağıtılıyordu: tarlaların ve evlerin
+    // ortasında araçlar.)
+    const m4 = new THREE.Matrix4();
     const carGeo = this.track(new THREE.BoxGeometry(4.4, 1.5, 1.9));
     carGeo.translate(0, 0.75, 0);
     const carMat = this.track(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.3 }));
     const carPos = [];
     const rndc = mulberry32(88);
-    for (let i = 0; i < 24; i++) carPos.push({ x: 900 + (i % 12) * 6, z: 470 + Math.floor(i / 12) * 8, r: 0 });
-    for (let i = 0; i < 10; i++) carPos.push({ x: -1140 + i * 7, z: 700, r: 0 });
-    for (let i = 0; i < 40; i++) carPos.push({ x: TOWN.x + (rndc() - 0.5) * 1800, z: TOWN.z + (rndc() - 0.5) * 1600, r: rndc() * Math.PI });
+    for (let i = 0; i < 24; i++) carPos.push({ x: 912 + (i % 12) * 5.4, z: 506 + Math.floor(i / 12) * 12, r: Math.PI / 2 });
+    const streets = TOWN_STREETS.filter((r) => r.town === TOWN);
+    for (let i = 0, tries = 0; i < 40 && tries < 400; tries++) {
+      const S = streets[Math.floor(rndc() * streets.length)];
+      const k = Math.floor(rndc() * (S.pts.length - 1)), f = rndc();
+      const [ax, az] = S.pts[k], [bx, bz] = S.pts[k + 1];
+      const L = Math.hypot(bx - ax, bz - az); if (L < 8) continue;
+      const tx = (bx - ax) / L, tz = (bz - az) / L, side = rndc() < 0.5 ? -1 : 1, off = S.w / 2 + 1.4;
+      const x = ax + (bx - ax) * f - tz * side * off, z = az + (bz - az) * f + tx * side * off;
+      if (this.houses && this.houses.some((h) => Math.hypot(h.x - x, h.z - z) < h.r + 2.5)) continue;
+      carPos.push({ x, z, r: Math.atan2(-tz, tx) });
+      i++;
+    }
     const cars = new THREE.InstancedMesh(carGeo, carMat, carPos.length);
     const cc = new THREE.Color();
     carPos.forEach((c, i) => {
-      const yy = terrainHeight(c.x, c.z);
-      m4.compose(new THREE.Vector3(c.x, yy + 0.1, c.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), c.r), new THREE.Vector3(1, 1, 1));
+      const yy = this.surfaceHeight(c.x, c.z);
+      m4.compose(new THREE.Vector3(c.x, yy + 0.32, c.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), c.r), new THREE.Vector3(1, 1, 1));
       cars.setMatrixAt(i, m4);
       cc.setHSL(rndc(), 0.4, 0.35 + rndc() * 0.4); cars.setColorAt(i, cc);
     });
@@ -2517,9 +2637,10 @@ export class World {
     const addBox = (cx, cz, w, d, h) => this.buildingBoxes.push({ minX: cx - w / 2, maxX: cx + w / 2, minZ: cz - d / 2, maxZ: cz + d / 2, minY: 0, maxY: h });
     const colorize = (g, color) => { const n = g.attributes.position.count; const arr = new Float32Array(n * 3); for (let i = 0; i < n; i++) { arr[i * 3] = color.r; arr[i * 3 + 1] = color.g; arr[i * 3 + 2] = color.b; } g.setAttribute('color', new THREE.BufferAttribute(arr, 3)); return g; };
     const ni = (g) => (g.index ? g.toNonIndexed() : g);
+    const flatY = (w, d, x, z) => { const g = new THREE.PlaneGeometry(w, d); g.rotateX(-Math.PI / 2); g.translate(x, 0.1, z); return g; };
 
     // --- Çevre çiti: dikdörtgen (kapı boşlukları hariç)
-    const F = { x0: -2080, x1: 2080, z0: -820, z1: A.gateZ };
+    const F = BASE_FENCE;
     const gates = [{ x: 0, w: 30, side: 's' }, { x: -1200, w: 16, side: 's' }];
     const postGeo = this.track(new THREE.BoxGeometry(0.12, 2.7, 0.12)); postGeo.translate(0, 1.35, 0);
     const postMat = this.track(new THREE.MeshStandardMaterial({ color: 0x8a8f94, roughness: 0.7, metalness: 0.4 }));
@@ -2605,27 +2726,22 @@ export class World {
         b.translate(x, 0.45, z); concGeos.push(ni(b));
       }
     }
-    // --- Çevre yolu (çit içinde) ve servis yolları
-    const roadTex = this.track(makeRoadTexture(128, 256)); roadTex.anisotropy = q.anisotropy;
-    const roadMat = this.track(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }));
-    const inset = 14;
-    const perim = [[F.x0 + inset, F.z1 - inset], [F.x0 + inset, F.z0 + inset], [F.x1 - inset, F.z0 + inset], [F.x1 - inset, F.z1 - inset], [F.x0 + inset, F.z1 - inset]];
-    const perimGeo = this.roadGeometry(perim, 6, 0.31);
-    const roadGeos = [];
-    const serviceRoads = [
-      [[0, A.gateZ + 60], [0, A.gateZ - 40], [0, 800]],                       // ana giriş -> hangar yolu
-      [[-1200, A.gateZ + 30], [-1200, 900], [-1120, 760], [-1060, 700]],      // batı kapısı -> depolar
-      [[A.hq.x, 560], [A.hq.x, 470]],                                          // HQ
-      [[-1400, 640], [-1400, 214]],                                            // yakıt sahası -> taksi yolu kenarı (taksi yolunu kesmez)
-      [[-900, -560], [900, -560]],                                             // HAS arka yolu
-      [[-1700, -300], [-1700, -700], [-1300, -700]],                           // mühimmat sahası
-    ];
-    for (const r of serviceRoads) roadGeos.push(this.roadGeometry(r, 6, 0.28));
-    grp.add(new THREE.Mesh(this.track(mergeGeometries(roadGeos.map(ni), false)), roadMat));
-    // Çevre yolu ayrı katman (üstte): servis yollarıyla kavşaklarda derinlik yarışı olmaz
-    const perimMat = this.track(new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -7 }));
-    grp.add(new THREE.Mesh(this.track(ni(perimGeo)), perimMat));
-    roadGeos.forEach((g) => g.dispose());
+    // --- Servis yolları (çit içinde): tek ağ + kavşak dolguları (bkz. BASE_ROADS).
+    // Diğer yollarla aynı atlas ve katman düzeni: kesişen yolların kavşakları dolgu diskleriyle
+    // kapanır (kırık kavşak ya da üst üste binen şerit yok).
+    {
+      const geos = BASE_ROADS.map((r) => this.roadGeometry(r.pts, r.w, 0.3, -Infinity, r.w >= 8 ? 1.6 : 1.1));
+      const mesh = new THREE.Mesh(this.track(mergeGeometries(geos.map(ni), false)), this.roadMats.base);
+      geos.forEach((g) => g.dispose());
+      grp.add(mesh);
+      const J = this.findJunctions(BASE_ROADS.map((r) => ({ pts: r.pts, w: r.w + 1.5 })));
+      if (J.length) {
+        const pads = J.map((j) => this.junctionPad(j.x, j.z, j.r, 0.36));
+        grp.add(new THREE.Mesh(this.track(mergeGeometries(pads.map((g) => g.toNonIndexed()), false)), this.roadMats.pad));
+        pads.forEach((g) => g.dispose());
+      }
+      this.baseJunctions = J.length;
+    }
 
     // --- Servis binaları: bakım atölyeleri, filo binası, kışla/yemekhane, jeneratör binası
     const winTex = this.track(makeWindowsTexture(512, 256, 12, 2));
@@ -2650,12 +2766,19 @@ export class World {
     // Bakım atölyesi kapıları (koyu dikdörtgenler)
     const doorMat = this.track(new THREE.MeshStandardMaterial({ color: 0x3b4046, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }));
     const doorGeos = [];
-    for (const [x, z] of [[-820, 853], [-780, 893]]) { const d = new THREE.PlaneGeometry(8, 5); d.translate(x, 2.5, z + 0.01); doorGeos.push(d); }
+    // Kapılar kuzey yüzde, hangar yoluna dönük (eskiden duvarın 1 cm içinde, görünmez durumdaydı)
+    for (const [x, z] of [[-820, 853], [-780, 893]]) { const d = new THREE.PlaneGeometry(8, 5); d.rotateY(Math.PI); d.translate(x, 2.5, z - 0.03); doorGeos.push(d); }
     grp.add(new THREE.Mesh(this.track(mergeGeometries([...doorGeos, ...gateSigns], false)), doorMat));
 
     // --- Yakıt sahası: set duvarı, pompa adası, borular
     const fuelC = [-992, 395];
-    for (const [w, d, x, z] of [[130, 1.2, fuelC[0], fuelC[1] - 55], [130, 1.2, fuelC[0], fuelC[1] + 55], [1.2, 110, fuelC[0] - 65, fuelC[1]], [1.2, 110, fuelC[0] + 65, fuelC[1]]]) {
+    // Set duvarı: kuzeyde (servis yolu) ve doğuda (apron yolu) 12 m'lik kapı açıklıkları
+    const fw = [[130, 1.2, fuelC[0], fuelC[1] - 55], [1.2, 110, fuelC[0] - 65, fuelC[1]]];
+    const nx0 = fuelC[0] - 65, nx1 = fuelC[0] + 65, gx = -990;
+    fw.push([gx - 6 - nx0, 1.2, (nx0 + gx - 6) / 2, fuelC[1] + 55], [nx1 - (gx + 6), 1.2, (gx + 6 + nx1) / 2, fuelC[1] + 55]);
+    const ez0 = fuelC[1] - 55, ez1 = fuelC[1] + 55;
+    fw.push([1.2, 395 - 6 - ez0, fuelC[0] + 65, (ez0 + 389) / 2], [1.2, ez1 - 401, fuelC[0] + 65, (401 + ez1) / 2]);
+    for (const [w, d, x, z] of fw) {
       const g = new THREE.BoxGeometry(w, 1.3, d); g.translate(x, 0.65, z); concGeos.push(ni(g));
     }
     for (let k = 0; k < 3; k++) { const pump = new THREE.BoxGeometry(1.2, 1.8, 0.8); pump.translate(-950 + k * 6, 0.9, 445); plainGeos.push(ni(pump)); }
@@ -2684,22 +2807,9 @@ export class World {
     grp.add(new THREE.Mesh(this.track(ni(berm)), bermMat));
     grp.add(new THREE.Mesh(this.track(mergeGeometries(dirtGeos, false)), dirtMat));
 
-    // --- Pist ucu jet sapıtıcıları, taksi yolu levhaları, tutuş çizgileri
-    const deflMat = this.track(new THREE.MeshStandardMaterial({ color: 0x777c82, roughness: 0.6, metalness: 0.5 }));
-    const deflGeos = [];
-    for (const side of [-1, 1]) { const dfl = new THREE.BoxGeometry(60, 4, 0.6); dfl.rotateX(-side * 0.5); dfl.translate(side * (A.runwayLength / 2 + 95), 1.6, 0); deflGeos.push(ni(dfl)); }
-    grp.add(new THREE.Mesh(this.track(mergeGeometries(deflGeos, false)), deflMat));
-    const signMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe8c22a, roughness: 0.7 }));
-    const signGeos = [];
-    for (const lx of A.links) for (const z of [A.taxiwayZ - 20, 32]) { const sg = new THREE.BoxGeometry(1.4, 0.7, 0.2); sg.translate(lx + 16, 0.5, z); signGeos.push(ni(sg)); }
-    for (const lx of A.linksNorth) { const sg = new THREE.BoxGeometry(1.4, 0.7, 0.2); sg.translate(lx + 16, 0.5, -32); signGeos.push(ni(sg)); }
-    grp.add(new THREE.Mesh(this.track(mergeGeometries(signGeos, false)), signMat));
-    const holdMat = this.track(new THREE.MeshStandardMaterial({ color: 0xd8b52a, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -7 }));
-    const holdGeos = [];
-    const flatY = (w, d, x, z) => { const g = new THREE.PlaneGeometry(w, d); g.rotateX(-Math.PI / 2); g.translate(x, 0.1, z); return g; };
-    for (const lx of A.links) { holdGeos.push(flatY(A.taxiwayWidth, 0.3, lx, 40)); holdGeos.push(flatY(A.taxiwayWidth, 0.3, lx, 41.2)); }
-    for (const lx of A.linksNorth) { holdGeos.push(flatY(A.taxiwayWidth, 0.3, lx, -40)); holdGeos.push(flatY(A.taxiwayWidth, 0.3, lx, -41.2)); }
-    grp.add(new THREE.Mesh(this.track(mergeGeometries(holdGeos, false)), holdMat));
+    // (Pist ucu jet sapıtıcıları kaldırıldı: yaklaşma ışıklarının ve pist ucu emniyet alanının
+    // içinde, süzülüş hattında 4 m'lik bir engel oluşturuyorlardı. Taksi yolu levhaları ve pist
+    // bekleme çizgileri artık airfield.js'tedir: doğru konum (pist ekseninden 90 m), ICAO desen A.)
 
     // --- Araçlar ve ekipman (instanced, vertex renkli basit gövdeler)
     const olive = new THREE.Color(0.36, 0.40, 0.28), tan = new THREE.Color(0.66, 0.60, 0.45), red = new THREE.Color(0.75, 0.12, 0.10), yellow = new THREE.Color(0.85, 0.75, 0.2), grey = new THREE.Color(0.55, 0.57, 0.6), black = new THREE.Color(0.08, 0.08, 0.08);
@@ -2747,6 +2857,7 @@ export class World {
     const container = mkVehicle([[new THREE.BoxGeometry(12, 2.6, 2.4).translate(0, 1.3, 0), olive]]);
     const containerTan = mkVehicle([[new THREE.BoxGeometry(6, 2.6, 2.4).translate(0, 1.3, 0), tan]]);
     const place = (geo, list) => {
+      list = list.filter(([x, z]) => baseRoadDist(x, z) > 2.5);   // yol üstünde araç bırakma
       if (!list.length) return;
       const im = new THREE.InstancedMesh(geo, vehMat, list.length);
       list.forEach(([x, z, rot], i) => { p.set(x, terrainHeight(x, z) + 0.05, z); qu.setFromAxisAngle(yAxis, rot); m4.compose(p, qu, sc); im.setMatrixAt(i, m4); });
@@ -2754,7 +2865,7 @@ export class World {
       grp.add(im);
     };
     const humvees = [], trucks = [], tankers = [], fires = [], gpus = [], containers = [], containersTan = [];
-    for (let i = 0; i < 6; i++) humvees.push([A.hq.x - 60 + i * 7, 480, 0]);
+    for (let i = 0; i < 6; i++) humvees.push([A.hq.x - 64 + i * 6, 512, Math.PI / 2]);
     for (let i = 0; i < 3; i++) humvees.push([-1250 + i * 8, 880, Math.PI / 2]);
     humvees.push([30, A.gateZ - 30, 0.2], [-1215, A.gateZ - 28, 1.4]);
     for (let i = 0; i < 4; i++) trucks.push([1470 + i * 10, 900, Math.PI / 2]);
@@ -2771,19 +2882,20 @@ export class World {
     // --- Otoparklar (asfalt) ve aydınlatma direkleri
     const asph = this.track(new THREE.MeshStandardMaterial({ color: 0x3a3c3f, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }));
     const lotGeos = [];
-    for (const [x, z, w, d] of [[A.hq.x - 40, 484, 70, 24], [-1250, 885, 40, 22], [1480, 905, 60, 20], [-300, 1000 + 8, 60, 16]]) lotGeos.push(flatY(w, d, x, z));
+    for (const [x, z, w, d] of [[A.hq.x - 30, 512, 90, 24], [-1250, 885, 40, 22], [1480, 905, 60, 20], [-300, 1000 + 8, 60, 16]]) lotGeos.push(flatY(w, d, x, z));
     grp.add(new THREE.Mesh(this.track(mergeGeometries(lotGeos, false)), asph));
     const lotMarkMat = this.track(new THREE.MeshStandardMaterial({ color: 0xe6e6e0, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -7 }));
     const lotMarkGeos = [];
-    for (const [x, z, w, d] of [[A.hq.x - 40, 484, 70, 24], [-1250, 885, 40, 22], [1480, 905, 60, 20], [-300, 1000 + 8, 60, 16]]) {
+    for (const [x, z, w, d] of [[A.hq.x - 30, 512, 90, 24], [-1250, 885, 40, 22], [1480, 905, 60, 20], [-300, 1000 + 8, 60, 16]]) {
       for (let sx = -w / 2 + 2; sx <= w / 2 - 2; sx += 2.7) { lotMarkGeos.push(flatY(0.12, d * 0.42, x + sx, z - d * 0.27)); lotMarkGeos.push(flatY(0.12, d * 0.42, x + sx, z + d * 0.27)); }
     }
     grp.add(new THREE.Mesh(this.track(mergeGeometries(lotMarkGeos, false)), lotMarkMat));
     const poleGeo = this.track(new THREE.CylinderGeometry(0.15, 0.2, 9, 6)); poleGeo.translate(0, 4.5, 0);
-    const poleList = [];
+    let poleList = [];
     for (let x = -1900; x <= 1900; x += 200) poleList.push([x, A.gateZ - 26]);
     for (let z = -700; z <= 900; z += 200) { poleList.push([F.x0 + 26, z]); poleList.push([F.x1 - 26, z]); }
     for (let x = -600; x <= 600; x += 150) poleList.push([x, 780]);
+    poleList = poleList.filter(([x, z]) => baseRoadDist(x, z) > 2);
     const poleMesh = new THREE.InstancedMesh(poleGeo, postMat, poleList.length);
     poleList.forEach(([x, z], i) => { m4.makeTranslation(x, terrainHeight(x, z), z); poleMesh.setMatrixAt(i, m4); });
     poleMesh.instanceMatrix.needsUpdate = true; poleMesh.computeBoundingSphere();
@@ -2799,6 +2911,7 @@ export class World {
         for (let k = 0; k < n; k++) leafy.push([bx + (rand() - 0.5) * 90, bz + (rand() - 0.5) * 70, rand() * 6.28, 0.6 + rand() * 0.5]);
       }
       const treeIm = (geo, list) => {
+        list = list.filter(([x, z]) => baseRoadDist(x, z) > 4.5);   // ağaç gövdesi yolda kalmasın
         const im = new THREE.InstancedMesh(geo, mat, list.length);
         list.forEach(([x, z, rot, s2], i) => { p.set(x, terrainHeight(x, z) - 0.2, z); qu.setFromAxisAngle(yAxis, rot); sc.set(s2, s2, s2); m4.compose(p, qu, sc); im.setMatrixAt(i, m4); });
         sc.set(1, 1, 1);
@@ -2812,6 +2925,7 @@ export class World {
       for (const [bx, bz, n, r] of [[-300, 940, 30, 60], [700, 640, 18, 40], [A.hq.x, 420, 24, 50], [0, A.gateZ - 15, 24, 40], [-1200, A.gateZ - 12, 12, 20], [-400, 990, 12, 30]]) {
         for (let k = 0; k < n; k++) bushes.push([bx + (rand() - 0.5) * r * 2, bz + (rand() - 0.5) * r, 0.6 + rand() * 0.8]);
       }
+      bushes.splice(0, bushes.length, ...bushes.filter(([x, z]) => baseRoadDist(x, z) > 2.5));
       const bim = new THREE.InstancedMesh(bushGeo, bushMat, bushes.length);
       bushes.forEach(([x, z, s2], i) => { p.set(x, terrainHeight(x, z), z); sc.set(s2, s2 * 0.8, s2); qu.identity(); m4.compose(p, qu, sc); bim.setMatrixAt(i, m4); });
       sc.set(1, 1, 1);
@@ -2957,13 +3071,15 @@ export class World {
     // Üs ışıkları ve tel örgü: uzakta piksel altı kalıp parıldadıkları için 3B mesafeye göre kapatılır
     const baseDist = Math.hypot(cx, cy, cz);
     const fx = this.perf ? this.perf.effects : 1;
-    if (this.runwayLights) this.runwayLights.visible = band(this.runwayLights.visible, baseDist, 4500 * fx, 300);
+    // Pist ışıkları GL noktalarıdır (en az ~2 piksel, gölgelendiricide uzaklıkla söner): ucuzdur,
+    // bu yüzden yaklaşmada pist uzaktan seçilebilsin diye 12 km'ye kadar açık kalır
+    if (this.runwayLights) this.runwayLights.visible = band(this.runwayLights.visible, baseDist, 12000, 400);
     if (this.fenceMeshes) { const v = band(this.fenceMeshes[0].visible, baseDist, 2600 * fx, 200); for (const m of this.fenceMeshes) m.visible = v; }
     if (this.city) this.city.update(dt, camera.position);
     if (this.waterfront) this.waterfront.update(dt, camera.position);
     if (this.civilLights) {
       const d = Math.hypot(cx - this.civilCenter.x, cy - this.civilCenter.y, cz - this.civilCenter.z);
-      this.civilLights.visible = band(this.civilLights.visible, d, 4500 * fx, 300);
+      this.civilLights.visible = band(this.civilLights.visible, d, 12000, 400);
     }
   }
 
@@ -2978,3 +3094,4 @@ function distToPolylineAny(x, z) {
   if (!ALL_ROAD_IDX) ALL_ROAD_IDX = new SegIndex([...ROADS, ...TOWN_STREETS].map((r) => r.pts), 150, 400);
   return ALL_ROAD_IDX.dist(x, z);
 }
+export const __debug = { ROADS, TOWN_STREETS, BASE_ROADS, HAMLET };

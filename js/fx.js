@@ -474,51 +474,54 @@ export class FX {
    * Patlama. kind: 'ground' | 'water' | 'building' | 'air'. p: çarpma noktası, ground: zemin y.
    * Ölçek bir AIM-120 harp başlığına (~20 kg) göredir: ateş topu ~9 m, duman sütunu ~25 m.
    */
-  explode(p, kind = 'ground', groundY = -1e5) {
+  explode(p, kind = 'ground', groundY = -1e5, scale = 1) {
+    // scale: 1 = AIM-120 harp başlığı; uçak çarpmasında (yakıt) 2-3. Boyut ve hız scale ile,
+    // süre √scale ile, parçacık sayısı √scale ile büyür (parçacık bütçesi sınırlı kalır).
     const t = this.t, A = this.alpha, X = this.add, v = this._v, q = this._p;
+    const S = scale, sq = Math.sqrt(scale), N = (n) => Math.round(n * sq);
     const onGround = kind === 'ground' || kind === 'building';
     const gY = kind === 'air' ? -1e5 : groundY;
     // 1) İlk parlama: çok kısa, beyaz-sarı, yoğun
-    X.spawn(t, { p, life: 0.16, s0: 14, s1: 22, c0: [7, 6, 4.5, 1], c1: [3, 1.6, 0.6, 0], mode: PM.GLOW, aPow: 1.5, wind: 0 });
-    X.spawn(t, { p, life: 0.07, s0: 5, s1: 9, c0: [12, 11, 9, 1], c1: [6, 5, 3, 0], mode: PM.GLOW, wind: 0 });
-    if (kind !== 'air') X.spawn(t, { p: q.set(p.x, gY, p.z), life: 0.7, s0: 16, s1: 30, c0: [2.6, 1.3, 0.45, 1], c1: [0.6, 0.18, 0.04, 0], mode: PM.GROUND_GLOW, aPow: 1.6, wind: 0, rot: Math.random() * TAU });
-    this.light(p, new THREE.Color(1, 0.62, 0.3), 90, 0.9);
+    X.spawn(t, { p, life: 0.16 * sq, s0: 14 * S, s1: 22 * S, c0: [7, 6, 4.5, 1], c1: [3, 1.6, 0.6, 0], mode: PM.GLOW, aPow: 1.5, wind: 0 });
+    X.spawn(t, { p, life: 0.07 * sq, s0: 5 * S, s1: 9 * S, c0: [12, 11, 9, 1], c1: [6, 5, 3, 0], mode: PM.GLOW, wind: 0 });
+    if (kind !== 'air') X.spawn(t, { p: q.set(p.x, gY, p.z), life: 0.7 * sq, s0: 16 * S, s1: 30 * S, c0: [2.6, 1.3, 0.45, 1], c1: [0.6, 0.18, 0.04, 0], mode: PM.GROUND_GLOW, aPow: 1.6, wind: 0, rot: Math.random() * TAU });
+    this.light(p, new THREE.Color(1, 0.62, 0.3), 90 * S, 0.9 * sq);
     if (kind === 'water') { this.splash(p, gY); return; }
     // 2) Ateş topu: toplamalı topaklar, beyaz -> sarı -> turuncu -> koyu kızıl, yükselerek genişler
-    for (let i = 0; i < 16; i++) {
-      (onGround ? this.dirUp(0.9, v) : this.dirSphere(v)).multiplyScalar(this.rnd(2, 9));
+    for (let i = 0, n = N(16); i < n; i++) {
+      (onGround ? this.dirUp(0.9, v) : this.dirSphere(v)).multiplyScalar(this.rnd(2, 9) * S);
       q.copy(p).addScaledVector(v, 0.12);
-      X.spawn(t + Math.random() * 0.05, { p: q, v, life: this.rnd(0.55, 1.05), k: 2.2, g: -3, s0: this.rnd(2.5, 4), s1: this.rnd(6.5, 10), rot: Math.random() * TAU, spin: this.rnd(-1, 1), c0: [5, 3.6, 1.6, 1], c1: [1.1, 0.25, 0.05, 1], cPow: 0.6, aPow: 1.4, fadeIn: 0.04, mode: PM.GLOW, ground: gY + 1, wind: 0.3 });
+      X.spawn(t + Math.random() * 0.05 * S, { p: q, v, life: this.rnd(0.55, 1.05) * sq, k: 2.2 / sq, g: -3, s0: this.rnd(2.5, 4) * S, s1: this.rnd(6.5, 10) * S, rot: Math.random() * TAU, spin: this.rnd(-1, 1), c0: [5, 3.6, 1.6, 1], c1: [1.1, 0.25, 0.05, 1], cPow: 0.6, aPow: 1.4, fadeIn: 0.04, mode: PM.GLOW, ground: gY + 1, wind: 0.3 });
     }
     // 3) Kıvılcımlar: hızla fırlar, yerçekimiyle düşer, uzayan çizgiler
-    for (let i = 0; i < 46; i++) {
-      (onGround ? this.dirUp(0.95, v) : this.dirSphere(v)).multiplyScalar(this.rnd(25, 75));
-      X.spawn(t, { p, v, life: this.rnd(0.35, 1.1), k: 1.4, g: 9.8, s0: 0.07, s1: 0.04, c0: [6, 4.2, 1.8, 1], c1: [2, 0.6, 0.15, 1], stretch: 0.035, mode: PM.SPARK, aPow: 1.2, ground: gY, wind: 0 });
+    for (let i = 0, n = N(46); i < n; i++) {
+      (onGround ? this.dirUp(0.95, v) : this.dirSphere(v)).multiplyScalar(this.rnd(25, 75) * sq);
+      X.spawn(t, { p, v, life: this.rnd(0.35, 1.1) * sq, k: 1.4, g: 9.8, s0: 0.07 * sq, s1: 0.04 * sq, c0: [6, 4.2, 1.8, 1], c1: [2, 0.6, 0.15, 1], stretch: 0.035, mode: PM.SPARK, aPow: 1.2, ground: gY, wind: 0 });
     }
     // 4) Enkaz: koyu parçalar, balistik, yerde durur
-    for (let i = 0; i < (onGround ? 28 : 10); i++) {
-      (onGround ? this.dirUp(0.85, v) : this.dirSphere(v)).multiplyScalar(this.rnd(8, 30));
+    for (let i = 0, n = N(onGround ? 28 : 10); i < n; i++) {
+      (onGround ? this.dirUp(0.85, v) : this.dirSphere(v)).multiplyScalar(this.rnd(8, 30) * sq);
       const dk = this.rnd(0.06, 0.13);
-      A.spawn(t, { p, v, life: this.rnd(1.4, 2.6), k: 0.35, g: 9.8, s0: this.rnd(0.18, 0.45), rot: Math.random() * TAU, spin: this.rnd(-9, 9), c0: [dk, dk * 0.95, dk * 0.9, 1], c1: [dk, dk * 0.95, dk * 0.9, 1], aPow: 0.15, mode: PM.DEBRIS, ground: gY + 0.05, wind: 0 });
+      A.spawn(t, { p, v, life: this.rnd(1.4, 2.6) * sq, k: 0.35, g: 9.8, s0: this.rnd(0.18, 0.45) * sq, rot: Math.random() * TAU, spin: this.rnd(-9, 9), c0: [dk, dk * 0.95, dk * 0.9, 1], c1: [dk, dk * 0.95, dk * 0.9, 1], aPow: 0.15, mode: PM.DEBRIS, ground: gY + 0.05, wind: 0 });
     }
     // 5) Duman: ateş topundan doğan, yükselip genişleyen, yavaş sönen koyu-gri sütun
-    for (let i = 0; i < 16; i++) {
-      (onGround ? this.dirUp(0.7, v) : this.dirSphere(v)).multiplyScalar(this.rnd(1, 5));
-      v.y += onGround ? this.rnd(2, 6) : 1.5;
+    for (let i = 0, n = N(16); i < n; i++) {
+      (onGround ? this.dirUp(0.7, v) : this.dirSphere(v)).multiplyScalar(this.rnd(1, 5) * S);
+      v.y += onGround ? this.rnd(2, 6) * sq : 1.5;
       q.copy(p).addScaledVector(v, 0.25);
-      const dk = this.rnd(0.12, 0.22);
-      A.spawn(t + this.rnd(0.12, 0.6), { p: q, v, life: this.rnd(5.5, 9), k: 0.45, g: -0.6, s0: this.rnd(3, 5), s1: this.rnd(13, 20), rot: Math.random() * TAU, spin: this.rnd(-0.25, 0.25), c0: [dk, dk, dk * 0.98, 0.85], c1: [0.42, 0.41, 0.4, 0.5], cPow: 0.7, aPow: 1.3, fadeIn: 0.05, mode: PM.SMOKE, ground: gY + 1.5 });
+      const dk = this.rnd(0.12, 0.22) * (S > 1.5 ? 0.6 : 1);   // yakıt yangını dumanı daha koyu
+      A.spawn(t + this.rnd(0.12, 0.6) * sq, { p: q, v, life: this.rnd(5.5, 9) * sq, k: 0.45, g: -0.6, s0: this.rnd(3, 5) * S, s1: this.rnd(13, 20) * S, rot: Math.random() * TAU, spin: this.rnd(-0.25, 0.25), c0: [dk, dk, dk * 0.98, 0.85], c1: [0.42, 0.41, 0.4, 0.5], cPow: 0.7, aPow: 1.3, fadeIn: 0.05, mode: PM.SMOKE, ground: gY + 1.5 });
     }
     if (!onGround) return;
     // 6) Toz: yerde dışa doğru savrulan kahverengi bulut ve halka
-    for (let i = 0; i < 18; i++) {
-      const a = Math.random() * TAU, sp = this.rnd(10, 24);
+    for (let i = 0, n = N(18); i < n; i++) {
+      const a = Math.random() * TAU, sp = this.rnd(10, 24) * sq;
       v.set(Math.cos(a) * sp, this.rnd(0.5, 3), Math.sin(a) * sp);
-      q.set(p.x + Math.cos(a) * 1.5, gY + 0.6, p.z + Math.sin(a) * 1.5);
-      A.spawn(t + this.rnd(0, 0.08), { p: q, v, life: this.rnd(2.2, 4.2), k: 1.6, g: -0.3, s0: this.rnd(2, 3.5), s1: this.rnd(8, 13), rot: Math.random() * TAU, spin: this.rnd(-0.4, 0.4), c0: [0.48, 0.41, 0.31, 0.7], c1: [0.55, 0.5, 0.42, 0.25], aPow: 1.4, fadeIn: 0.05, mode: PM.SMOKE, ground: gY + 0.8 });
+      q.set(p.x + Math.cos(a) * 1.5 * S, gY + 0.6, p.z + Math.sin(a) * 1.5 * S);
+      A.spawn(t + this.rnd(0, 0.08), { p: q, v, life: this.rnd(2.2, 4.2) * sq, k: 1.6, g: -0.3, s0: this.rnd(2, 3.5) * S, s1: this.rnd(8, 13) * S, rot: Math.random() * TAU, spin: this.rnd(-0.4, 0.4), c0: [0.48, 0.41, 0.31, 0.7], c1: [0.55, 0.5, 0.42, 0.25], aPow: 1.4, fadeIn: 0.05, mode: PM.SMOKE, ground: gY + 0.8 });
     }
-    A.spawn(t, { p: q.set(p.x, gY, p.z), life: 0.9, s0: 3, s1: 34, c0: [0.62, 0.55, 0.45, 0.55], c1: [0.6, 0.55, 0.47, 0], aPow: 1.2, mode: PM.RING, rot: Math.random() * TAU, wind: 0 });
-    if (kind === 'ground') this.craters.place(p, this.rnd(3.6, 4.6), t);
+    A.spawn(t, { p: q.set(p.x, gY, p.z), life: 0.9 * sq, s0: 3 * S, s1: 34 * S, c0: [0.62, 0.55, 0.45, 0.55], c1: [0.6, 0.55, 0.47, 0], aPow: 1.2, mode: PM.RING, rot: Math.random() * TAU, wind: 0 });
+    if (kind === 'ground') this.craters.place(p, this.rnd(3.6, 4.6) * Math.min(S, 2), t);
   }
 
   splash(p, waterY) {
@@ -534,6 +537,59 @@ export class FX {
       A.spawn(t + this.rnd(0.05, 0.3), { p: q.set(p.x, waterY + 0.5, p.z), v, life: this.rnd(2.5, 4), k: 1.2, g: -0.2, s0: 3, s1: this.rnd(9, 14), rot: Math.random() * TAU, c0: [0.9, 0.93, 0.96, 0.55], c1: [0.9, 0.93, 0.96, 0], mode: PM.SMOKE, ground: waterY + 0.3 });
     }
     A.spawn(t, { p: q.set(p.x, waterY, p.z), life: 1.4, s0: 4, s1: 30, c0: [0.95, 0.97, 1, 0.6], c1: [0.9, 0.95, 1, 0], mode: PM.RING, rot: Math.random() * TAU, wind: 0 });
+  }
+
+  // ---- Uçak çarpması bileşimleri (şiddete ölçekli; ateş topu yalnızca yıkıcı çarpmada) ----
+  /** Çarpma tozu, toprak/enkaz parçaları; sert zeminde kıvılcım. dir: çarpma anındaki yatay hareket yönü. */
+  impactDust(p, groundY, intensity = 1, paved = false, dir = null) {
+    const t = this.t, A = this.alpha, v = this._v, q = this._p;
+    const col0 = paved ? [0.56, 0.56, 0.54, 0.72] : [0.47, 0.40, 0.30, 0.8];
+    const col1 = paved ? [0.62, 0.62, 0.60, 0.0] : [0.56, 0.51, 0.43, 0.0];
+    const n = Math.round(10 + 16 * intensity);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * TAU, sp = this.rnd(5, 18) * intensity;
+      v.set(Math.cos(a) * sp, this.rnd(1, 6) * intensity, Math.sin(a) * sp);
+      if (dir) v.addScaledVector(dir, this.rnd(4, 14) * intensity);
+      q.set(p.x + Math.cos(a) * 2, groundY + 0.8, p.z + Math.sin(a) * 2);
+      A.spawn(t + this.rnd(0, 0.12), { p: q, v, life: this.rnd(2.5, 5) * (0.7 + 0.3 * intensity), k: 1.4, g: -0.25, s0: this.rnd(2, 4), s1: this.rnd(9, 16) * (0.7 + 0.4 * intensity), rot: Math.random() * TAU, spin: this.rnd(-0.4, 0.4), c0: col0, c1: col1, aPow: 1.4, fadeIn: 0.05, mode: PM.SMOKE, ground: groundY + 0.6 });
+    }
+    for (let i = 0, m = Math.round(8 + 18 * intensity); i < m; i++) {
+      this.dirUp(0.8, v).multiplyScalar(this.rnd(6, 20) * intensity);
+      if (dir) v.addScaledVector(dir, this.rnd(3, 10));
+      const dk = paved ? this.rnd(0.12, 0.24) : this.rnd(0.10, 0.19);
+      A.spawn(t, { p, v, life: this.rnd(1.2, 2.4), k: 0.35, g: 9.8, s0: this.rnd(0.15, 0.4), rot: Math.random() * TAU, spin: this.rnd(-9, 9), c0: [dk, dk * 0.92, dk * 0.8, 1], c1: [dk, dk * 0.92, dk * 0.8, 1], aPow: 0.15, mode: PM.DEBRIS, ground: groundY + 0.05, wind: 0 });
+    }
+    if (paved) this.sparks(p, groundY, Math.round(26 * intensity), dir);
+  }
+  /** Metal-asfalt sürtünme kıvılcımları (toplamalı, uzayan çizgiler). */
+  sparks(p, groundY, n, dir = null) {
+    const t = this.t, v = this._v;
+    for (let i = 0; i < n; i++) {
+      this.dirUp(0.55, v).multiplyScalar(this.rnd(6, 22));
+      if (dir) v.addScaledVector(dir, this.rnd(8, 25));
+      this.add.spawn(t, { p, v, life: this.rnd(0.25, 0.7), k: 1.6, g: 9.8, s0: 0.06, s1: 0.035, c0: [6, 4.0, 1.6, 1], c1: [2.2, 0.7, 0.15, 1], stretch: 0.03, mode: PM.SPARK, aPow: 1.2, ground: groundY, wind: 0 });
+    }
+  }
+  /** Kayan gövdenin izi: sert zeminde kıvılcım + açık gri toz, çimde toprak tozu. */
+  scrape(p, groundY, speed, paved, dir) {
+    const t = this.t, v = this._v, q = this._p;
+    const k = Math.min(1, speed / 60);
+    if (paved) this.sparks(p, groundY, Math.round(3 + 6 * k), dir);
+    v.copy(dir).multiplyScalar(speed * 0.25).add(this._p.set(this.rnd(-2, 2), this.rnd(0.5, 2.5), this.rnd(-2, 2)));
+    q.set(p.x, groundY + 0.6, p.z);
+    this.alpha.spawn(t, { p: q, v, life: this.rnd(1.8, 3.4), k: 1.6, g: -0.2, s0: this.rnd(1.2, 2.2), s1: this.rnd(5, 9) * (0.6 + 0.6 * k), rot: Math.random() * TAU, spin: this.rnd(-0.4, 0.4), c0: paved ? [0.6, 0.6, 0.58, 0.45] : [0.48, 0.41, 0.31, 0.6], c1: [0.6, 0.57, 0.5, 0], aPow: 1.3, fadeIn: 0.05, mode: PM.SMOKE, ground: groundY + 0.4 });
+  }
+  /** Enkaz yangını: kısa ömürlü alev topağı + koyu, yükselen duman. heat 0..1. */
+  fireSmoke(p, groundY, heat = 1, scale = 1) {
+    const t = this.t, v = this._v, q = this._p;
+    q.set(p.x + this.rnd(-2, 2), Math.max(p.y, groundY + 0.8), p.z + this.rnd(-2, 2));
+    if (heat > 0.05) {
+      this.dirUp(0.4, v).multiplyScalar(this.rnd(1, 3)); v.y += this.rnd(2, 5);
+      this.add.spawn(t, { p: q, v, life: this.rnd(0.45, 0.8), k: 1.2, g: -4, s0: this.rnd(1.8, 3) * heat * scale, s1: this.rnd(3.5, 5.5) * heat * scale, rot: Math.random() * TAU, spin: this.rnd(-1, 1), c0: [4.2, 2.4, 0.9, 1], c1: [1.2, 0.3, 0.06, 1], cPow: 0.6, aPow: 1.5, fadeIn: 0.05, mode: PM.GLOW, wind: 0.5 });
+    }
+    this.dirUp(0.35, v).multiplyScalar(this.rnd(0.5, 2)); v.y += this.rnd(3, 7);
+    const dk = this.rnd(0.07, 0.14);
+    this.alpha.spawn(t, { p: q, v, life: this.rnd(6, 10), k: 0.4, g: -0.9, s0: this.rnd(2.5, 4) * scale, s1: this.rnd(14, 24) * scale, rot: Math.random() * TAU, spin: this.rnd(-0.2, 0.2), c0: [dk, dk, dk, 0.8], c1: [0.35, 0.35, 0.36, 0.0], cPow: 0.8, aPow: 1.2, fadeIn: 0.08, mode: PM.SMOKE, ground: groundY + 1 });
   }
 
   /** Ateşleme: lülede kısa beyaz parlama ve kalın beyaz duman topağı. */

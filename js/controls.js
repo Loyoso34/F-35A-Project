@@ -72,14 +72,36 @@ export class Controls {
     document.addEventListener('gesturechange', (e) => e.preventDefault(), { passive: false });
     document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
     this.setThrottleUI();
+    // İlk yüklemede de nötr: satır içi stil kalıntısı yok, topuz geometrik merkezde
+    this.releaseStick();
   }
 
   setEnabled(v) {
     this.enabled = v;
-    if (!v) { this.releaseStick(); this.rudderHeld = false; this.rudderPointer = null; this.keys.clear(); }
+    if (!v) {
+      this.releaseStick(); this.rudderHeld = false; this.rudderPointer = null; this.keys.clear();
+      if (this.els.rudderKnob) this.els.rudderKnob.classList.remove('active');
+    }
+  }
+
+  /**
+   * Tüm geçici girdi durumunu nötre alır (yeniden başlatma / çarpışma sonrası): çubuk ve
+   * dümen merkezde, yumuşatılmış komutlar sıfır. Gaz kolu ayrı (resetLever).
+   */
+  resetInputs() {
+    this.releaseStick();
+    this.rudder = 0; this.rudderHeld = false; this.rudderPointer = null; this.rudderKey = 0;
+    if (this.els.rudderKnob) this.els.rudderKnob.classList.remove('active');
+    this.updateRudderUI();
+    this.raw.pitch = this.raw.roll = this.raw.yaw = 0;
+    this.state.pitch = this.state.roll = this.state.yaw = 0;
+    this.keys.clear();
   }
 
   // ---- Joystick ----
+  // Girdi ile görüntü ayrıdır: stickVec (−1..1) yalnızca parmağın dokunuş noktasına
+  // göre sapmasından (STICK_RADIUS px = tam sapma) gelir. Topuz bu DEĞERİ halkanın
+  // içinde gösterir; görsel merkezleme hiçbir zaman girdiyi geciktirmez ya da değiştirmez.
   bindStick() {
     const z = this.els.stickZone;
     z.addEventListener('pointerdown', (e) => {
@@ -89,9 +111,15 @@ export class Controls {
       z.setPointerCapture && z.setPointerCapture(e.pointerId);
       const r = z.getBoundingClientRect();
       this.stickOrigin = { x: e.clientX - r.left, y: e.clientY - r.top };
-      this.els.stickBase.style.left = (this.stickOrigin.x - 60) + 'px';
-      this.els.stickBase.style.top = (this.stickOrigin.y - 60) + 'px';
-      this.els.stickBase.style.bottom = 'auto';
+      // Halka dokunuş noktasına ortalanır. Yarıçap ölçülür: halka çapı ekrana göre
+      // 82–108 px'tir (eskiden sabit 60 px varsayılıyordu ve halka parmağın altında
+      // değil yanında açılıyordu).
+      const half = this.els.stickBase.offsetWidth / 2 || 54;
+      const b = this.els.stickBase.style;
+      b.left = (this.stickOrigin.x - half) + 'px';
+      b.top = (this.stickOrigin.y - half) + 'px';
+      b.bottom = 'auto';
+      this.els.stickKnob.classList.add('active');
       this.updateStick(e);
       e.preventDefault();
     });
@@ -108,12 +136,21 @@ export class Controls {
     const len = Math.hypot(dx, dy);
     if (len > STICK_RADIUS) { dx *= STICK_RADIUS / len; dy *= STICK_RADIUS / len; }
     this.stickVec = { x: dx / STICK_RADIUS, y: dy / STICK_RADIUS };
-    this.els.stickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+    this.setKnob(this.stickVec.x, this.stickVec.y);
+  }
+  /** Topuzu girdi değerine (−1..1) göre halkanın içinde konumlar; 0,0 tam merkezdir. */
+  setKnob(vx, vy) {
+    const base = this.els.stickBase, knob = this.els.stickKnob;
+    // Topuz merkezinin gidebileceği en büyük yarıçap: halka iç kenarına kadar
+    const travel = Math.max(0, (base.clientWidth - knob.offsetWidth * 0.55) / 2);
+    const x = vx * travel, y = vy * travel;
+    knob.style.transform = (x === 0 && y === 0) ? 'translate3d(0, 0, 0)' : `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0)`;
   }
   releaseStick() {
     this.stickPointer = null;
     this.stickVec = { x: 0, y: 0 };
-    this.els.stickKnob.style.transform = 'translate(0px, 0px)';
+    this.setKnob(0, 0);
+    this.els.stickKnob.classList.remove('active');
     const b = this.els.stickBase.style;
     b.left = ''; b.top = ''; b.bottom = '';
   }
@@ -170,12 +207,13 @@ export class Controls {
       if (!this.enabled) return;
       this.rudderPointer = e.pointerId;
       this.rudderHeld = true;
+      this.els.rudderKnob.classList.add('active');
       r.setPointerCapture && r.setPointerCapture(e.pointerId);
       setFrom(e);
       e.preventDefault();
     });
     r.addEventListener('pointermove', (e) => { if (e.pointerId === this.rudderPointer && this.rudderHeld) setFrom(e); });
-    const end = (e) => { if (e.pointerId === this.rudderPointer) { this.rudderHeld = false; this.rudderPointer = null; } };
+    const end = (e) => { if (e.pointerId === this.rudderPointer) { this.rudderHeld = false; this.rudderPointer = null; this.els.rudderKnob.classList.remove('active'); } };
     r.addEventListener('pointerup', end);
     r.addEventListener('pointercancel', end);
     r.addEventListener('lostpointercapture', end);

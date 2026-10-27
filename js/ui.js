@@ -26,7 +26,8 @@ export class UI {
       start: $('start-screen'), btnStart: $('btn-start'), startHint: $('start-hint'),
       pause: $('pause-menu'), btnResume: $('btn-resume'), btnRestart: $('btn-restart'), btnSettings: $('btn-settings'),
       settings: $('settings'), btnSettingsClose: $('btn-settings-close'), qualitySeg: $('quality-seg'), tiltSeg: $('tilt-seg'), soundSeg: $('sound-seg'), fpsSeg: $('fps-seg'), btnCalibrate: $('btn-calibrate'), version: $('version'),
-      crash: $('crash'), crashReason: $('crash-reason'), btnCrashRestart: $('btn-crash-restart'),
+      crash: $('crash'), crashReason: $('crash-reason'), btnCrashRestart: $('btn-crash-restart'), btnCrashHangar: $('btn-crash-hangar'),
+      crashTitle: $('crash-title'), crashSpeed: $('crash-speed'), crashVs: $('crash-vs'), crashAtt: $('crash-att'), crashGear: $('crash-gear'), crashNotes: $('crash-notes'),
       orient: $('orient-overlay'), contextLost: $('context-lost'), btnReload: $('btn-reload'),
       standaloneHint: $('standalone-hint'), standaloneHintClose: $('standalone-hint-close'),
       updateToast: $('update-toast'), btnUpdate: $('btn-update'),
@@ -229,7 +230,35 @@ export class UI {
   toggleMenu() { this.setMenu(!this.isMenuOpen()); }
   isMenuOpen() { return !!(this.el.drawer && this.el.drawer.classList.contains('open')); }
   menuActivity() { if (this.isMenuOpen()) this.setMenu(true); }
-  showCrash(reason) { this.el.crashReason.textContent = reason; this.show('crash'); }
+  /**
+   * Kaza sonuç ekranı. info: physics.crashInfo (crash.js). Sinematik giriş: arka plan ~700 ms'de
+   * belirir, kart 18 px aşağıdan kayarak gelir, satırlar 60 ms arayla kademeli. Yalnızca
+   * opaklık ve transform canlandırılır (bileştiricide; düzen sıçraması ve kare takılması yok).
+   */
+  showCrash(info, fmt) {
+    const el = this.el, d = (info && info.data) || {};
+    el.crashTitle.textContent = (info && info.title) || 'CRITICAL IMPACT';
+    el.crashReason.textContent = (info && info.reason) || 'Impact';
+    el.crashSpeed.textContent = fmt && d.impactSpeedKt !== undefined ? fmt.speed(d) : '—';
+    el.crashVs.textContent = fmt && d.verticalSpeedFpm !== undefined ? fmt.vs(d) : '—';
+    el.crashAtt.textContent = fmt && d.pitchDeg !== undefined ? fmt.attitude(d) : '—';
+    el.crashGear.textContent = d.gearDown === undefined ? '—' : d.gearDown ? 'Down' : 'Up';
+    el.crashNotes.textContent = (info && info.notes && info.notes.length) ? info.notes.join(' · ') : '';
+    const ov = el.crash, card = ov.querySelector('.crash-card');
+    const st = ov._ui || (ov._ui = { phase: 'hidden', anims: [] });
+    this._stop(st);
+    ov.hidden = false; ov.classList.remove('ui-closing');
+    st.phase = 'showing';
+    if (!this._animated()) { st.phase = 'shown'; return; }
+    const ease = 'cubic-bezier(0.16, 1, 0.3, 1)';
+    st.anims.push(ov.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 700, easing: 'cubic-bezier(0.25, 0.1, 0.25, 1)', fill: 'backwards' }));
+    st.anims.push(card.animate([{ opacity: 0, transform: 'translateY(18px)' }, { opacity: 1, transform: 'none' }], { duration: 650, delay: 120, easing: ease, fill: 'backwards' }));
+    ov.querySelectorAll('.crash-row').forEach((r, i) => st.anims.push(r.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 420, delay: 260 + i * 60, easing: ease, fill: 'backwards' })));
+    const mine = st.anims.slice();
+    Promise.all(mine.map((a) => a.finished)).then(() => { if (st.anims[0] === mine[0]) { st.phase = 'shown'; st.anims = []; } }, () => {});
+    setTimeout(() => { if (st.phase === 'showing' && st.anims[0] === mine[0]) { for (const a of mine) { try { a.finish(); } catch (e) { /* yok */ } } st.phase = 'shown'; st.anims = []; } }, 1400);
+    setTimeout(() => { try { el.btnCrashRestart.focus({ preventScroll: true }); } catch (e) { /* yok */ } }, 700);
+  }
 }
 
 export function isStandalone() {
