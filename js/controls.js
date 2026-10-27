@@ -105,8 +105,11 @@ export class Controls {
   bindStick() {
     const z = this.els.stickZone;
     z.addEventListener('pointerdown', (e) => {
-      if (this.stickPointer !== null || !this.enabled) return;
+      if (!this.enabled) return;
       if (e.target.closest && e.target.closest('.btn')) return;
+      // Önceki parmağın bırakma olayı kaybolduysa (iOS: sistem hareketi, bildirim, ekran
+      // kenarı) çubuk kilitli kalıyordu: yeni dokunuş eskisinin yerini alır.
+      if (this.stickPointer !== null) this.releaseStick();
       this.stickPointer = e.pointerId;
       z.setPointerCapture && z.setPointerCapture(e.pointerId);
       const r = z.getBoundingClientRect();
@@ -128,6 +131,11 @@ export class Controls {
     z.addEventListener('pointerup', end);
     z.addEventListener('pointercancel', end);
     z.addEventListener('lostpointercapture', end);
+    // Parmak bölge dışında / sayfa dışında bırakılsa ya da sayfa arka plana gitse de çubuk merkeze döner
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    window.addEventListener('blur', () => this.releaseStick());
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.releaseStick(); });
   }
   updateStick(e) {
     const r = this.els.stickZone.getBoundingClientRect();
