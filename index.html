@@ -48,6 +48,7 @@
       --rud-w: clamp(130px, calc(22 * var(--vw)), 200px);
       --rud-h: 42px;
       --stk-d: clamp(82px, calc(13 * var(--vw)), 108px);
+      --stk-d-raw: clamp(82px, calc(13 * var(--vw)), 108px);
       --flp-w: clamp(52px, calc(7.6 * var(--vw)), 64px);
       --ctl-l: calc(var(--sal) + 10px);
       --flp-l: var(--ctl-l);
@@ -67,6 +68,10 @@
       --btn-on: rgba(57, 255, 106, 0.28);
       --accent: #4fc3f7;
     }
+    /* Joystick halkası çift tamsayı piksel çapa yuvarlanır: merkez her cihaz piksel oranında
+       (1x/2x/3x) tam piksel sınırındadır, topuz ile halka merkezi kesirli düzen birimlerinden
+       dolayı bile ayrışmaz. round() desteklenmiyorsa (eski tarayıcı) ham değer kalır. */
+    @supports (width: round(down, 10.5px, 2px)) { :root { --stk-d: round(down, var(--stk-d-raw), 2px); } }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body {
       margin: 0; padding: 0; position: fixed; left: 0; top: 0; width: var(--app-w); height: var(--app-h);
