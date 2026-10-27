@@ -10,7 +10,18 @@ cd tools/flighttest
 npm install          # yalnızca three@0.170.0 (uygulamanın CDN'den aldığı sürüm)
 npm test             # 21 senaryo + kabul denetimleri; başarısızlıkta çıkış kodu 1
 npm run nosedown     # tam ileri çubuk zaman serisi -> nosedown.csv
+npm run test:crash   # çarpma sınıflandırması + enkaz dinamiği (13 olay, 47 denetim)
+npm run test:world   # pist tanımlayıcı/işaretleri, kaplama planı, yol ağı (38 denetim)
+npm run test:all     # üçü birden
 ```
+
+`crash.mjs`: gerçek `FlightModel` düz dünyada belirli hız / alçalma / tutum / takım ile yere
+sokulur; birincil neden ve şiddet, kazanın yalnızca bir kez tetiklenmesi, çarpma anında
+hızın korunması (donma ya da ışınlanma yok), enkazın sınırlı sürede durması ve yeniden
+başlatmanın durumu temizlemesi denetlenir. `world.mjs`: tanımlayıcıların pist geometrisinden
+ve manyetik sapmadan çıkması, ICAO işaret ölçüleri, yazının iki yaklaşma yönünden de dik ve
+aynalanmamış olması, kaplama dikdörtgenlerinin üst üste binmemesi, her taksi yolu / apronun
+piste bağlı olması, her yol ucunun başka bir yola ya da bir tesise varması.
 
 Senaryolar: tam ileri / tam geri çubuk, nötr çubuk sönümü, azami +g ve −g, yüksek ve düşük
 hızda burun aşağı, ses üstü yunuslama, yüksek AoA, stall toparlanması (bırakılmış ve tam geri

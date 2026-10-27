@@ -16,6 +16,57 @@ for (const a of W.AIRPORTS) {
   const diff = ((+a.marks[1] - +a.marks[0]) + 36) % 36;
   check(diff === 18, `${a.id}: reciprocal differs by 180°`);
 }
+// Tanımlayıcı kuralları: yuvarlama, 0 -> 36, manyetik sapma işareti, paralel pist harfi
+const des = (h, o) => { const d = R.runwayDesignators(h, o); return R.designatorText(d.a) + '/' + R.designatorText(d.b); };
+check(des(120) === '12/30' && des(90) === '09/27' && des(4) === '36/18' && des(176) === '18/36', 'designators: 120°→12/30, 090°→09/27, 004°→36/18, 176°→18/36');
+check(R.runwayDesignators(90, { leadingZero: false }).a.num === '9', 'FAA style: no leading zero');
+check(R.runwayDesignators(125, { magVar: 6 }).a.num === '12' && R.runwayDesignators(125, { magVar: -6 }).a.num === '13', 'magnetic variation: 125°T with 6°E -> 12, with 6°W -> 13');
+check(des(270, { suffix: 'L' }) === '27L/09R', 'parallel runway: 27L reciprocal is 09R');
+check(R.trueHeadingFromEnds(0, 0, 0, -100) === 0 && Math.abs(R.trueHeadingFromEnds(0, 0, 100, 0) - 90) < 1e-9, 'heading convention: north = -Z, east = +X');
+
+// İşaret geometrisi (ICAO Annex 14, 45 m pist)
+{
+  const spec = { length: 3000, width: 45, standard: 'ICAO', ends: [{ text: '09', pad: 80 }, { text: '27', pad: 80 }] };
+  const M = R.buildRunwayMarkings(spec);
+  const P = M.white.attributes.position;
+  let down = 0, outside = 0, minY = Infinity, maxY = -Infinity;
+  for (let i = 0; i < P.count; i += 3) {
+    const ax = P.getX(i), az = P.getZ(i), bx = P.getX(i + 1), bz = P.getZ(i + 1), cx = P.getX(i + 2), cz = P.getZ(i + 2);
+    if ((bz - az) * (cx - ax) - (bx - ax) * (cz - az) < 0) down++;
+    for (let k = 0; k < 3; k++) {
+      minY = Math.min(minY, P.getY(i + k)); maxY = Math.max(maxY, P.getY(i + k));
+      if (Math.abs(P.getZ(i + k)) > 22.5 + 1e-6 || Math.abs(P.getX(i + k)) > 1500 + 1e-6) outside++;
+    }
+  }
+  check(down === 0, 'markings: every triangle faces up');
+  check(outside === 0, 'markings: nothing outside the runway pavement');
+  check(maxY - minY < 1e-6 && maxY > 0.015, `markings: coplanar at ${maxY.toFixed(3)} m, above pavement (0.015 m)`);
+  const E = M.layout.ends[0];
+  check(E.stripes === 12, '45 m runway: 12 threshold stripes');
+  check(Math.abs(E.designation[0] - 48) < 1e-6 && Math.abs(E.designation[1] - 57) < 1e-6, 'designation 9 m tall, 12 m past the 6 + 30 m threshold stripes');
+  check(E.aiming[0] === 400, 'aiming point at 400 m');
+  check(E.tdz.map((t) => t[0]).join(',') === '150,300,600,750,900' && E.tdz.map((t) => t[2]).join(',') === '3,3,2,1,1', 'TDZ pairs every 150 m, pair at 450 m dropped near the aiming point');
+  check(M.layout.centerline.from > -1500 + 57 && M.layout.centerline.gap >= 20, 'centerline starts after designation, gap >= 20 m');
+  // Yazı yönü: her iki uçta da yaklaşan pilot için dik ve aynalanmamış ('7' üst çizgisi eşikten uzakta, ayağı solda)
+  const one = R.buildRunwayMarkings({ length: 3000, width: 45, standard: 'ICAO', ends: [{ text: '7' }, { text: '7' }] });
+  const pp = one.white.attributes.position, A7 = [], B7 = [];
+  for (let i = 0; i < pp.count; i++) {
+    const x = pp.getX(i), z = pp.getZ(i);
+    if (x > -1500 + 47 && x < -1500 + 58) A7.push([x, z]);
+    if (x < 1500 - 47 && x > 1500 - 58) B7.push([x, z]);
+  }
+  const span = (pts, sel) => { const s = pts.filter(sel).map((p) => p[1]); return Math.max(...s) - Math.min(...s); };
+  const mean = (a) => a.reduce((s, v) => s + v, 0) / a.length;
+  check(span(A7, (p) => p[0] > -1500 + 56) > 2.5 && span(A7, (p) => p[0] < -1500 + 49) < 1.5
+    && span(B7, (p) => p[0] < 1500 - 56) > 2.5 && span(B7, (p) => p[0] > 1500 - 49) < 1.5, 'designation text upright from both approach directions');
+  check(mean(A7.filter((p) => p[0] < -1500 + 49).map((p) => p[1])) < 0 && mean(B7.filter((p) => p[0] > 1500 - 49).map((p) => p[1])) > 0, 'designation text not mirrored at either end');
+  const lights = R.runwayLightList(spec, M.layout);
+  check(lights.filter((l) => l.kind === 2 && l.x < 0).every((l) => l.z < 0), 'PAPI on the approaching pilot\'s left');
+  const disp = R.buildRunwayMarkings({ length: 3000, width: 45, standard: 'ICAO', ends: [{ text: '09', displaced: 300 }, { text: '27' }] });
+  check(Math.abs(disp.layout.ends[0].designation[0] - 348) < 1e-6 && disp.layout.ends[0].aiming[0] === 700, 'displaced threshold shifts markings by 300 m');
+  const faa = R.buildRunwayMarkings({ length: 3000, width: 45.7, standard: 'FAA', ends: [{ text: '9' }, { text: '27' }] });
+  check(faa.layout.ends[0].tdz.map((t) => t[2]).join(',') === '3,2,2,1,1' && Math.abs(faa.layout.ends[0].aiming[0] - 311) < 1e-6, 'FAA table: aiming point 1020 ft, TDZ 3/2/2/1/1');
+}
 check(W.SPAWNS.every((sp) => sp.sub.includes(W.AIRPORT_BY_ID[sp.airport].marks.join('/'))), 'hangar labels show computed designators');
 check(W.SPAWNS.find((s) => s.id === 'base').runway === '09' && W.SPAWNS.find((s) => s.id === 'civil').runway === '12', 'spawn runway = takeoff direction (09 / 12)');
 

@@ -21,6 +21,9 @@ js/waterfront.js        Sahil şehri rıhtımı: kruvaziyer terminali + gemi, ma
 js/city.js              Şehir üreteci: bölgeleme, yol ağı, bina yerleşimi, yeşil alan, detay, trafik, LOD
 js/aircraft.js          Prosedürel F-35A modeli: gövde, kokpit + pilot, kanopi, hacimsel art yakıcı alevi,
                         iç silah yuvaları (kapaklar, ray, AIM-120) ve dış istasyonlar (pilon + AIM-120)
+js/runway.js            Pist tanımlayıcıları (geometri + manyetik sapma), ICAO/FAA işaretleri, yönlü pist ışıkları
+js/airfield.js          Taksi yolu/apron planı (fizik ve çizim aynı plandan), dolgu yayları, bekleme çizgisi, tabelalar
+js/crash.js             Çarpma sınıflandırması (öncelik sırasıyla neden + şiddet), enkaz parametreleri
 js/weapons.js           Silah sistemi: envanter, ateşleme sırası, yuva dizisi, füze uçuşu ve çarpışma
 js/fx.js                Silah efektleri: GPU parçacıkları, duman izi şeridi, patlama, krater/is izleri
 js/fleet.js             F-35A yapılandırması: aerodinamik veri, kontrol kanunu, sistemler, kamera, ses
@@ -45,7 +48,7 @@ js/noise.js             Gürültü fonksiyonları
 js/version.js           Uygulama sürümü
 icons/                  Ana ekran ikonları (tools/make_icons.py ile üretilir)
 tools/make_icons.py     İkon üretici (yalnızca Python standart kütüphanesi)
-tools/flighttest/       Başsız uçuş fiziği test matrisi (21 senaryo + kabul denetimleri; Node, bkz. README)
+tools/flighttest/       Başsız testler: uçuş fiziği (21 senaryo), çarpma sınıflandırması, pist/yol geometrisi (Node, bkz. README)
 .nojekyll               GitHub Pages'in dosyaları olduğu gibi sunması için
 ```
 
@@ -284,6 +287,106 @@ kuyrukların dış yüzünde hücum kenarına paralel. Yalnızca 2 çizim çağr
 ışınları yalnızca ilgili bölgenin üçgenlerini tarar (sonuç birebir aynı; geometri sağlama
 toplamıyla doğrulandı; dekal ışınları ~5, takım ışınları ~2 kat hızlandı): uçağın soğuk kurulumu v3.0.0'a göre yalnızca
 ~35 ms uzun. Yeni gölgelendirici programı yok (`hitch`).
+
+## Gerçekçilik ve kalite: pistler, taksi yolları, yollar, çarpma, kamera, joystick (v3.7.0)
+
+Uçuş modeli, FCS ve aerodinamik değişmedi (`tools/flighttest` 21/21). Değişenler: pist ve
+havaalanı geometrisi, yol ağı, çarpma sistemi, dağlar ve aydınlatma, kamera, HUD ve
+dokunmatik joystick.
+
+**Joystick merkezleme.** Boştaki iç daire artık her zaman tam ortadadır. İç daire CSS'te
+`left/top: 50%` + yarı çap kadar negatif kenar boşluğuyla ortalanır; konum yalnızca
+`transform` ile değişir. Bırakınca, açılışta, yeniden başlatmada (`resetInputs()`), ekran
+döndürmede ve yeniden boyutlandırmada `releaseStick()` hem değeri hem görüntüyü sıfırlar.
+Halka çapı `vw`'den geldiği için bazı telefonlarda kesirli çıkıyordu (iPhone SE'de 86,7 px →
+yarım piksellik kayma); CSS `round()` destekleniyorsa çift piksele yuvarlanır. İç daire koyu
+gri (#42464D tabanlı degrade), dokunurken yeşil kenar. Ölçüm (Chromium mobil öykünme,
+iPhone SE / 12 mini / 14 / 15 Pro Max, DPR 2–3): açılışta, bıraktıktan sonra, döndürmeden
+sonra ve yeniden başlatmadan sonra kayma 0,000 px; çubuk + gaz aynı anda çoklu dokunuşla
+çalışır. Gerçek iPhone'da denenmedi.
+
+**Pist tanımlayıcıları geometriden.** `runway.js`: gerçek yön pistin iki ucundan hesaplanır
+(`trueHeadingFromEnds`, kuzey = −Z), manyetik yön = gerçek − sapma (doğu +), 10°'ye
+yuvarlanır, 0 → 36, karşı uç ±18; paralel pistlerde L ↔ R, C aynı kalır. Dünya kurgusal
+olduğu için manyetik sapma verisi yoktur: `MAGNETIC_VARIATION_DEG = 0` ve her havaalanının
+`magVar` alanı yapılandırılabilir (veri uydurulmadı). Sonuç: üs 09/27 (090°), sivil 12/30
+(120°); hangar etiketleri de bu değerlerden gelir.
+
+**Pist işaretleri (ICAO Annex 14; FAA tablosu `markings: 'FAA'`).** Eşikten 6 m sonra 30 m
+uzunluğunda eşik çizgileri, sayısı genişliğe göre (45 m → 12, ortada çift boşluk); tanımlayıcı
+9 m yüksekliğinde, çizgilerden 12 m sonra; orta hat 30 m çizgi / ≥ 20 m boşluk; nişan noktası
+400 m'de; temas bölgesi çiftleri 150 m arayla kodlu desende (3, 3, 2, 2, 1, 1), nişan
+noktasına 50 m'den yakın çift atlanır; 0,9 m kenar çizgileri; 60 m'den uzun patlama
+pedlerinde sarı ok işaretleri; kaydırılmış eşik desteklenir. Rakamlar dokudan değil çizgi
+yazı tipinden üretilen geometridir: her uzaklıkta keskin, iki yaklaşma yönünden de dik ve
+aynalanmamış. Kaplama 0,015 m, işaretler 0,03 m + `polygonOffset`: z-fighting ya da havada
+duran çizgi yok. Temas bölgesinde gölgelendiricide lastik izi.
+
+**Pist ışıkları.** Tek `Points` çizimi, yönlü: kenar beyaz (son 600 m sarı), eşik yeşil ve
+pist sonu kırmızı yalnızca doğru yönden görünür, PAPI soldaki 4 birim (3°30' / 3°10' /
+2°50' / 2°30'). En az piksel boyutu sayesinde ~12 km'ye kadar görünür.
+
+**Taksi yolları ve apronlar.** `airfield.js`: havaalanı, birbirine binmeyen dikdörtgenlerden
+(pist / taksi yolu / apron / kara tarafı otopark) ve kavşaklarda otomatik dolgu yaylarından
+oluşan bir plandır. Fizikteki yüzey sorgusu (`surfaceTypeAt`) ve çizim aynı planı kullanır.
+Sarı orta hat ve dönüş yayları, pist orta hattından 90 m'de ICAO A tipi bekleme çizgisi,
+zorunlu (kırmızı) ve konum (siyah üstüne sarı) tabelaları, mavi kenar ışıkları, apron
+kenarında taksi yolu yan çizgileri. Üs 5 güney + 3 kuzey bağlantı, sivil 5 bağlantı.
+
+**Yol ağı.** Yollar ağ olarak tanımlanır: kollar başka bir yolun üstünden başlar
+(`from: { road, x | near }`), her uç ya bir yola ya da bir tesise (kapı, otopark, kargo
+apronu, kasaba, mezra) varır. Üs içinde çevre yolu, ana ve batı kapı, hangar sırası, karargâh,
+depo, koğuşlar, jeneratör, yakıt, sığınak arkası ve mühimmat yolları. Yol profili yol
+boyunca yumuşatılır; araziye uygulanan kesme sınırlıdır (sivil yaylada 60 m'lik yarma
+kalmadı, en düşük arazi 184 m). Yol şeritleri 20 m'de bir sıklaştırılıp araziye ±0,5 m
+kenetlenir: havada duran ya da gömülen kenar yok; asfalt dokusu açıldı (siyah şerit yok).
+
+**Çarpma sınıflandırması.** `crash.js` önce fiziksel büyüklükleri hesaplar (yere dik çarpma
+hızı, yer hızı, uçuş yolu açısı, tutum, takım, yüzey, eğim), sonra nedenleri öncelik
+sırasıyla denetler: engel → yıkıcı enerji → su → yerde yuvarlanma → arazi → aşırı dikey hız
+→ yüksek hız → dik yol/yamaç → takım yukarı → sert iniş → kanat ucu / kuyruk / burun → pist
+dışı. Örnek: takım yukarı, 480 kt, −9000 ft/dk → eskiden "Landed with the gear up", şimdi
+"Excessive vertical impact speed", yıkıcı; "Landing gear was retracted" ikincil not. Eşikler
+`IMPACT_LIMITS`'te yapılandırılabilir [E]. Şiddet: minor / major / critical / catastrophic.
+
+**Çarpma sonrası fizik.** Çarpma anında hız korunur (donma, ışınlanma yok). Enkaz:
+yerçekimi, sürükleme, temas noktalarında Coulomb sürtünme dürtüsü, enerjiye bağlı sekme,
+dönme sönümü; parametreler şiddete göre (`WRECK_PARAMS`). Enkaz sınırlı sürede durur, kaza
+yalnızca bir kez tetiklenir. Efektler şiddete göre ölçeklenir: patlama, toz, kıvılcım, sürtünme
+izi, ateş ve duman, suda sıçrama, çarpma ve sürtünme sesi, kamera sarsıntısı. Kamera son
+canlı konumdan 1,2 s'de çarpma görünümüne geçer ve arazinin üstünde kalır.
+
+**Çarpma ekranı.** "Flight terminated" + şiddet başlığı (ör. CRITICAL IMPACT), neden, çarpma
+hızı, dikey hız, tutum, takım, ikincil notlar; RESTART FLIGHT ve HANGAR düğmeleri. 700 ms
+karartma, 650 ms kart kayması, satırlar sırayla (Web Animations; hareket azaltma tercihinde
+animasyonsuz). Yeniden başlatma kaza durumunu, enkazı, efektleri, kamera geçişini ve
+girişleri temizler, uçağı kalkış pistine koyar.
+
+**Dağlar, arazi, ışık.** Dağ kütleleri bükülmüş (warp) gürültüyle ve yumuşak sırtlı 3 oktavla
+üretilir; tepelerdeki iğne gibi sivri tepeler kalktı, eteklerde yumuşak geçiş. Yakın arazide
+ince ayrıntı ve doğal doygunluk. Güneş azimut 140°, yükseklik 50°. Hangarlar, sığınaklar
+(HAS), kule ve atölyeler için kaplama/cephe dokuları ve sabit güneşe göre önceden hesaplanmış
+(baked) gölgeler; bu binalar gerçek zamanlı gölge atmaz.
+
+**Kamera.** Takip kamerası daha yakın ve hıza bağlı (16,5–23 m), uçağın önüne bakar;
+arazinin içine girmez. Kamera modları arasında 0,55 s yumuşak geçiş. İki parmak / tekerlek
+ile takip uzaklığı (0,6–2,2×); Ayarlar → *Camera field of view*: dar / normal / geniş.
+
+**HUD.** Yükseklik deniz seviyesine göredir (ALT … FT MSL; su yüzeyi = MSL), ayrıca radar
+irtifası (RA, tekerlek altı, 5000 ft'e kadar). Değerler hafifçe yumuşatılır, sabit genişlikli
+alanlar titremez, binlik ayırıcı. Pistte: ALT 21 ft MSL, RA 0.
+
+**Testler.** `tools/flighttest`: `npm run test:all` = uçuş fiziği (21/21) + çarpma (13 olay,
+47 denetim) + dünya (38 denetim). Bkz. `tools/flighttest/README.md`.
+
+**Ölçülen maliyet (Chromium + SwiftShader, yazılım GPU; telefon değil).** Üs kalkış
+görünümü: 254 → 257 çizim çağrısı, 692 k → 688 k üçgen. Sivil terminal görünümü: 73 çizim,
+210 k üçgen. **iPhone Safari'de 60 FPS doğrulanmadı** (gerçek cihazda test yapılmadı).
+
+**Sınırlamalar.** Manyetik sapma 0 (kurgusal dünya). Gölgeler düz zemin ve sabit güneş
+varsayar. Bulutlar ve uçak modeli bu sürümde değişmedi (yalnızca gölge/temas). FAA temas
+bölgesi ayrıntıları ve ICAO B deseni sayıları yayımlanmış tablolardan bellekten aktarıldı;
+resmi belgeyle karşılaştırılmadı.
 
 ## Dünya görselleri: kıyılar, su ve arazi malzemesi (v3.6.0)
 
