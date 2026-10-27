@@ -1,8 +1,17 @@
 // Yeşil HUD: hız, irtifa, baş, dikey hız, AoA, G, gaz, takım/flap, yunuslama merdiveni, uçuş yolu işareti.
 import * as THREE from 'three';
 
-const GREEN = '#39ff6a';
-const DIM = 'rgba(57,255,106,0.55)';
+// Havacılık yeşili: neon yerine hafif yumuşatılmış ton; koyu kenar gölgesiyle açık gökyüzünde de okunur
+const GREEN = '#4cff7c';
+const DIM = 'rgba(76,255,124,0.55)';
+const AMBER = '#ffc46a', RED = '#ff6a5e';
+const MONO = '"SF Mono", Menlo, Consolas, "Roboto Mono", monospace';
+const SANS = '-apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif';
+// Gösterge yumuşatma (s): yalnızca sayısal okumadaki titreşimi alır. Zaman sabitleri küçüktür,
+// gerçek hızlı değişimler (dalış, pull-up) gecikmeden görünür. VSI gerçek uçakta da sönümlüdür.
+const TAU_IAS = 0.12, TAU_VS = 0.30, TAU_ALT = 0.08;
+// Radar altimetre gösterim sınırı (ft): üstünde AGL gizlenir (gerçek RA davranışı gibi)
+const RA_MAX = 5000;
 const DASH = [6, 4], SOLID = [];
 // Binlik ayraçlı tamsayı (toLocaleString her karede pahalı ve tahsis yapıyor)
 const thousands = (n) => { const s = String(Math.abs(n)); let o = ''; for (let i = 0; i < s.length; i++) { if (i && (s.length - i) % 3 === 0) o += ','; o += s[i]; } return n < 0 ? '-' + o : o; };
@@ -18,6 +27,20 @@ export class HUD {
     this._v = new THREE.Vector3();
     this._v2 = new THREE.Vector3();
     this.blink = 0;
+    this.sm = null;           // yumuşatılmış gösterge değerleri
+  }
+
+  /** Gösterge değerlerini (kare hızından bağımsız) üstel olarak yumuşatır; ilk karede eşitler. */
+  smooth(T, dt) {
+    const s = this.sm || (this.sm = { ias: T.kias, vs: T.vsFpm, alt: T.altFt, agl: T.aglFt });
+    const k = (tau) => 1 - Math.exp(-Math.max(0, Math.min(dt || 0.016, 0.1)) / tau);
+    // Büyük sıçramada (yeniden başlatma, ışınlanma) doğrudan eşitle
+    if (Math.abs(T.altFt - s.alt) > 2000 || Math.abs(T.kias - s.ias) > 150) { s.ias = T.kias; s.vs = T.vsFpm; s.alt = T.altFt; s.agl = T.aglFt; }
+    s.ias += (T.kias - s.ias) * k(TAU_IAS);
+    s.vs += (T.vsFpm - s.vs) * k(TAU_VS);
+    s.alt += (T.altFt - s.alt) * k(TAU_ALT);
+    s.agl += (T.aglFt - s.agl) * k(TAU_ALT);
+    return s;
   }
 
   resize(w, h, dpr) {
@@ -35,19 +58,26 @@ export class HUD {
     return { x: (v.x * 0.5 + 0.5) * this.w, y: (-v.y * 0.5 + 0.5) * this.h, behind };
   }
 
-  // Dış kameralar: üst ortada kompakt uçuş bilgisi şeridi (IAS / ALT / VS / HDG) – fizik telemetrisinden, her karede
+  // Dış kameralar: üst ortada kompakt uçuş bilgisi şeridi. Alan genişlikleri ŞABLON metinden
+  // ölçülür (ör. IAS '0000'): değerler değişince şerit genişlemez/daralmaz, yazılar zıplamaz.
+  // ALT ortalama deniz seviyesine (MSL), RA ise ana teker tabanından araziye göredir (AGL);
+  // RA yalnızca 5000 ft altında gösterilir.
   drawExternalInfo(T, opts) {
     const ctx = this.ctx; const { w } = this;
-    const vs = Math.round(T.vsFpm / 50) * 50;
+    const S = this.sm || T;
+    const vs = Math.round((this.sm ? S.vs : T.vsFpm) / 50) * 50;
+    const agl = this.sm ? S.agl : T.aglFt;
     const items = [
-      ['IAS', String(Math.round(T.kias)), 'KT'],
-      ['ALT', thousands(Math.round(T.altFt)), 'FT'],
-      ['VS', (vs > 0 ? '+' : '') + vs, 'FPM'],
-      ['HDG', String(Math.round(T.heading) % 360).padStart(3, '0'), ''],
+      ['IAS', String(Math.round(this.sm ? S.ias : T.kias)), 'KT', '0000'],
+      ['ALT', thousands(Math.round(this.sm ? S.alt : T.altFt)), 'FT MSL', '00,000'],
     ];
-    const fL = '600 9px -apple-system, "Segoe UI", Roboto, sans-serif', fV = 'bold 14px "SF Mono", Menlo, Consolas, monospace', fU = '600 8px -apple-system, "Segoe UI", Roboto, sans-serif';
-    const gap = 14, padX = 12, hgt = 26;
-    const widths = items.map(([l, v, u]) => { ctx.font = fL; let x = ctx.measureText(l).width + 5; ctx.font = fV; x += ctx.measureText(v).width; if (u) { ctx.font = fU; x += 3 + ctx.measureText(u).width; } return x; });
+    // RA: 100 ft üstünde 10 ft adımlarla (titremesin), altında 1 ft
+    if (agl < RA_MAX) items.push(['RA', thousands(agl > 100 ? Math.round(agl / 10) * 10 : Math.round(agl)), 'FT', '0,000']);
+    items.push(['VS', (vs > 0 ? '+' : vs < 0 ? '−' : '') + thousands(Math.abs(vs)), 'FPM', '+0,000']);
+    items.push(['HDG', String(Math.round(T.heading) % 360 || 360).padStart(3, '0'), '°', '000']);
+    const fL = `600 9px ${SANS}`, fV = `700 14px ${MONO}`, fU = `600 8px ${SANS}`;
+    const gap = 16, padX = 12, hgt = 26;
+    const widths = items.map(([l, , u, tpl]) => { ctx.font = fL; let x = ctx.measureText(l).width + 5; ctx.font = fV; x += ctx.measureText(tpl).width; if (u) { ctx.font = fU; x += 3 + ctx.measureText(u).width; } return x; });
     // Dar ekranda sığmayan alanlar sondan atılır (okunaklılık korunur)
     let n = items.length;
     const totalOf = (k) => widths.slice(0, k).reduce((a, b) => a + b, 0) + gap * (k - 1) + padX * 2;
@@ -57,15 +87,20 @@ export class HUD {
     const x0 = Math.round(w / 2 - total / 2), y0 = opts.safe.top + 8;
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0)';
-    ctx.fillStyle = 'rgba(8,14,22,0.62)'; ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(x0, y0, total, hgt, 8); ctx.fill(); ctx.stroke();
-    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(14,17,21,0.66)'; ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x0, y0, total, hgt, 7); ctx.fill(); ctx.stroke();
+    ctx.textBaseline = 'middle';
     let x = x0 + padX; const cy = y0 + hgt / 2 + 0.5;
-    items.forEach(([l, v, u], i) => {
-      ctx.font = fL; ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillText(l, x, cy); x += ctx.measureText(l).width + 5;
-      ctx.font = fV; ctx.fillStyle = GREEN; ctx.fillText(v, x, cy); x += ctx.measureText(v).width;
-      if (u) { ctx.font = fU; ctx.fillStyle = 'rgba(255,255,255,0.45)'; x += 3; ctx.fillText(u, x, cy + 1); x += ctx.measureText(u).width; }
-      x += gap;
+    items.forEach(([l, v, u, tpl], i) => {
+      ctx.textAlign = 'left';
+      ctx.font = fL; ctx.fillStyle = 'rgba(214,222,230,0.58)'; ctx.fillText(l, x, cy); const lw = ctx.measureText(l).width + 5;
+      ctx.font = fV; const vw = ctx.measureText(tpl).width;
+      // değer sağa hizalı (sabit alan): basamak sayısı değişince yazı kaymaz
+      ctx.textAlign = 'right'; ctx.fillStyle = GREEN; ctx.fillText(v, x + lw + vw, cy);
+      let xe = x + lw + vw;
+      if (u) { ctx.textAlign = 'left'; ctx.font = fU; ctx.fillStyle = 'rgba(214,222,230,0.45)'; ctx.fillText(u, xe + 3, cy + 1); xe += 3 + ctx.measureText(u).width; }
+      if (i < items.length - 1) { ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(Math.round(xe + gap / 2), y0 + 6, 1, hgt - 12); }
+      x = xe + gap;
     });
     ctx.restore();
     this.externalInfoDrawn = true;
@@ -76,17 +111,18 @@ export class HUD {
   drawExternalWarnings(T, opts, on) {
     const ctx = this.ctx; const { w } = this;
     ctx.save();
-    ctx.font = 'bold 13px -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.font = `700 12.5px ${SANS}`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4;
+    ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 1;
     const y = opts.safe.top + 50;
-    if (T.stall && on) { ctx.fillStyle = '#ff6a6a'; ctx.fillText('STALL', w / 2, y); }
-    else if (T.stallWarn && on) { ctx.fillStyle = '#ffc46a'; ctx.fillText('STALL WARNING', w / 2, y); }
-    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = '#ffc46a'; ctx.fillText('LANDING GEAR', w / 2, y + 18); }
+    if (T.stall && on) { ctx.fillStyle = RED; ctx.fillText('STALL', w / 2, y); }
+    else if (T.stallWarn && on) { ctx.fillStyle = AMBER; ctx.fillText('STALL WARNING', w / 2, y); }
+    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = AMBER; ctx.fillText('LANDING GEAR', w / 2, y + 18); }
     ctx.restore();
   }
 
   clear() {
+    this.sm = null;
     if (this.mode === 'clear') return;      // seçim ekranında her karede çağrılır: boşsa dokunma
     const ctx = this.ctx; ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); ctx.clearRect(0, 0, this.w, this.h);
     this.mode = 'clear'; this.extKey = '';
@@ -98,12 +134,13 @@ export class HUD {
   // bileştirmek zorunda kalmaz.
   drawExternal(T, opts) {
     const ctx = this.ctx;
+    const S = this.smooth(T, opts.dt);
     this.blink += opts.dt || 0.016;
     this.extAge = (this.extAge || 0) + (opts.dt || 0.016);
     const on = Math.floor(this.blink * 4) % 2 === 0;
     const warnStall = T.stall ? 2 : T.stallWarn ? 1 : 0;
     const warnGear = !T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0;
-    const key = Math.round(T.kias) + '|' + Math.round(T.altFt) + '|' + Math.round(T.vsFpm / 50) + '|' + Math.round(T.heading)
+    const key = Math.round(S.ias) + '|' + Math.round(S.alt) + '|' + Math.round(S.vs / 50) + '|' + Math.round(T.heading) + '|' + (S.agl < RA_MAX ? Math.round(S.agl / 10) : -1)
       + '|' + warnStall + (warnGear ? 'g' : '') + ((warnStall || warnGear) && on ? '*' : '')
       + '|' + this.w + 'x' + this.h + '|' + opts.safe.top + ',' + opts.safe.left + ',' + opts.safe.right;
     if (this.mode === 'external' && key === this.extKey) return;
@@ -126,9 +163,10 @@ export class HUD {
     ctx.clearRect(0, 0, w, h);
     this.mode = 'cockpit'; this.extKey = '';
     if (!opts.visible) return;
+    const S = this.smooth(T, opts.dt);
     this.blink += opts.dt || 0.016;
     ctx.save();
-    ctx.font = 'bold 14px "SF Mono", Menlo, Consolas, monospace';
+    ctx.font = `bold 14px ${MONO}`;
     ctx.fillStyle = GREEN; ctx.strokeStyle = GREEN; ctx.lineWidth = 1.5;
     // Okunurluk için koyu gölge: bulanıklık (shadowBlur) her çizimde Gauss süzgeci
     // demektir ve HUD'da kare başına ~40 çizim var. 1 px kaydırılmış keskin gölge
@@ -203,9 +241,9 @@ export class HUD {
     const rowY = cy - 10;
     ctx.textAlign = 'right';
     ctx.strokeRect(lx, rowY - boxH / 2, boxW, boxH);
-    ctx.font = 'bold 18px "SF Mono", Menlo, Consolas, monospace';
-    ctx.fillText(String(Math.round(T.kias)), lx + boxW - 6, rowY);
-    ctx.font = 'bold 12px "SF Mono", Menlo, Consolas, monospace';
+    ctx.font = `bold 18px ${MONO}`;
+    ctx.fillText(String(Math.round(S.ias)), lx + boxW - 6, rowY);
+    ctx.font = `bold 12px ${MONO}`;
     ctx.fillText('KIAS', lx + boxW - 6, rowY - boxH / 2 - 9);
     ctx.fillText('M ' + T.mach.toFixed(2), lx + boxW - 6, rowY + boxH / 2 + 10);
     ctx.fillText('AoA ' + T.alpha.toFixed(1) + '°', lx + boxW - 6, rowY + boxH / 2 + 26);
@@ -214,14 +252,15 @@ export class HUD {
     // ---- İrtifa kutusu (sağ) ----
     ctx.textAlign = 'left';
     ctx.strokeRect(rx, rowY - boxH / 2, boxW, boxH);
-    ctx.font = 'bold 18px "SF Mono", Menlo, Consolas, monospace';
-    ctx.fillText(String(Math.round(T.altFt)), rx + 6, rowY);
-    ctx.font = 'bold 12px "SF Mono", Menlo, Consolas, monospace';
-    ctx.fillText('ALT ft', rx + 6, rowY - boxH / 2 - 9);
-    const vs = Math.round(T.vsFpm / 50) * 50;
+    ctx.font = `bold 18px ${MONO}`;
+    ctx.fillText(thousands(Math.round(S.alt)), rx + 6, rowY);
+    ctx.font = `bold 12px ${MONO}`;
+    ctx.fillText('ALT MSL', rx + 6, rowY - boxH / 2 - 9);
+    const vs = Math.round(S.vs / 50) * 50;
     ctx.fillText('VS ' + (vs > 0 ? '+' : '') + vs, rx + 6, rowY + boxH / 2 + 10);
-    ctx.fillText('AGL ' + Math.round(T.aglFt), rx + 6, rowY + boxH / 2 + 26);
-    ctx.fillText('HDG ' + String(Math.round(T.heading) % 360).padStart(3, '0'), rx + 6, rowY + boxH / 2 + 42);
+    // Radar altimetre (AGL, ana teker tabanından): 5000 ft altında "R" ile gösterilir
+    ctx.fillText(S.agl < RA_MAX ? 'R ' + thousands(S.agl > 100 ? Math.round(S.agl / 10) * 10 : Math.round(S.agl)) : 'R ----', rx + 6, rowY + boxH / 2 + 26);
+    ctx.fillText('HDG ' + String(Math.round(T.heading) % 360 || 360).padStart(3, '0'), rx + 6, rowY + boxH / 2 + 42);
 
     // ---- Baş bandı (üst) ----
     const tapeY = insetT + 62;
@@ -260,16 +299,23 @@ export class HUD {
     if (T.brakes) flags.push('BRK');
     if (flags.length) ctx.fillText(flags.join('  '), lx, infoY + 48);
     ctx.textAlign = 'right';
-    ctx.fillText('FUEL ' + Math.round(T.fuelKg) + ' kg', rx + boxW, infoY);
-    if (opts.cameraName) ctx.fillText(opts.cameraName, rx + boxW, infoY + 16);
+    ctx.fillText('FUEL ' + thousands(Math.round(T.fuelKg)) + ' kg', rx + boxW, infoY);
+    // Silah durumu: kalan füze, sıradaki/meşgul/engelli
+    if (opts.weapons) {
+      const wpn = opts.weapons;
+      ctx.fillStyle = wpn.count === 0 ? DIM : wpn.inhibit ? DIM : GREEN;
+      ctx.fillText('AIM-120 ' + wpn.count + (wpn.pending ? ' Q' : wpn.inhibit ? ' SAFE' : wpn.busy ? ' …' : ' RDY'), rx + boxW, infoY + 16);
+      ctx.fillStyle = GREEN;
+    }
+    if (opts.cameraName) ctx.fillText(opts.cameraName, rx + boxW, infoY + (opts.weapons ? 32 : 16));
 
     // ---- Uyarılar ----
     ctx.textAlign = 'center';
-    ctx.font = 'bold 20px "SF Mono", Menlo, Consolas, monospace';
+    ctx.font = `bold 20px ${MONO}`;
     const on = Math.floor(this.blink * 4) % 2 === 0;
-    if (T.stall && on) { ctx.fillStyle = '#ff5050'; ctx.fillText('STALL', cx, cy + 70); }
-    else if (T.stallWarn) { ctx.fillStyle = '#ffd35a'; ctx.font = 'bold 14px "SF Mono", Menlo, Consolas, monospace'; ctx.fillText('AoA ' + (on ? '▲' : '△') + ' STALL WARN', cx, cy + 70); }
-    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = '#ffd35a'; ctx.font = 'bold 20px "SF Mono", Menlo, Consolas, monospace'; ctx.fillText('GEAR', cx, cy + 94); }
+    if (T.stall && on) { ctx.fillStyle = RED; ctx.fillText('STALL', cx, cy + 70); }
+    else if (T.stallWarn) { ctx.fillStyle = AMBER; ctx.font = `bold 14px ${MONO}`; ctx.fillText('AoA ' + (on ? '▲' : '△') + ' STALL WARN', cx, cy + 70); }
+    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = AMBER; ctx.font = `bold 20px ${MONO}`; ctx.fillText('GEAR', cx, cy + 94); }
     ctx.restore();
   }
 }

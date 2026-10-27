@@ -222,7 +222,8 @@ function pick(table, value) {
 export function buildRunwayMarkings(spec) {
   const S = MARKING_STANDARDS[spec.standard] || MARKING_STANDARDS.ICAO;
   const L = spec.length, W = spec.width, half = L / 2;
-  const y = spec.y !== undefined ? spec.y : 0.07;
+  // İşaretler kaplamanın 1,5 cm üstünde (derinlik sırası polygonOffset ile; havada süzülmez)
+  const y = spec.y !== undefined ? spec.y : 0.03;
   const white = new FlatBuilder(), yellow = new FlatBuilder();
   const layout = { ends: [] };
   const lda = (e) => L - (e.displaced || 0);
@@ -514,10 +515,10 @@ export function buildRunway(spec) {
   const disposables = [];
   // Kaplama: pist + iki uçta pist öncesi kaplamalı alan
   const pave = new FlatBuilder();
-  pave.rect(0, 0, L, W, 0.05);
+  pave.rect(0, 0, L, W, 0.015);
   for (const [ei, e] of spec.ends.entries()) {
     const pad = e.pad || 0;
-    if (pad > 0) pave.rect((ei === 0 ? -1 : 1) * (half + pad / 2), 0, pad, W, 0.05);
+    if (pad > 0) pave.rect((ei === 0 ? -1 : 1) * (half + pad / 2), 0, pad, W, 0.015);
   }
   const paveGeo = pave.geometry();
   // UV: 18 m'lik döşeme (eski asfalt ölçeği)

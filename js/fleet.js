@@ -62,7 +62,9 @@ const F35_CFG = {
   },
   cameras: {
     cockpitEye: [F35.pilotEye.x, F35.pilotEye.y, F35.pilotEye.z], cockpitFov: 58, cockpitNear: 0.10, cockpitPitch: -4 * DEG,
-    chase: { dist: [21, 30], vRef: 320, up: 2.8, ahead: 70, lookUp: 1.5, fov: 58 },
+    // Takip: uçak kadrajda daha büyük ve ortaya yakın (eskiden 21-30 m geride, bakış noktası
+    // 70 m önde: uçak küçük ve ekranın altında kalıyordu). İki parmakla 0,6x-2,2x ayarlanır.
+    chase: { dist: [16.5, 23], vRef: 320, up: 3.0, ahead: 42, lookUp: 1.3, fov: 55 },
     orbit: { dist: 26, min: 6, max: 260, lookUp: 1, fov: 50 },
     flyby: { fov: 42, ahead: [180, 900], side: [60, 150], up: 3, vScale: 4.5, reset: 1300 },
     wing: { eye: [0.55, 0.85, -2.1], look: [5.0, -0.45, 2.2], fov: 62 },

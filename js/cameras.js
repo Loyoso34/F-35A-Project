@@ -56,6 +56,10 @@ export class CameraRig {
     this._q = new THREE.Quaternion(); this._q2 = new THREE.Quaternion();
     this._ax = new THREE.Vector3();
     this._shakeE = new THREE.Euler(); this.trauma = 0;
+    // Kip geçişi: önceki kameranın UÇAĞA GÖRE pozundan yeni kipe yumuşak geçiş
+    this.blend = null; this._bp = new THREE.Vector3(); this._bq = new THREE.Quaternion(); this._qi = new THREE.Quaternion();
+    this.chaseZoom = 1;      // takip kamerası uzaklık çarpanı (iki parmak / tekerlek)
+    this.fovScale = 1;       // ayarlardan: dar / normal / geniş görüş açısı
     this.initialized = false;
     this.doppler = 1;
     this.distance = 0;
@@ -85,6 +89,17 @@ export class CameraRig {
   next() { this.modeIndex = (this.modeIndex + 1) % CAMERA_MODES.length; this.onModeChanged(); }
 
   onModeChanged() {
+    // Geçiş başlangıcı: şu anki kamera pozu uçağın yerel çerçevesinde saklanır; her karede uçağın
+    // güncel pozuyla yeniden kurulur. Böylece 250 m/s'de de kamera geride kalmadan, ~0,55 s'de
+    // yumuşakça yeni kipe akar (konum doğrusal, yönelim küresel ara değer). Yalnızca görseldir.
+    if (this._lastPose && this.camera) {
+      const P = this._lastPose, inv = this._qi.copy(P.quat).invert();
+      this.blend = {
+        t: 0, dur: 0.55, fov0: this.camera.fov,
+        relPos: this.camera.position.clone().sub(P.pos).applyQuaternion(inv),
+        relQuat: inv.clone().multiply(this.camera.quaternion),
+      };
+    }
     this.initialized = false;      // takip kamerası yeni yerine ışınlanmadan oturur
     this.flybyPlaced = false;
     // Kokpite her girişte bakış ileriye toplanır: oyuncu geçen seferki açıyla karşılaşmaz
@@ -98,11 +113,13 @@ export class CameraRig {
     if (!c) return;
     const fov = m === 'cockpit' ? c.cockpitFov : m === 'orbit' ? c.orbit.fov : m === 'flyby' ? c.flyby.fov
       : m === 'gear' ? c.gear.fov : (m === 'wingL' || m === 'wingR') ? c.wing.fov : c.chase.fov;
-    this.camera.fov = fov;
+    this.camera.fov = Math.min(100, fov * (this.fovScale || 1));
+    this.targetFov = this.camera.fov;
     // Gövdeye yakın görünümlerde yakın düzlem küçülür; dış görünümlerde derinlik hassasiyeti korunur
     this.camera.near = (m === 'cockpit' || m === 'wingL' || m === 'wingR' || m === 'gear') ? c.cockpitNear : 1.0;
     this.camera.updateProjectionMatrix();
-    if (this.aircraft) this.aircraft.setCockpitView(m === 'cockpit');
+    // Kokpite geçişte dış model (pilot, kanopi dış yüzü) geçiş bitene kadar korunur
+    if (this.aircraft) this.aircraft.setCockpitView(m === 'cockpit' && !this.blend);
   }
 
   /**
@@ -122,6 +139,7 @@ export class CameraRig {
   }
 
   zoom(f) {
+    if (this.mode === 'chase') { this.chaseZoom = clamp(this.chaseZoom / f, 0.6, 2.2); return; }
     if (this.mode !== 'orbit') return;
     this.orbitT.dist = clamp(this.orbitT.dist / f, this.cfg.orbit.min, this.cfg.orbit.max);
   }
@@ -129,7 +147,7 @@ export class CameraRig {
   /** Kokpit bakışını ileri toplar (çift dokunuş / tuş ile). */
   recenterLook() { this.lookT.yaw = this.lookT.pitch = 0; }
 
-  reset() { this.initialized = false; this.flybyPlaced = false; }
+  reset() { this.initialized = false; this.flybyPlaced = false; this.blend = null; }
 
   placeFlyby(fm) {
     const pos = fm.pos, vel = fm.vel;
@@ -219,8 +237,12 @@ export class CameraRig {
   }
 
   update(dt, fm) {
+    this._lastPose = fm;
     if (this.crash) this._updateCrash(dt, fm);
-    else this._update(dt, fm);
+    else {
+      this._update(dt, fm);
+      if (this.blend) this._applyBlend(dt, fm);
+    }
     if (this.trauma > 0.001) {
       const t = (fm.time || 0), k = this.trauma * this.trauma;
       const ax = (Math.sin(t * 39.1) * 0.6 + Math.sin(t * 71.7 + 1.3) * 0.4) * 0.022 * k;
@@ -229,6 +251,22 @@ export class CameraRig {
       this.camera.quaternion.multiply(this._q.setFromEuler(this._shakeE.set(ax, ay, az)));
       this.trauma *= Math.exp(-dt * 3.2);
     } else this.trauma = 0;
+  }
+
+  _applyBlend(dt, fm) {
+    const B = this.blend, cam = this.camera;
+    B.t += dt;
+    const u = Math.min(1, B.t / B.dur), s = u * u * (3 - 2 * u);
+    this._bp.copy(B.relPos).applyQuaternion(fm.quat).add(fm.pos);
+    this._bq.copy(fm.quat).multiply(B.relQuat);
+    cam.position.lerpVectors(this._bp, cam.position, s);
+    cam.quaternion.slerpQuaternions(this._bq, cam.quaternion, s);
+    const f = B.fov0 + (this.targetFov - B.fov0) * s;
+    if (Math.abs(cam.fov - f) > 1e-3) { cam.fov = f; cam.updateProjectionMatrix(); }
+    if (u >= 1) {
+      this.blend = null;
+      if (this.aircraft) this.aircraft.setCockpitView(this.mode === 'cockpit');
+    }
   }
 
   _update(dt, fm) {
@@ -321,7 +359,7 @@ export class CameraRig {
     // geri gelir. Üstel yaklaşım kare hızından bağımsızdır.
     const speed = fm.vel.length();
     const ch = C.chase;
-    const dist = ch.dist[0] + Math.min(speed / ch.vRef, 1) * (ch.dist[1] - ch.dist[0]);
+    const dist = (ch.dist[0] + Math.min(speed / ch.vRef, 1) * (ch.dist[1] - ch.dist[0])) * this.chaseZoom;
     const desired = this._v2.copy(fwd).multiplyScalar(-dist).addScaledVector(up, ch.up);
     const off = this.chaseOff || (this.chaseOff = new THREE.Vector3());
     const cup = this.chaseUp || (this.chaseUp = new THREE.Vector3(0, 1, 0));
@@ -331,6 +369,11 @@ export class CameraRig {
     off.lerp(desired, k).setLength(desired.length());
     cup.lerp(upT, k).normalize();
     this.pos.copy(pos).add(off);
+    // Araziye gömülmesin (alçak, ters ya da dik dalışta kamera zemin altına inmiyor)
+    if (this.world) {
+      const g = this.world.heightAt(this.pos.x, this.pos.z);
+      if (this.pos.y < g + 1.8) this.pos.y = g + 1.8;
+    }
     cam.position.copy(this.pos);
     if (buffet > 0.01) cam.position.addScaledVector(up, Math.sin(t * 57) * Math.sin(t * 19) * 0.08 * buffet * shake).addScaledVector(this._right.set(1, 0, 0).applyQuaternion(quat), Math.sin(t * 47 + 2) * 0.06 * buffet * shake);
     cam.up.copy(cup);

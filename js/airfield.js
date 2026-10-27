@@ -200,10 +200,12 @@ export function buildAirfield(plan, opts) {
   // --- Kaplama: taksi yolları + dolgular (asfalt), apronlar (beton)
   const tp = [], tuv = [], ap = [], auv = [];
   for (const q of plan.rects) {
-    if (q.type === 'taxiway') flatRect(tp, tuv, q.x0, q.x1, q.z0, q.z1, 0.05, 18);
-    else if (q.type === 'apron') flatRect(ap, auv, q.x0, q.x1, q.z0, q.z1, 0.06, 30);
+    // Kaplama fizik zemininin (arazi) yalnızca 1,5-2 cm üstünde: tekerlekler gömülmez, derinlik
+    // sırası polygonOffset ile kesindir
+    if (q.type === 'taxiway') flatRect(tp, tuv, q.x0, q.x1, q.z0, q.z1, 0.015, 18);
+    else if (q.type === 'apron') flatRect(ap, auv, q.x0, q.x1, q.z0, q.z1, 0.02, 30);
   }
-  for (const f of plan.fillets) filletFan(tp, tuv, f, 0.05, 18);
+  for (const f of plan.fillets) filletFan(tp, tuv, f, 0.015, 18);
   const taxiMat = new THREE.MeshStandardMaterial({ map: opts.asphaltMap, roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
   const apronMat = new THREE.MeshStandardMaterial({ map: opts.concreteMap, roughness: 0.86, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -3 });
   const tg = geo(tp, tuv), ag = geo(ap, auv);
@@ -217,7 +219,7 @@ export function buildAirfield(plan, opts) {
   // noktası (ICAO desen A: 2 düz + 2 kesik çizgi, düz çizgiler taksi yolu tarafında),
   // apron kenarındaki taksi yolu kenar şeritleri (çift çizgi).
   const yel = [];
-  const yH = 0.075, CLW = 0.3;
+  const yH = 0.032, CLW = 0.3;
   const RW = D.runway.w / 2;
   const holdDist = opts.holdDist || 90;
   const turnR = 26;

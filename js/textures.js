@@ -504,6 +504,59 @@ export function makeHangarDoorTexture(w = 512, h = 256) {
   return finishTexture(new THREE.CanvasTexture(c), { repeat: false });
 }
 
+// Oluklu metal kaplama (hangar çatısı/duvarı): dikey oluklar, panel ek yerleri, hafif kir/pas
+// lekeleri. Nötr açık gri — renk malzeme rengiyle verilir. u yönünde 1 birim = ~4 m (32 oluk).
+export function makeCladdingTexture(size = 256) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const n = periodicNoise(size, 4, 151, 4, 0.55);
+  const rand = mulberry32(152);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x;
+      const rib = Math.cos((x / size) * Math.PI * 2 * 32);          // oluk gölgesi
+      let v = 196 + rib * 18 + (n[i] - 0.5) * 30 + (rand() - 0.5) * 6;
+      if (y % (size / 4) < 2) v -= 35;                                // yatay panel eki
+      if (n[i] > 0.66) v -= (n[i] - 0.66) * 120;                      // kir / akıntı lekesi
+      img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v + 2; img.data[i * 4 + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return finishTexture(new THREE.CanvasTexture(c));
+}
+
+// Kule kabini camı: koyu, hafif mavi-yeşil renkli cam, ince kayıtlar (mullion), üstte gölgelik
+// bandı ve camda gökyüzü yansıması geçişi. u çevre boyunca (8 panel), v yükseklik.
+export function makeTowerGlassTexture(w = 256, h = 64) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#8aa3b4'); g.addColorStop(0.45, '#5b7384'); g.addColorStop(1, '#3a4c59');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(160,190,210,0.10)';
+  for (let i = 0; i < 8; i++) ctx.fillRect(i * w / 8 + 4, 4, w / 16, h - 10);   // yansıma şeritleri
+  ctx.fillStyle = '#1a1e22';
+  for (let i = 0; i <= 8; i++) ctx.fillRect(Math.round(i * w / 8) - 1, 0, 3, h);   // kayıtlar
+  ctx.fillRect(0, 0, w, 3); ctx.fillRect(0, h - 3, w, 3);
+  return finishTexture(new THREE.CanvasTexture(c));
+}
+
+// Korumalı uçak sığınağı çelik kapısı: dikey nervürler, iki kanat, sarı-siyah eşik bandı.
+export function makeShelterDoorTexture(w = 256, h = 128) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#5a5f55'; ctx.fillRect(0, 0, w, h);
+  for (let x = 0; x < w; x += 8) { ctx.fillStyle = (x / 8) % 2 ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.06)'; ctx.fillRect(x, 0, 4, h); }
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(w / 2 - 2, 0, 4, h);              // kanat ayrımı
+  for (let x = 0; x < w; x += 16) { ctx.fillStyle = (x / 16) % 2 ? '#d8b52a' : '#1b1b1b'; ctx.fillRect(x, h - 8, 16, 8); }
+  const n = periodicNoise(64, 3, 161, 4, 0.5);
+  const img = ctx.getImageData(0, 0, w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const k = (y * w + x) * 4, d = (n[(y % 64) * 64 + (x % 64)] - 0.5) * 26; img.data[k] += d; img.data[k + 1] += d; img.data[k + 2] += d; }
+  ctx.putImageData(img, 0, 0);
+  return finishTexture(new THREE.CanvasTexture(c), { repeat: false });
+}
+
 // Ağaç yaprak gölgesi/renk çeşidi için küçük gürültü dokusu (gövde rengi vertex ile).
 export function makeSoftNoiseTexture(size = 256, seed = 91) {
   const c = makeCanvas(size, size);

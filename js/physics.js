@@ -705,7 +705,7 @@ export class FlightModel {
     }
     // Telemetri: hız ve konum çarpma sonrası da doğru (arayüz/kamera/ses için)
     const t = this.telemetry;
-    t.tas = vel.length(); t.gsKt = t.tas * KT; t.altFt = pos.y * FT; t.aglFt = (pos.y - gY) * FT; t.vsFpm = vel.y * FT * 60;
+    t.tas = vel.length(); t.gsKt = t.tas * KT; t.altFt = (pos.y - WATER_LEVEL) * FT; t.aglFt = Math.max(0, pos.y - gY - W.ride) * FT; t.vsFpm = vel.y * FT * 60;
     t.engine = this.engine_.n; t.ab = 0; t.onGround = contact; t.stall = false; t.stallWarn = false; t.buffet = 0;
   }
 
@@ -723,7 +723,14 @@ export class FlightModel {
     const t = this.telemetry;
     t.tas = V; t.kias = V * Math.sqrt(atm.rho / RHO0) * KT; t.ktas = V * KT;
     t.mach = extra.mach !== undefined ? extra.mach : V / atm.a;
-    t.altFt = this.pos.y * FT; t.aglFt = (this.pos.y - groundY) * FT;
+    // MSL: ortalama deniz seviyesi = deniz yüzeyi (WATER_LEVEL). Havaalanı kotu korunur, hiçbir
+    // yerde sıfıra zorlanmaz (sivil meydan 185 m yayladadır).
+    // AGL: radar altimetre referansı ana teker tabanıdır (yerdeki uçakta ~0). Eskiden ağırlık
+    // merkezinin yüksekliği gösteriliyordu: pistte duran uçak ~7 ft AGL okuyordu.
+    t.altFt = (this.pos.y - WATER_LEVEL) * FT;
+    t.altMslM = this.pos.y - WATER_LEVEL;
+    t.aglFt = Math.max(0, this.pos.y - groundY + this.geom.wheelBottomY) * FT;
+    t.groundElevFt = (groundY - WATER_LEVEL) * FT;
     t.vsFpm = this.vel.y * FT * 60;
     t.heading = heading;
     t.pitch = (extra.pitch !== undefined ? extra.pitch : Math.asin(clamp(fwd.y, -1, 1))) / DEG;

@@ -192,6 +192,11 @@ const TERRAIN_FS = `
       dB = mix(vec3(0.5), texture2D(tDetail, Pr * 0.088 + 0.31).rgb, nearF);
     }
     float fine = dA.r * 0.55 + dB.r * 0.45;
+    // Çok yakın (taksi/kalkış/iniş, < ~160 m): ~3 m'lik ek tane. Yakın çekimde çim/toprak
+    // bulanık bir yeşil leke gibi değil, dokulu okunur. Uzakta örneklenmez (maliyet/aliasing yok).
+    float nearF2 = 1.0 - smoothstep(35.0, 160.0, camD);
+    float micro = 0.5;
+    if (nearF2 > 0.0) micro = mix(0.5, texture2D(tDetail, Pr * 0.31 + 0.17).g * 0.6 + texture2D(tDetail, P * 0.83 + 0.41).r * 0.4, nearF2);
     // 1) makro ton ve renk: geniş parlaklık, kurak/yeşil lekeler, çıplak toprak
     col *= mix(1.0, 0.80 + 0.42 * macro, nat);
     float dryP = smoothstep(0.58, 0.86, mB.b * 0.6 + mC.b * 0.4) * nat;
@@ -322,6 +327,11 @@ const TERRAIN_FS = `
     }
     // 5) ince ayrıntı
     col *= mix(1.0, 0.88 + 0.24 * fine, 1.0 - urb * 0.5);
+    col *= mix(1.0, 0.84 + 0.32 * micro, nearF2 * (1.0 - urb * 0.6));
+    // Doğal doygunluk: çizgi film yeşili yerine hafif zeytin/saman tonu (bitki örtüsü havadan
+    // daha mat görünür). Kar, kent zemini ve kıyı malzemesi etkilenmez (nat ile ağırlıklı).
+    float lumT = dot(col, vec3(0.299, 0.587, 0.114));
+    col = mix(col, mix(vec3(lumT) * vec3(1.03, 1.0, 0.92), col, 0.84), nat);
     // Genel yansıtırlık: eski çim dokusunun (sRGB ~188/186/176) ortalama çarpanı; köşe renkleri
     // bu çarpana göre ayarlıdır (ton ve parlaklık eski dünya ile tutarlı kalır)
     diffuseColor.rgb = col * vec3(0.55, 0.54, 0.50);
@@ -351,7 +361,7 @@ export function createTerrainMaterial(detailTex) {
       .replace('#include <tonemapping_fragment>', `gl_FragColor.rgb = underwater(gl_FragColor.rgb, vTWP + vec3(0.0, wlOff, 0.0), step(vShore.w, -0.001), hzSunDir);
 ` + HAZE_APPLY);
   };
-  mat.customProgramCacheKey = () => 'terrain4';
+  mat.customProgramCacheKey = () => 'terrain5';
   mat.userData.hazed = true;
   return mat;
 }

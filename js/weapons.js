@@ -141,7 +141,7 @@ export class WeaponSystem {
     this.bays = [0, 1].map((i) => ({ i, state: 'closed', t: 0, inner: 0, outer: 0, rail: 0, missile: null }));
   }
 
-  get count() { return this.stations.filter((s) => s.loaded).length; }
+  get count() { let n = 0; for (const s of this.stations) if (s.loaded) n++; return n; }   // tahsissiz (HUD her kare okur)
 
   /** Yeni (ya da yeniden boyanmış) uçak modeli: envanter durumu modele uygulanır. */
   attach(aircraft, physics) {

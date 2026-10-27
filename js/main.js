@@ -382,6 +382,7 @@ class App {
     });
     ui.bindSeg(el.soundSeg, 's', (v) => { this.settings.sound = v === '1' ? 1 : 0; saveSettings(this.settings); this.applySound(); });
     ui.bindSeg(el.fpsSeg, 'f', (v) => { this.settings.fps = v === '1' ? 1 : 0; saveSettings(this.settings); el.fps.textContent = ''; });
+    if (el.fovSeg) ui.bindSeg(el.fovSeg, 'v', (v) => { this.settings.fov = v; saveSettings(this.settings); this.applyFov(); });
     el.btnCalibrate.addEventListener('click', () => { this.controls.calibrate(); ui.message('Tilt calibrated'); });
   }
   applySettingsToUI() {
@@ -390,8 +391,18 @@ class App {
     ui.setSeg(el.tiltSeg, 't', this.settings.tilt);
     ui.setSeg(el.soundSeg, 's', this.settings.sound);
     ui.setSeg(el.fpsSeg, 'f', this.settings.fps);
+    if (el.fovSeg) ui.setSeg(el.fovSeg, 'v', this.settings.fov || 'normal');
+    this.applyFov();
     this.applySound();
     if (this.physics) this.updateToggleButtons();
+  }
+  /** Kamera görüş açısı ayarı: tüm kiplerin FOV'u bu çarpanla ölçeklenir (yalnızca görsel). */
+  applyFov() {
+    const k = { narrow: 0.86, normal: 1, wide: 1.16 }[this.settings.fov] || 1;
+    if (!this.cameraRig) return;
+    this.cameraRig.fovScale = k;
+    if (this.physics && !this.cameraRig.crash) this.cameraRig.applyMode();
+    this.needsRender = true;
   }
   applySound() {
     const muted = !this.settings.sound;
@@ -1289,9 +1300,12 @@ class App {
       if (wrecking) this.hud.clear();
       else {
         const cockpit = this.cameraRig.mode === 'cockpit';
+        const W = this.weapons, wi = this._hudWpn || (this._hudWpn = {});
+        wi.count = W.count; wi.pending = W.pending; wi.inhibit = !!W.inhibited();
+        wi.busy = false; for (const b of W.bays) if (b.state === 'opening' || b.state === 'eject') wi.busy = true;
         this.hud.draw(this.physics.telemetry, this.camera, this.pose, {
           visible: cockpit, externalOnly: !cockpit,
-          dt, safe: this.safe, cameraName: CAMERA_NAMES[this.cameraRig.mode],
+          dt, safe: this.safe, cameraName: CAMERA_NAMES[this.cameraRig.mode], weapons: wi,
         });
       }
       this.needsRender = false;
