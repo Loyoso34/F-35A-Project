@@ -274,6 +274,8 @@
     .sel-ap { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
     .sel-ap-lbl { font-size: 10.5px; letter-spacing: 1.6px; text-transform: uppercase; color: rgba(190,205,222,0.55); font-weight: 700; }
     .sel-ap-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    .sel-credits { margin: 0; text-align: center; font-size: 9.5px; line-height: 1.3; color: rgba(190,205,222,0.48); }
+    .credits { font-size: 10.5px; line-height: 1.35; opacity: 0.8; }
     .ap-chip { min-height: 44px; padding: 6px 14px; border-radius: 9px; cursor: pointer; text-align: left;
       background: rgba(16,24,34,0.72); border: 1px solid rgba(255,255,255,0.16); color: #cfdcea;
       display: flex; flex-direction: column; justify-content: center; gap: 1px; font: inherit;
@@ -563,6 +565,7 @@
       <div class="sel-ap" id="sel-ap"><span class="sel-ap-lbl">Departure</span><div class="sel-ap-row" id="sel-ap-row"></div></div>
       <div class="sel-lv-host" id="sel-livery"></div>
       <p class="sel-hint" id="sel-hint">You can come back here later from Pause → Hangar.</p>
+      <p class="sel-credits" id="sel-credits">Bodrum terrain: contains modified Copernicus Sentinel data 2024 · elevation EU-DEM (Copernicus) / SRTM via AWS Terrain Tiles · aerodrome data OurAirports</p>
     </div>
   </div>
 
@@ -637,9 +640,9 @@
       <h2>Settings</h2>
       <div class="opt"><span>Graphics quality</span>
         <div class="seg" id="quality-seg">
-          <button data-q="low">Low</button>
-          <button data-q="medium" class="on">Medium</button>
-          <button data-q="high">High</button>
+          <button data-q="low">Performance</button>
+          <button data-q="medium" class="on">Balanced</button>
+          <button data-q="high">Ultra</button>
         </div>
       </div>
       <div class="opt"><span>Tilt to steer</span>
@@ -669,6 +672,7 @@
         </div>
       </div>
       <p class="small">Version <span id="version"></span> · Changing the quality rebuilds the scenery.</p>
+      <p class="small credits">Bodrum region map data: elevation — Terrain Tiles on AWS Open Data (EU-DEM: produced using Copernicus data and information funded by the European Union; SRTM: U.S. Geological Survey; ETOPO1: NOAA; tiles by Mapzen). Imagery — contains modified Copernicus Sentinel data 2024 (Sentinel-2 L2A, 3 &amp; 5 Oct 2024). Aerodrome data — OurAirports. Geoid — EGM96. Magnetic variation — NOAA WMM-2025.</p>
       <div class="row"><button class="btn" id="btn-settings-close">Close</button></div>
     </div>
   </div>

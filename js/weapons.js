@@ -18,7 +18,7 @@
 // bölmeyle inceltilir, yapılara yarık testiyle bakılır (world.segmentHit).
 import * as THREE from 'three';
 import { getMissileGeometry, getMissileMaterial, FX_LIGHT, BAY, MISSILE, F35 } from './aircraft.js';
-import { terrainHeight, WATER_LEVEL } from './world.js';
+import { WATER_LEVEL } from './world.js';
 import { FX, SmokeTrail, PM } from './fx.js';
 
 const G = 9.81;
@@ -108,9 +108,13 @@ export class WeaponSystem {
   /**
    * scene, world, audio (AudioEngine), cameraRig (sarsıntı), hooks: { onState(info), message(text) }
    */
+  /** Etkin dünyanın zemin yüksekliği (dünya kurulurken: deniz seviyesi). */
+  groundAt(x, z) { return this.world ? this.world.heightAt(x, z) : WATER_LEVEL; }
+
   constructor(scene, world, audio, cameraRig, hooks = {}) {
     this.scene = scene; this.world = world; this.audio = audio; this.rig = cameraRig; this.hooks = hooks;
-    this.fx = new FX(scene, (x, z) => Math.max(terrainHeight(x, z), WATER_LEVEL));
+    // Zemin her zaman ETKİN dünyadan (kalite/bölge değişiminde this.world yenilenir)
+    this.fx = new FX(scene, (x, z) => Math.max(this.groundAt(x, z), WATER_LEVEL));
     const pg = new THREE.CylinderGeometry(0.28, 1, 1, 12, 3, true);
     pg.rotateX(Math.PI / 2); pg.translate(0, 0, 0.5);
     this.plumeGeo = pg; this.glowGeo = new THREE.PlaneGeometry(1, 1);
@@ -290,7 +294,7 @@ export class WeaponSystem {
 
   detonate(m, kind, point = null, groundY = null) {
     const p = point || m.pos;
-    const gy = groundY !== null ? groundY : Math.max(terrainHeight(p.x, p.z), WATER_LEVEL);
+    const gy = groundY !== null ? groundY : Math.max(this.groundAt(p.x, p.z), WATER_LEVEL);
     this.fx.explode(p, kind, gy);
     const cam = this.rig.camera.position, d = cam.distanceTo(p);
     this.audio && this.audio.explosion(d);
@@ -443,7 +447,7 @@ export class WeaponSystem {
     const a = m.prev, b = m.pos;
     const len = a.distanceTo(b);
     if (len < 1e-4) return false;
-    const surf = (x, z) => { const h = terrainHeight(x, z); return h < WATER_LEVEL ? WATER_LEVEL : h; };
+    const surf = (x, z) => { const h = this.groundAt(x, z); return h < WATER_LEVEL ? WATER_LEVEL : h; };
     const p = this._p, q = this._n;
     // Arazi / su: en fazla 4 m adımla örnekle, ilk altına inişi ikiye bölmeyle incelt
     let tHit = -1;
@@ -466,7 +470,7 @@ export class WeaponSystem {
     else if (tHit >= 0) { t = tHit; }
     if (t < 0) return false;
     p.lerpVectors(a, b, t);
-    const th = terrainHeight(p.x, p.z);
+    const th = this.groundAt(p.x, p.z);
     if (!kind) kind = th < WATER_LEVEL ? 'water' : 'ground';
     if (kind !== 'building') p.y = Math.max(th, WATER_LEVEL);
     m.pos.copy(p);

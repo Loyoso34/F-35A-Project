@@ -14,16 +14,20 @@ import * as THREE from 'three';
 import { clamp } from './noise.js';
 
 // Sıra = geçiş sırası. İlk eleman başlangıç kamerasıdır.
-export const CAMERA_MODES = ['orbit', 'cockpit', 'chase', 'flyby', 'wingL', 'wingR', 'gear'];
+export const CAMERA_MODES = ['orbit', 'cockpit', 'chase', 'rear', 'flyby', 'cinematic', 'wingL', 'wingR', 'gear'];
 export const CAMERA_NAMES = {
-  orbit: 'FREE CAMERA', cockpit: 'COCKPIT', chase: 'CHASE', flyby: 'FLYBY',
+  orbit: 'FREE CAMERA', cockpit: 'COCKPIT', chase: 'CHASE', rear: 'REAR', flyby: 'FLYBY', cinematic: 'CINEMATIC',
   wingL: 'LEFT WING', wingR: 'RIGHT WING', gear: 'LANDING GEAR',
 };
 // Bildirim satırı için cümle düzeninde adlar (HUD büyük harfli adları kullanır)
 export const CAMERA_LABELS = {
-  orbit: 'Free', cockpit: 'Cockpit', chase: 'Chase', flyby: 'Flyby',
+  orbit: 'Free', cockpit: 'Cockpit', chase: 'Chase', rear: 'Rear', flyby: 'Flyby', cinematic: 'Cinematic',
   wingL: 'Left wing', wingR: 'Right wing', gear: 'Landing gear',
 };
+// Uçak gövdesini saran elipsoit (gövde ekseninde yarı eksenler, m): serbest kamera içine giremez
+const BODY_ELLIPSOID = [6.2, 2.7, 8.9];
+// Sinematik kamera: ekrandaki uçak boyu (m, görüş alanının kapsadığı genişlik) ve FOV sınırları
+const CINE_FRAME = 34, CINE_FOV = [4, 50];
 
 const DEG = Math.PI / 180;
 // Kokpit serbest bakış sınırları: boyun hareketi kadar, daha fazlası değil.
@@ -111,7 +115,7 @@ export class CameraRig {
   applyMode() {
     const c = this.cfg, m = this.mode;
     if (!c) return;
-    const fov = m === 'cockpit' ? c.cockpitFov : m === 'orbit' ? c.orbit.fov : m === 'flyby' ? c.flyby.fov
+    const fov = m === 'cockpit' ? c.cockpitFov : m === 'orbit' ? c.orbit.fov : (m === 'flyby' || m === 'cinematic') ? c.flyby.fov
       : m === 'gear' ? c.gear.fov : (m === 'wingL' || m === 'wingR') ? c.wing.fov : c.chase.fov;
     this.camera.fov = Math.min(100, fov * (this.fovScale || 1));
     this.targetFov = this.camera.fov;
@@ -182,7 +186,7 @@ export class CameraRig {
   // ---------------------------------------------------------------------------
   beginCrash(fm, severity, shake) {
     const cam = this.camera;
-    const keep = this.mode === 'orbit' || this.mode === 'flyby';
+    const keep = this.mode === 'orbit' || this.mode === 'flyby' || this.mode === 'cinematic';
     this.crash = {
       t: 0, keep, severity,
       fromPos: cam.position.clone(), fromQuat: cam.quaternion.clone(),
@@ -326,6 +330,14 @@ export class CameraRig {
       o.dist += (T.dist - o.dist) * k;
       const cy = Math.cos(o.pitch), sy = Math.sin(o.pitch);
       cam.position.set(Math.sin(o.yaw) * cy * o.dist, sy * o.dist + C.orbit.lookUp * 1.5, Math.cos(o.yaw) * cy * o.dist).add(pos);
+      // Gövdenin içine girmesin: gövde ekseninde elipsoit dışına itilir (yakın yakınlaştırmada)
+      {
+        const qi = this._q.copy(quat).invert();
+        const r = this._v2.copy(cam.position).sub(pos).applyQuaternion(qi);
+        const [ex, ey, ez] = BODY_ELLIPSOID;
+        const s = Math.hypot(r.x / ex, r.y / ey, r.z / ez);
+        if (s < 1 && s > 1e-6) cam.position.copy(r.multiplyScalar(1 / s).applyQuaternion(quat)).add(pos);
+      }
       // Yere gömülmesin: zemin altına inen serbest kamera sahneyi kaybettiriyordu
       if (this.world) {
         const g = this.world.heightAt(cam.position.x, cam.position.z);
@@ -333,6 +345,44 @@ export class CameraRig {
       }
       cam.up.set(0, 1, 0);
       cam.lookAt(pos.x, pos.y + C.orbit.lookUp, pos.z);
+      return;
+    }
+
+    if (this.mode === 'rear') {
+      // Arka kamera: kuyruğun gerisinde ve üstünde, gövdeye SABİT (gecikme yok); uçak ekranda
+      // hiç kaymaz. Araziye gömülmez.
+      this._eye.set(0, 2.9, 21.5).applyQuaternion(quat).add(pos);
+      this._look.set(0, 1.1, -40).applyQuaternion(quat).add(pos);
+      if (this.world) { const g = this.world.heightAt(this._eye.x, this._eye.z); if (this._eye.y < g + 1.5) this._eye.y = g + 1.5; }
+      cam.position.copy(this._eye);
+      cam.up.copy(up);
+      cam.lookAt(this._look);
+      return;
+    }
+
+    if (this.mode === 'cinematic') {
+      // Yer gözlemcisi gibi izleyen kamera: uçuş yolunun ilerisine/yanına yerleşir, bakış hedefi
+      // kritik sönümlü yaklaşır (kare hızından bağımsız), FOV uçağın ekrandaki boyunu sabit tutar.
+      // Uçak 1,8 km'den uzaklaşınca ileriye yeniden yerleşir.
+      if (!this.flybyPlaced || cam.position.distanceTo(pos) > C.flyby.reset * 1.4) {
+        this.placeFlyby(fm);
+        this.cine = { look: pos.clone(), v: new THREE.Vector3() };
+      }
+      const L = this.cine, w = 9.0, h = Math.min(dt, 0.05);
+      // kritik sönümlü yay (ω = 9/s): hedefin gerisinde kalmaz, aşmaz
+      const acc = this._v2.copy(pos).sub(L.look).multiplyScalar(w * w).addScaledVector(L.v, -2 * w);
+      L.v.addScaledVector(acc, h); L.look.addScaledVector(L.v, h);
+      cam.position.copy(this.flybyPos);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(L.look);
+      const d = this.flybyPos.distanceTo(pos) || 1;
+      const fovT = clamp(2 * Math.atan(CINE_FRAME / (2 * d)) / DEG, CINE_FOV[0], CINE_FOV[1]) * (this.fovScale || 1);
+      const f = cam.fov + (fovT - cam.fov) * (1 - Math.exp(-dt / 0.35));
+      if (Math.abs(f - cam.fov) > 1e-3) { cam.fov = f; cam.updateProjectionMatrix(); }
+      const toCam = this._v2.copy(this.flybyPos).sub(pos);
+      const vr = fm.vel.dot(toCam) / d;
+      this.doppler = clamp(340 / (340 - clamp(vr, -300, 300)), 0.6, 1.6);
+      this.distance = d;
       return;
     }
 

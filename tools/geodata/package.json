@@ -1,0 +1,10 @@
+{
+  "name": "geodata-tools",
+  "private": true,
+  "type": "module",
+  "description": "Offline helpers for the Bodrum tile bake (geoid grid, magnetic declination). Not loaded by the app.",
+  "dependencies": {
+    "egm96-universal": "1.1.1",
+    "geomagnetism": "0.2.0"
+  }
+}

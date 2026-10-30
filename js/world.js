@@ -1076,8 +1076,11 @@ export class World {
       // Uzun bir işten sonra, sıradaki iş başlamadan bir kare çizilsin: ekrandaki
       // durum metni o an yapılan işi gösterir
       if (performance.now() - t > 16) { await pause(); t = performance.now(); }
-      const r = step.run();
-      if (r && typeof r.next === 'function') {
+      // Adım: senkron, üreteç (kesir verir) ya da söz (gerçek dünya verisi yüklenir; ilerlemeyi
+      // geri çağırmayla bildirir)
+      const r = step.run((frac) => report(step.id, frac));
+      if (r && typeof r.then === 'function') await r;
+      else if (r && typeof r.next === 'function') {
         for (let x = r.next(); !x.done; x = r.next()) { report(step.id, x.value); await breathe(); }
       }
       report(step.id, 1);
@@ -1137,6 +1140,7 @@ export class World {
     HAZE_UNIFORMS.hzSunColor.value = U.sunColor.value;
     HAZE_UNIFORMS.hazeFar.value = this.quality.drawDistance;
     HAZE_UNIFORMS.hazeDensity.value = 2.05 / this.quality.drawDistance;
+    HAZE_UNIFORMS.hzCurv.value = 0;      // düz kurgusal harita
   }
 
   buildLights() {
@@ -2316,8 +2320,9 @@ export class World {
     const m4 = new THREE.Matrix4(), p = new THREE.Vector3(), qu = new THREE.Quaternion(), sc = new THREE.Vector3();
     const flatQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
     for (let i = 0; i < n; i++) {
-      const x = (rand() - 0.5) * MAP_SIZE * 0.9, z = (rand() - 0.5) * MAP_SIZE * 0.9;
-      const y = 1900 + rand() * 1500;
+      const spread = this.cloudSpread || MAP_SIZE * 0.9;
+      const x = (rand() - 0.5) * spread, z = (rand() - 0.5) * spread;
+      const y = (this.cloudBase || 1900) + rand() * 1500;
       const w = 900 + rand() * 1500;
       for (let k = 0; k < per; k++) {
         const ox = (rand() - 0.5) * w * 0.7, oz = (rand() - 0.5) * w * 0.7, oy = (rand() - 0.3) * w * 0.12;
@@ -2684,7 +2689,7 @@ export class World {
       const pg = new THREE.ExtrudeGeometry(new THREE.Shape(ring), { depth: 1.6, bevelEnabled: false, curveSegments: 1 });
       { const uv = pg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 9, uv.getY(i) / 9); }
       pg.translate(s.x, 0, s.z + s.d / 2 - 0.6);
-      hasGeos.push(pg.toNonIndexed());
+      hasGeos.push(pg.index ? pg.toNonIndexed() : pg);
       const back = new THREE.BoxGeometry(s.w + 2, s.h, 2); boxUVScale(back, s.w + 2, s.h, 2, 9, 9); back.translate(s.x, s.h / 2, s.z - s.d / 2); hasGeos.push(back);
       const stack = new THREE.BoxGeometry(2.4, 3.2, 2.4); boxUVScale(stack, 2.4, 3.2, 2.4, 9, 9); stack.translate(s.x, s.h + 0.6, s.z - s.d / 2 + 4); hasGeos.push(stack);
       // Çelik kapı: iki kanat, açıklığın önünde (tonoz eğrisi içinde kalır)
@@ -3251,8 +3256,23 @@ export class World {
     sock.scale.set(1, 0.55 + 0.45 * fill, 0.55 + 0.45 * fill);
   }
 
+  // ---- Bölgeden bağımsız dünya arayüzü (gerçek dünya bölgesi de aynı yöntemleri sağlar) ----
+  get regionId() { return 'training'; }
+  get spawns() { return SPAWNS; }
+  get airportById() { return AIRPORT_BY_ID; }
+  /** Kamera uzak düzlemi (m): kurgusal harita 72 km. */
+  get cameraFar() { return 60000; }
+  spawnPose(id) { return spawnPose(id); }
+  surfaceTypeAt(x, z) { return surfaceTypeAt(x, z); }
+
   update(dt, camera, aircraftPos) {
     this.time += dt;
+    this.updateSun(camera, aircraftPos);
+    this.updateLayers(dt, camera);
+  }
+
+  /** Gök kubbesi kamerayı izler; güneş/gölge kamerası uçağın çevresinde, doku ızgarasına hizalı. */
+  updateSun(camera, aircraftPos) {
     this.sky.position.copy(camera.position);
     // Gölge kamerası: hedefi ışık uzayında doku hücresi (texel) ızgarasına yuvarla -> düz yüzeylerde gölge "yüzmesi" olmaz
     const target = this._shadowTarget || (this._shadowTarget = new THREE.Vector3());
@@ -3271,6 +3291,9 @@ export class World {
     this.sun.target.position.copy(target);
     this.sun.position.copy(target).addScaledVector(this.sunDir, 600);
     this.sun.target.updateMatrixWorld();
+  }
+
+  updateLayers(dt, camera) {
     const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
     // Tüm mesafe eşiklerinde histerezis: eşik üzerinde duran kamerada kare kare açılıp kapanma (titreme) olmaz.
     // Görünürse eşik + bant'a kadar açık kalır, gizliyse ancak eşik - bant'ta açılır.

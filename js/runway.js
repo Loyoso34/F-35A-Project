@@ -16,6 +16,7 @@
 // 150/5340-1). Rakamlar bir doku değil, vektör vuruşlu GEOMETRİDİR: keskin kalır, saydamlık
 // sıralaması gerektirmez ve diğer işaretlerle aynı çizim çağrısında birleşir.
 import * as THREE from 'three';
+import { HAZE_UNIFORMS } from './worldshade.js';
 
 // ---------------------------------------------------------------------------
 // Manyetik sapma
@@ -392,10 +393,11 @@ function rwyShader(mat, kind, half, halfW) {
 // ---------------------------------------------------------------------------
 const LIGHT_VS = `
   attribute vec3 colA; attribute vec3 colB; attribute vec4 aDir;   // xy yön (yerel XZ), z tür (0 çok yönlü, 1 yönlü, 2 PAPI), w PAPI açısı (rad)
-  uniform float uScale; uniform float uMinPx; uniform float uFar;
+  uniform float uScale; uniform float uMinPx; uniform float uFar; uniform float hzCurv;
   varying vec3 vCol; varying float vA;
   void main() {
     vec4 wp = modelMatrix * vec4(position, 1.0);
+    { vec3 dc = wp.xyz - cameraPosition; wp.y -= (dc.x * dc.x + dc.z * dc.z) * hzCurv; }   // dünya eğriliği (çizim)
     vec3 toCam = cameraPosition - wp.xyz;
     float dist = length(toCam);
     vec3 dirW = normalize(mat3(modelMatrix) * vec3(aDir.x, 0.0, aDir.y));
@@ -446,7 +448,7 @@ export function buildLightPoints(lights, { far = 12000, minPx = 2.0 } = {}) {
   g.setAttribute('aDir', new THREE.BufferAttribute(ad, 4));
   g.computeBoundingSphere();
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uScale: { value: 400 }, uMinPx: { value: minPx }, uFar: { value: far } },
+    uniforms: { uScale: { value: 400 }, uMinPx: { value: minPx }, uFar: { value: far }, hzCurv: HAZE_UNIFORMS.hzCurv },
     vertexShader: LIGHT_VS, fragmentShader: LIGHT_FS,
     transparent: true, depthWrite: false, blending: THREE.NormalBlending, fog: false,
   });
@@ -487,8 +489,9 @@ export function runwayLightList(spec, layout) {
     const xT = sgn * half + -sgn * (e.displaced || 0);
     // Eşik (yaklaşana yeşil) / pist sonu (pistten bakana kırmızı): 3 m aralıklı sıra
     for (let z = -W / 2; z <= W / 2 + 0.01; z += 3) out.push({ x: xT, y, z, kind: 1, dir: [sgn, 0], colA: GREEN, colB: RED });
-    // Yaklaşma ışıkları (ICAO CAT I): 900 m eksen, 30 m aralıklı 3'lü barret, 300 m'de 30 m'lik çapraz çubuk
-    for (let d = 30; d <= 900; d += 30) {
+    // Yaklaşma ışıkları (ICAO CAT I): 900 m eksen, 30 m aralıklı 3'lü barret, 300 m'de 30 m'lik çapraz çubuk.
+    // Gerçek bir havaalanında yalnızca DOĞRULANMIŞ veri varsa kurulur (uç kaydında approach: false).
+    if (e.approach !== false) for (let d = 30; d <= 900; d += 30) {
       const x = xT + sgn * d;
       for (const zz of [-1.5, 0, 1.5]) out.push({ x, y: y + 0.4, z: zz, kind: 1, dir: [sgn, 0], colA: WHITE, colB: [0, 0, 0] });
       if (d === 300) for (let zz = -15; zz <= 15; zz += 2.5) if (Math.abs(zz) > 3) out.push({ x, y: y + 0.4, z: zz, kind: 1, dir: [sgn, 0], colA: WHITE, colB: [0, 0, 0] });
@@ -499,7 +502,7 @@ export function runwayLightList(spec, layout) {
     const xP = xT - sgn * aimS;
     const left = ei === 0 ? -1 : 1;              // A ucuna inen (+X) pilotun solu −Z
     const angles = [3.5, 3 + 10 / 60, 2 + 50 / 60, 2.5];
-    angles.forEach((deg, k) => out.push({ x: xP, y: y + 0.5, z: left * (W / 2 + 15 + k * 9), kind: 2, dir: [sgn, 0], papi: deg * Math.PI / 180, colA: WHITE }));
+    if (e.papi !== false) angles.forEach((deg, k) => out.push({ x: xP, y: y + 0.5, z: left * (W / 2 + 15 + k * 9), kind: 2, dir: [sgn, 0], papi: deg * Math.PI / 180, colA: WHITE }));
   });
   return out;
 }

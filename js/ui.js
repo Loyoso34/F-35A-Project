@@ -269,9 +269,12 @@ export function isIOS() {
   return /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 export function loadSettings() {
-  const def = { quality: 'medium', tilt: 0, sound: 1, fps: 0, fov: 'normal', aircraft: 'f35a', spawn: 'base' };
+  const def = { quality: 'medium', tilt: 0, sound: 1, fps: 0, fov: 'normal', aircraft: 'f35a', spawn: 'ltfe-10l', geo: 1 };
   let s;
-  try { s = Object.assign(def, JSON.parse(localStorage.getItem('f35a.settings') || '{}')); } catch (e) { return def; }
+  try { s = Object.assign({}, def, JSON.parse(localStorage.getItem('f35a.settings') || '{}')); } catch (e) { return def; }
+  // v3.8: gerçek dünya bölgesi (Bodrum, LTFE) varsayılan başlangıçtır. Eski kayıtlar bir kez
+  // taşınır; kurgusal eğitim bölgesi hangardaki Departure satırından seçilmeye devam eder.
+  if (!s.geo) { s.geo = 1; s.spawn = def.spawn; }
   // Oyunda yalnızca F-35A var: eski kayıtlardaki başka uçak seçimi ve boya kayıtları atılır
   s.aircraft = 'f35a';
   if (s.livery && typeof s.livery === 'object') s.livery = s.livery.f35a ? { f35a: s.livery.f35a } : {};

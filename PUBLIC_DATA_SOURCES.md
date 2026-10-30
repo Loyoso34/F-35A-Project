@@ -177,6 +177,53 @@ underside. Lift-off happens when the net vertical force turns upward.
 - Real aerodynamic tables, real inertia tensor, real CG envelope.
 - Store carriage, asymmetric loading, weapons.
 
+## 7. Real-world region: Bodrum, Muğla, Türkiye (v3.8.0)
+
+Everything below is open data that may be redistributed with attribution. The files are baked by
+`tools/geodata/bake.py` into `geo/bodrum/` and served from the same origin as the app (no API key,
+no third-party tile service, no usage quota). The in-app attribution is in **Settings** and in the
+hangar.
+
+### Data sets
+
+| Data | Source | Licence / required attribution | Use |
+|---|---|---|---|
+| Elevation | AWS Open Data **Terrain Tiles** (Mapzen/Tilezen, Terrarium encoding); here EU-DEM (Copernicus, ~25 m), SRTM, ETOPO1 | Free; "Produced using Copernicus data and information funded by the European Union - EU-DEM layers"; SRTM: U.S. Geological Survey; ETOPO1: NOAA | 30 m (z12) core, 195 m (z9) outer ring |
+| Imagery | **Copernicus Sentinel-2 L2A** surface reflectance, bands B04/B03/B02 (10 m), AWS Open Data `sentinel-cogs` | Copernicus free, full and open licence; "Contains modified Copernicus Sentinel data 2024" | Albedo texture, z13 (15 m) core, z10 (120 m) outer ring |
+| Water mask | Sentinel-2 B03/B08 (NDWI ≥ 0.1) | as above | Physics `water` surface, sea shading |
+| Aerodrome reference point, runway lengths/widths/threshold elevations | **OurAirports** `airports.csv`, `runways.csv` | Public domain | LTFE |
+| Geoid undulation | EGM96 (npm `egm96-universal` 1.1.1, MIT) | — | Ellipsoidal height = MSL + N |
+| Magnetic declination | NOAA **WMM-2025** (npm `geomagnetism` 0.2.0, Apache-2.0) | — | Magnetic heading on the HUD |
+
+Scenes: `S2A_35SNB/35SNA/35SMA/35SMB/35SMC/35SNC_20241003`, `S2B_35SPA/35SPB/35SPC/35SNA_20241005`
+(cloud cover ≤ 0.01 % on the core tiles). The simulator's sun is set to the acquisition geometry of
+the primary scene (azimuth 162.2°, elevation 46.8°, 2024-10-03 09:10 UTC), so real-time lighting
+and shadows agree with the shadows that are part of the imagery.
+
+### Processing (all reproducible with `tools/geodata/bake.py`)
+
+| Step | Tag | Detail |
+|---|---|---|
+| Reflectance scale | **[V]/[E]** | ρ = DN × 10⁻⁴. The STAC metadata lists an additional −0.1 offset, but the 1st percentile of blue DN is 1, which the offset would turn into impossible negative reflectance; these COGs are already harmonised. |
+| Texture encoding | **[E]** | Stored as sRGB(ρ × 1.6) (WebP, q 74–78), the shader multiplies by 1/1.6: the texture is physical albedo, consistent with the PBR lighting. The stock "TCI" product clips at ρ ≈ 0.2 and saturates concrete and white houses, so it is not used. |
+| Sea harmonisation | **[E]** | Sen2Cor's atmospheric correction over water differs between scenes (deep-water blue ρ from 0.0004 to 0.02 here). Each scene's water (selected by distance > 500 m from the DEM coastline, not by reflectance) is offset additively to the primary scene's deep-water median (0.0006, 0.0035, 0.0110), fading to the original within 60 m of the coast. |
+| Water mask | **[E]** | NDWI ≥ 0.1 on B03/B08, majority per DEM cell. The scene classification (SCL class 6) is *not* used: it labels the dark asphalt of LTFE's runway as water. NDWI false positives on fresh asphalt inside the aerodrome are cleared. |
+| DEM quantisation | **[E]** | Terrarium tiles re-quantised to 0.25 m (still decodable by any Terrarium decoder; half the size). Blue bit 0 = water flag. Sea clamped to 0 m MSL (the water surface). |
+| Vertical datum | **[V]** | DEM and OurAirports elevations are orthometric (≈ MSL, EGM96 geoid). Physics `y = h_MSL − 4` (`WATER_LEVEL`), so the HUD's MSL altitude is unchanged. |
+
+### Milas–Bodrum Airport (LTFE)
+
+| Quantity | Value | Tag | Source / derivation |
+|---|---|---|---|
+| Runways | 10L/28R, 10R/28L (parallel) | **[V]** | OurAirports `runways.csv` (records 239233, 336567). The official Turkish AIP (DHMİ) was not reachable from the build environment. |
+| Length × width | 3000 × 45 m, 2940 × 45 m | **[V]** | OurAirports (9843 / 9646 ft × 148 ft) |
+| Axis | 106.6° true (106.2° UTM grid) | **[E]** measured | Best-fit axis of the pavement in the 10 m Sentinel-2 bands (sharpest cross-track profile); identical to the bearing between OurAirports' 10L and 28R coordinates (106.21°). OurAirports' text field "104°T" is inconsistent with its own coordinates and is not used. |
+| Centrelines | 10L/28R 185 m north of 10R/28L | **[E]** measured | Cross-track reflectance profile (10 m pixels, ±5 m). |
+| Thresholds | 10L, 28R, 10R from OurAirports; 28L = 10R + 2940 m | **[V]/[E]** | OurAirports' 28L coordinate lies 500 m short of the pavement end visible in the imagery and is not used. Ends were re-fitted to the published *true* length about the measured centre (a UTM-grid measurement is 0.036 % short at this longitude). |
+| Threshold elevations | 10L 9 ft, 28R 21 ft, 10R/28L 14 ft | **[V]** | OurAirports; the DEM independently gives 2.9 m and 5.6 m at 10L/28R (±1 m). |
+| Designators | 10L/28R, 10R/28L | **[V]** | Published; consistent with 106.6° true − 5.41° E (WMM-2025) = 101.2° magnetic. |
+| Lighting | edge, threshold/end lights only | **[V]**/omitted | Runways are lit (OurAirports). The approach-lighting system, PAPI side/angles and taxiway geometry could not be verified and are **not** built; taxiways and aprons appear from the imagery only. |
+
 ---
 
 *All figures above are from open publications. Where a number could not be found in

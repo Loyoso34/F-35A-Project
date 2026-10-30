@@ -107,7 +107,7 @@ export class FlightModel {
     this.fcs.reset();
     this.gearCmd = 1; this.gearPos = 1;
     this.flapIndex = 0; this.flapsCmd = 0; this.flapsPos = 0;
-    this.lefPos = 0; this.camber = 0; this.toeIn = 0;
+    this.lefPos = 0; this.camber = 0; this.toeIn = 0; this.noseSteer = 0;
     this.gearComp = 0.07; this._gcv = 0;
     this.brakes = false; this.fuel = this.D.fuel;
     this.crashed = false; this.crashReason = ''; this.crashInfo = null; this.wreck = null; this.lastLanding = null;
@@ -352,7 +352,8 @@ export class FlightModel {
     // tek adımda 1 cm'yi aşacak kadar (~1,2 m/s) birikene dek piste "kilitli" kalıyordu.
     const groundY = groundYq;
     this.groundY = groundY;
-    const surface = surfaceTypeAt(pos.x, pos.z);
+    // Yüzey tipi dünyadan (gerçek dünya bölgesi kendi sorgusunu sağlar); test dünyaları için modül işlevi
+    const surface = this.world.surfaceTypeAt ? this.world.surfaceTypeAt(pos.x, pos.z) : surfaceTypeAt(pos.x, pos.z);
     const clearance = this.requiredClearance(pitch, roll);
     const agl = pos.y - groundY;
     const paved = surface === 'runway' || surface === 'taxiway' || surface === 'apron';
@@ -450,6 +451,8 @@ export class FlightModel {
     } else {
       rb.integrateAngular(Ltot, Mtot, Ntot, D, dt);
       this._buffet = smoothstep(D.stallA0, D.stallA1, aAbs) * clamp(qbar / 4000, 0, 1);
+      // Havada burun tekeri yay/merkezleme kamıyla ortalanır
+      this.noseSteer *= Math.exp(-6 * dt);
       const g = this.geom;
       gs.noseDown = false; gs.R = 0; gs.fric = 0;
       gs.Ipiv = D.Iyy + m * g.mainGearZ * g.mainGearZ; gs.Mgnd = 0;
@@ -525,6 +528,7 @@ export class FlightModel {
     // --- Sapma: burun tekeri dümeni ---
     const steerMax = GND.steerMax * clamp(1 - V / GND.steerV, 0.05, 1);
     const steer = st.yaw * steerMax;
+    this.noseSteer = steer;          // görsel model burun tekerini bu açıyla çevirir (tek yetkili değer)
     const wheelbase = a + b;
     const vfwd = vel.dot(fwd);
     const rKin = (vfwd * Math.tan(steer)) / wheelbase;

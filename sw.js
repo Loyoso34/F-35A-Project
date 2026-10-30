@@ -1,6 +1,10 @@
 /* F-35A Simülatör – Service Worker */
-const CACHE_VERSION = '3.7.1';
+const CACHE_VERSION = '3.8.0';
 const CACHE_NAME = 'f35a-sim-' + CACHE_VERSION;
+// Gerçek dünya karoları (geo/<bölge>/dem|img): sürümden BAĞIMSIZ ayrı önbellek. Veri değişince
+// GEO_CACHE adı değiştirilir. Görülen karolar çevrimdışı uçuş için saklanır; sınırlı boyut.
+const GEO_CACHE = 'f35a-geo-bodrum-2024-10';
+const GEO_MAX_ENTRIES = 1400;           // tüm bölge 1259 karo (~15 MB); taşarsa en eskiler silinir
 const THREE_VERSION = '0.170.0';
 const CDN_BASE = 'https://cdn.jsdelivr.net/npm/three@' + THREE_VERSION + '/';
 
@@ -38,6 +42,11 @@ const APP_FILES = [
   './js/fx.js',
   './js/cameras.js',
   './js/ui.js',
+  './js/geo.js',
+  './js/geoterrain.js',
+  './js/geoworld.js',
+  './js/georegion.js',
+  './geo/bodrum/manifest.json',
 ];
 const ICON_FILES = ['./icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 const CDN_FILES = [
@@ -58,7 +67,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)));
+    await Promise.all(keys.filter((k) => k !== CACHE_NAME && k !== GEO_CACHE).map((k) => caches.delete(k)));
     await self.clients.claim();
   })());
 });
@@ -74,7 +83,28 @@ self.addEventListener('message', (event) => {
 function isAppShell(url) {
   if (url.origin !== self.location.origin) return false;
   const p = url.pathname;
-  return p.endsWith('/') || p.endsWith('.html') || p.endsWith('.js') || p.endsWith('.webmanifest');
+  return p.endsWith('/') || p.endsWith('.html') || p.endsWith('.js') || p.endsWith('.webmanifest') || p.endsWith('.json');
+}
+
+function isGeoTile(url) {
+  return url.origin === self.location.origin && /\/geo\/[^/]+\/(dem|img)\//.test(url.pathname);
+}
+
+let geoPuts = 0;
+async function geoTile(request) {
+  const cache = await caches.open(GEO_CACHE);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  const fresh = await fetch(request);
+  if (fresh && fresh.ok) {
+    await cache.put(request, fresh.clone());
+    // Ara sıra boyut denetimi: en eski girişler (ekleme sırası) silinir
+    if (++geoPuts % 50 === 0) {
+      const keys = await cache.keys();
+      for (let i = 0; i < keys.length - GEO_MAX_ENTRIES; i++) await cache.delete(keys[i]);
+    }
+  }
+  return fresh;
 }
 
 function isCacheFirst(url) {
@@ -113,7 +143,9 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   let url;
   try { url = new URL(req.url); } catch (e) { return; }
-  if (req.mode === 'navigate' || isAppShell(url)) {
+  if (isGeoTile(url)) {
+    event.respondWith(geoTile(req));
+  } else if (req.mode === 'navigate' || isAppShell(url)) {
     event.respondWith(networkFirst(req));
   } else if (isCacheFirst(url)) {
     event.respondWith(cacheFirst(req));

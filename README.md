@@ -4,6 +4,11 @@ iPhone Safari (iOS 17+), Android Chrome ve masaüstü tarayıcılarda çalışan
 
 Oyundaki tek uçak **F-35A Lightning II**'dir. Açılışta **hangar** ekranı gelir: kalkış havaalanı ve boya şeması seçilir, F-35A kartına dokununca uçuş başlar.
 
+**Varsayılan bölge gerçek dünyadır: Bodrum (Muğla) ve Milas–Bodrum Havalimanı (LTFE)** — gerçek
+yükseklik verisi, Sentinel-2 uydu görüntüsü, gerçek koordinatlarda iki paralel pist (bkz. "Gerçek
+dünya: Bodrum" bölümü). Kurgusal eğitim bölgesi (Anadolu Hava Üssü / Yeşilova) hangardaki
+**Departure** satırından seçilmeye devam eder.
+
 ## Dosya yapısı
 
 ```
@@ -13,7 +18,17 @@ sw.js                   Service worker (önbellek, çevrimdışı, güncelleme)
 js/viewport.js          Görüntü alanı ölçümü (döndürme, iOS PWA, güvenli alan) — <head>'de, modül değil
 js/main.js              Uygulama girişi, yükleme hattı ve ilerleme, oyun döngüsü (sabit adımlı fizik + çizim enterpolasyonu), menüler
 js/perf.js              Uyarlanabilir kalite: önce ikincil efektler, en son yumuşak adımlarla çözünürlük
-js/world.js             Arazi, gökyüzü, deniz/göller, ormanlar, iki havaalanı, kasabalar, yollar, köprü
+js/world.js             Kurgusal eğitim bölgesi: arazi, gökyüzü, deniz/göller, ormanlar, iki havaalanı, kasabalar, yollar;
+                        bölgeden bağımsız dünya arayüzü (heightAt, surfaceTypeAt, spawnPose, cameraFar…)
+js/geo.js               Jeodezi: WGS84, yerel Transvers Merkatör (Krüger), Web Merkatör karo matematiği,
+                        MSL / elipsoit (EGM96 geoid ızgarası) / AGL yükseklikleri
+js/geoterrain.js        Gerçek dünya arazisi: karo dörtlü ağacı, akışlı DEM + Sentinel-2 görüntüsü, LOD, etek,
+                        örgü havuzu, doku/DEM bellek bütçesi, fizik yükseklik/su sorgusu, eğrilik
+js/geoworld.js          Bodrum bölgesi (World'den türer): LTFE pistleri, havaalanı düzleştirmesi, deniz halkası,
+                        yüzey tipleri, kalkış noktaları, coğrafi telemetri
+js/georegion.js         LTFE ve Bodrum verisi (her sayının kaynağıyla)
+geo/bodrum/             Bölge karoları: manifest.json, dem/{z}/{x}/{y}.png, img/{z}/{x}/{y}.webp (~15 MB, 1259 dosya)
+tools/geodata/          Bölge verisi üretici (bake.py: DEM + Sentinel-2 -> karo piramidi; meta.mjs: geoid, WMM)
 js/worldshade.js        Dünya gölgelendiricileri: atmosferik pus (gökyüzüyle aynı renk), arazi malzemesi
                         (çok ölçekli makro değişim, tarlalar, orman örtüsü, eğim kayası)
 js/waterfront.js        Sahil şehri rıhtımı: kruvaziyer terminali + gemi, marina, plaj ve oteller,
@@ -57,8 +72,13 @@ tools/flighttest/       Başsız testler: uçuş fiziği (21 senaryo), çarpma s
 Oyun **serbest kamerayla** başlar; kokpitte başlamaz. Kamera sırası:
 
 ```
-Free Camera -> Cockpit -> Chase -> Flyby -> Left Wing -> Right Wing -> Landing Gear
+Free Camera -> Cockpit -> Chase -> Rear -> Flyby -> Cinematic -> Left Wing -> Right Wing -> Landing Gear
 ```
+
+- **Rear** (v3.8): kuyruğun gerisinde ve üstünde gövdeye sabit; gecikme yok, uçak ekranda kaymaz.
+- **Cinematic** (v3.8): yer gözlemcisi gibi uçuş yolunun ilerisine yerleşir; bakış kritik sönümlü
+  yayla izler (kare hızından bağımsız), FOV uçağın ekrandaki boyunu sabit tutar, Doppler sesi.
+- Serbest kamera gövdeyi saran elipsoidin içine giremez; tüm dış kameralar araziye gömülmez.
 
 - **Free Camera**: uçağın çevresinde sınırsız yatay dönüş, alttan ve üstten bakış
   (−66°..+80°), 14–600 m arası yumuşak yakınlaştırma. Sabit bir takip kamerası değildir.
@@ -888,11 +908,24 @@ Oyun **60 fps'e sabitlenmiştir**. Render döngüsü sürüklenmesiz bir hedef z
 
 ## Kalite ayarları
 
-| Ayar | Piksel oranı | Gölge | Çizim mesafesi | Ağaç | Bulut | Su dalga detayı |
+Arayüzde **Performance / Balanced / Ultra** (kayıtlı anahtarlar low / medium / high; eski ayarlar korunur).
+Varsayılan **Balanced**.
+
+| Ayar | Piksel oranı | Gölge | Çizim mesafesi (kurgusal) | Ağaç | Bulut | Su dalga detayı |
 |------|-------------|-------|----------------|------|-------|-----------------|
-| Düşük | 1 | yok | 16 km | 19 000 | 46 | düşük |
-| Orta (varsayılan) | 1.5 | 1024 | 26 km | 42 000 | 80 | tam |
-| Yüksek | 2 | 2048 | 42 km | 72 000 | 125 | tam |
+| Performance | 1 | yok | 16 km | 19 000 | 46 | düşük |
+| Balanced (varsayılan) | 1.5 | 1024 | 26 km | 42 000 | 80 | tam |
+| Ultra | 2 | 2048 | 42 km | 72 000 | 125 | tam |
+
+Gerçek dünya bölgesinde (js/geoworld.js `GEO_QUALITY`):
+
+| Ayar | Görüş (pus) | Uzak düzlem | LOD çarpanı | GPU görüntü karosu | İnce DEM karosu | Kare başına inşa |
+|------|------|------|------|------|------|------|
+| Performance | 70 km | 300 km | 1,9 | 120 (~42 MB) | 40 | 2,5 ms |
+| Balanced | 100 km | 420 km | 2,5 | 180 (~63 MB) | 64 | 3,5 ms |
+| Ultra | 140 km | 480 km | 3,3 | 300 (~105 MB) | 96 | 5 ms |
+
+Uyarlanabilir kalite (perf.js) gerçek dünyada da çalışır: "detail" kademesi arazi LOD çarpanını düşürür.
 
 Ayrıca kaliteye göre şehir trafiği: düşük 160, orta 420, yüksek 800 araç.
 
@@ -932,6 +965,61 @@ python3 tools/make_icons.py
 
 Ek kütüphane gerektirmez; `icons/` klasörüne 180, 192 ve 512 piksellik PNG'leri yazar.
 
+## Gerçek dünya: Bodrum ve Milas–Bodrum Havalimanı (v3.8.0)
+
+**Mimari kararı.** CesiumJS değerlendirildi ve kullanılmadı: kendi WebGL bağlamı ve çizicisi vardır,
+Three.js uçağıyla derinlik tamponunu, gölgeleri ve mevcut PBR/pus hattını paylaşamaz; arazi sorgusu
+asenkrondur (120 Hz fizik eşzamanlı `heightAt` ister); Cesium World Terrain bir ion erişim
+anahtarı gerektirir. Bunun yerine Three.js içinde Web Merkatör XYZ karo **dörtlü ağacı** yazıldı
+(js/geoterrain.js); veri aynı kaynaktan statik karo olarak gelir (anahtar, kota, üçüncü taraf
+hizmet yok; service worker görülen karoları çevrimdışı uçuş için saklar).
+
+**Koordinatlar.** Fizik, kökü LTFE ARP olan yerel **Transvers Merkatör** çerçevesindedir (WGS84,
+Krüger serisi; PROJ ile ±160 km'de < 0,01 mm uyum). x doğu, z güney, y = MSL + `WATER_LEVEL`.
+Böylece fizik, FCS, kameralar, silahlar ve HUD değişmeden çalışır; mesafe, hız ve irtifa gerçektir
+(ölçek hatası bölgede < 3·10⁻⁴). Dünya eğriliği yalnızca **çizimde** uygulanır (kameraya göre
+d²/2R, tüm dünya malzemelerinde): ufuk ve uzak deniz doğru batar, fizik düz kalır. Her arazi
+düğümünün köşeleri düğüm merkezine göredir; model-görünüm matrisi CPU'da çift duyarlıkla
+kurulduğu için bölgenin her yerinde titreme yoktur.
+
+**Yükseklikler hiçbir yerde karıştırılmaz.** HUD **MSL** irtifa ve radar (**AGL**) gösterir;
+Shift+D panelinde ayrıca WGS84 **elipsoit** yüksekliği (MSL + EGM96 ondülasyonu, LTFE'de 34,1 m),
+zemin kotu, enlem/boylam, ızgara/gerçek/manyetik yön ve meridyen yakınsaması vardır. HUD yönü
+gerçek dünyada **manyetiktir** (WMM-2025, 5,41° D) ve pist numaralarıyla tutarlıdır.
+
+**Arazi.** Çekirdek bölge (27,00–28,10° D, 36,72–37,62° K; Bodrum yarımadası, Güllük körfezi,
+Milas, Didim, Bafa) 30 m DEM + 15 m görüntü; dış halka (±150 km) 195 m DEM + 120 m görüntü; ötesi
+deniz halkası ve pus. Düğüm ızgarası 32x32; en ince düğümde köşe aralığı DEM pikseline eşittir ve
+fizik aynı üçgenleri kullanır (tekerlek havada kalmaz, görünmez tepeye çarpılmaz). Komşu LOD
+çatlakları iki yüzlü eteklerle kapanır. İnce DEM yüklendiğinde fizik yüksekliği 1,2 s'de yumuşakça
+geçer (uçağın altındaki zemin sıçramaz); uçağın altı ve 20 s ilerisi önceden yüklenir; kalkış
+havaalanının ±9 km'si uçuş başlamadan hazırdır. Düğüm inşası kare başına süre bütçelidir,
+örgüler havuzdan yeniden kullanılır (akışta çöp toplama ve GPU tahsisi yok).
+
+**Işık ve su.** Görüntü fiziksel albedodur (Sentinel-2 yüzey yansıtırlığı); güneş, birincil
+sahnenin çekim anındaki konumundadır (azimut 162°, yükseklik 47°), bu yüzden gerçek zamanlı ışık
+ve gölgeler görüntüdeki gölgelerle uyumludur. Kabartma ışığı yumuşatılmıştır (görüntü gölgelemeyi
+zaten içerir). Su: Fresnel gök yansıması ve güneş parıltısı; dalga ayrıntısı yalnızca alçakta.
+
+**Havaalanı (LTFE).** İki paralel pist (10L/28R 3000 m, 10R/28L 2940 m, 45 m) yayımlanmış veri ve
+uydu görüntüsü ölçümüyle konumlandı; ICAO işaretleri (eşik, tanımlayıcı L/R, eksen, TDZ, nişan
+noktası, kenar), kenar ve eşik/son ışıkları. Pistler eşik kotları arasında eğimlidir (10L 9 ft,
+28R 21 ft); meydan zemini pist profillerine oturtulur. Yaklaşma ışık sistemi, PAPI ve taksi yolu
+çizgileri doğrulanamadığı için kurulmadı; taksi yolları ve apron görüntüden görünür. Ayrıntı ve
+kaynaklar: `js/georegion.js`, `PUBLIC_DATA_SOURCES.md` §7.
+
+**Veriyi yeniden üretme.**
+
+```bash
+pip install rasterio numpy pillow scipy
+# AWS Terrain Tiles (z12 çekirdek, z9 dış) ve Sentinel-2 bantları (B02/B03/B04/B08) önbelleğe indirilir
+python3 -I tools/geodata/bake.py --cache <önbellek> --out geo/bodrum
+cd tools/geodata && npm install && node meta.mjs ../../geo/bodrum/manifest.json
+```
+
+**Çevrimdışı.** Bölge verisi alınamazsa (ör. ilk açılış çevrimdışı) uygulama kurgusal eğitim
+bölgesine geçer ve bunu bildirir.
+
 ## Yerel test
 
 Herhangi bir statik sunucu yeterlidir, örneğin:
@@ -941,3 +1029,8 @@ python3 -m http.server 8080
 ```
 
 Ardından `http://localhost:8080/` adresini açın. (Service worker `localhost` üzerinde de çalışır.)
+
+Başsız testler (`tools/flighttest`, `npm run test:all`): uçuş fiziği, çarpma, kurgusal dünya,
+jeodezi (`geo.mjs`: TM ↔ PROJ, karo matematiği, datumlar) ve gerçek dünya (`geoworld.mjs`: LTFE
+verisi, yüzeyler, arazi sürekliliği, ışınlanma önlemi, 10L'den kalkış ve 28R'ye iniş — gerçek
+fizik, gerçek DEM).

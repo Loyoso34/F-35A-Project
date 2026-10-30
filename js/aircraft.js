@@ -5,6 +5,8 @@ import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeom
 import { makeStealthPanelTexture, makeRoughnessTexture, makeMilInsigniaTexture, makeTextTexture, makeCockpitDisplayTexture, makeFlameNoiseTexture, makeGlowTexture, makeGearBayTexture, makeMacroNoiseTexture, makeStencilAtlas, STENCIL_ATLAS, makeStripLightTexture, makeStripGlowTexture } from './textures.js';
 import { getLivery } from './liveries.js';
 
+// Zaten dizinsiz geometride toNonIndexed() konsola uyarı yazar: yalnızca dizinliyse dönüştür
+const nonIndexed = (g) => (g.index ? g.toNonIndexed() : g);
 const DEG = Math.PI / 180;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export const F35 = {
@@ -193,7 +195,7 @@ export function getMissileGeometry() {
     lathe.setAttribute('color', new THREE.BufferAttribute(a, 3));
   }
   lathe.rotateX(-Math.PI / 2);            // +y (burun) -> -z
-  const parts = [lathe.toNonIndexed()];
+  const parts = [nonIndexed(lathe)];
   // Kanatçık: eksen düzleminde ince prizma. dLE0/dTE0 kök, dLE1/dTE1 uç (burundan uzaklık), rOut uç yarıçapı.
   const fin = (phi, dLE0, dTE0, dLE1, dTE1, rOut, t, hex) => {
     const u = new THREE.Vector3(Math.sin(phi), Math.cos(phi), 0), w = new THREE.Vector3(Math.cos(phi), -Math.sin(phi), 0);
@@ -215,8 +217,8 @@ export function getMissileGeometry() {
     parts.push(fin(phi, 3.14, 3.6, 3.36, 3.58, span, 0.009, FIN));       // kuyruk kontrol kanatçıkları
   }
   // Askı kulakları (üstte) ve göbek kablo kanalı
-  for (const d of [half - 0.45, half + 0.45]) { const g = new THREE.BoxGeometry(0.03, 0.025, 0.07); g.translate(0, R + 0.01, d - half); parts.push(paintVC(g.toNonIndexed(), 0x6d7277)); }
-  { const g = new THREE.BoxGeometry(0.035, 0.02, 1.1); g.translate(0, R + 0.005, 1.25 - half + 0.55); parts.push(paintVC(g.toNonIndexed(), 0xb6babe)); }
+  for (const d of [half - 0.45, half + 0.45]) { const g = new THREE.BoxGeometry(0.03, 0.025, 0.07); g.translate(0, R + 0.01, d - half); parts.push(paintVC(nonIndexed(g), 0x6d7277)); }
+  { const g = new THREE.BoxGeometry(0.035, 0.02, 1.1); g.translate(0, R + 0.005, 1.25 - half + 0.55); parts.push(paintVC(nonIndexed(g), 0xb6babe)); }
   for (const g of parts) { if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2)); if (g.attributes.uv && g.attributes.uv.itemSize !== 2) g.deleteAttribute('uv'); }
   MISSILE_GEO = mergeGeometries(parts.map((g) => { const o = g.index ? g.toNonIndexed() : g; for (const a of Object.keys(o.attributes)) if (!['position', 'normal', 'color', 'uv'].includes(a)) o.deleteAttribute(a); if (!o.attributes.uv) o.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(o.attributes.position.count * 2), 2)); return o; }), false);
   MISSILE_GEO.computeBoundingSphere();
@@ -889,7 +891,7 @@ export class F35A {
     seal.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(tri.length / 3 * 2), 2));
     seal.setAttribute('color', new THREE.Float32BufferAttribute(new Array(tri.length).fill(shade[0]), 3));
     seal.computeVertexNormals();
-    const duct = mergeGeometries([tube.toNonIndexed(), cap, seal], false);
+    const duct = mergeGeometries([nonIndexed(tube), cap, seal], false);
     duct.computeVertexNormals();
     this.group.add(new THREE.Mesh(this.track(duct), this.m.ductShade));
   }
@@ -1042,7 +1044,7 @@ export class F35A {
     for (const sx of [-1, 1]) {
       const pj = new THREE.BoxGeometry(0.03, 0.05, 0.10); pj.translate(H.x + sx * 0.125, H.y + 0.02, H.z - 0.035); helmetGeos.push(pj);
     }
-    const helmetGeo = this.track(mergeGeometries(helmetGeos.map((g) => g.toNonIndexed()), false));
+    const helmetGeo = this.track(mergeGeometries(helmetGeos.map(nonIndexed), false));
     const helmetMesh = new THREE.Mesh(helmetGeo, m.helmet);
     // Vizör: kabuğun önünü kaşlardan çeneye kadar örten koyu, yansıtıcı küre parçası
     const visor = new THREE.SphereGeometry(1, 22, 10, -Math.PI / 2 - 1.08, 2.16, 0.82, 1.22);
@@ -1471,7 +1473,7 @@ export class F35A {
       g.computeVertexNormals();
       petals.push(g);
     }
-    const petalGeo = this.track(mergeGeometries(petals.map((g) => g.toNonIndexed()), false));
+    const petalGeo = this.track(mergeGeometries(petals.map(nonIndexed), false));
     const petalMat = this.track(this.m.metal.clone()); petalMat.side = THREE.DoubleSide;
     const petalMesh = new THREE.Mesh(petalGeo, petalMat);
     this.group.add(petalMesh);
@@ -2290,7 +2292,7 @@ export class F35A {
     // Kapalı yama: iki yanın ağız dörtlüleri, birebir kaplama üçgenleri. Kapak ayrım
     // şeridi (cA–cB, 2,4 mm) 2,5 mm içeri basık: yakından ince bir oluk olarak okunur.
     const groove = (q, i, k) => ((k === 4 || k === 5 || k === 9 || k === 10) && i > iS0 && i < iS1 ? { x: q.x, y: q.y + 0.0025, z: q.z } : q);
-    const patchGeo = mergeGeometries([sub(2, 6, groove), sub(8, 12, groove)].map((g) => g.toNonIndexed()), false);
+    const patchGeo = mergeGeometries([sub(2, 6, groove), sub(8, 12, groove)].map(nonIndexed), false);
     patchGeo.computeVertexNormals();
     const patch = new THREE.Mesh(this.track(patchGeo), m.paint);
     patch.castShadow = true; patch.receiveShadow = true;
@@ -2584,7 +2586,7 @@ export class F35A {
   }
 
   // Kontrol yüzeyleri ve efektler. surfaces: {elevator, aileron, rudder} -1..1 (elevator +: burun yukarı)
-  update({ elevator = 0, aileron = 0, rudder = 0, flaps = 0, lef = 0, toeIn = 0, nozzle = null, gearComp = 0, gear = 1, throttle = 0, afterburner = 0, time = 0, groundSpeed = 0, dt = 0, camDist = 25 }) {
+  update({ elevator = 0, aileron = 0, rudder = 0, flaps = 0, lef = 0, toeIn = 0, nozzle = null, gearComp = 0, gear = 1, throttle = 0, afterburner = 0, time = 0, groundSpeed = 0, dt = 0, camDist = 25, steer = 0 }) {
     const p = this.parts;
     // Yüzeyler FİZİĞİN eyleyici konumunu DOĞRUDAN gösterir (tek yetkili değer): FCS
     // eyleyicisi zaten gecikmeli ve hız sınırlıdır (≤ 4 birim/s, 60 Hz'de kare başına
@@ -2631,7 +2633,9 @@ export class F35A {
       g.pivot.quaternion.setFromAxisAngle(g.retAxis, (1 - swing) * g.stow);
       // Geç sapma: tekerlek yuva ağzından geçtikten SONRA gövde içinde merkeze doğru döner
       if (g.yaw) g.pivot.quaternion.premultiply(_gearYawQ.setFromAxisAngle(_Y_AXIS, g.yaw * ss(g.yawFrom, 1, 1 - swing)));
-      g.slide.rotation.y = (1 - swing) * g.flat;
+      // Burun tekeri dümeni: alt amortisör + teker bacak ekseni etrafında fizikteki açıyla döner
+      // (sağ pedal = burun sağa = −y). Takım toplanırken ortalanmış hâle döner.
+      g.slide.rotation.y = (1 - swing) * g.flat + (key === 'nose' ? -steer * swing : 0);
       g.pivot.position.y = g.baseY + lift * g.lift;
       g.wheel.rotation.x = this.wheelSpin * 0.35 / g.radius;
       // Amortisör: kayan grup bacak ekseni boyunca; düşey bileşeni gearComp (main.js

@@ -1,7 +1,10 @@
 // F-35A Simülatör – uygulama giriş noktası.
 import * as THREE from 'three';
 import { APP_VERSION } from './version.js';
-import { World, LAYER_TREES, QUALITY_PRESETS, SPAWNS, spawnPose, AIRPORT_BY_ID, surfaceTypeAt, WATER_LEVEL } from './world.js';
+import { World, LAYER_TREES, QUALITY_PRESETS, SPAWNS, WATER_LEVEL } from './world.js';
+import { GeoWorld, bodrumSpawnInfo } from './geoworld.js';
+import { fmtDMS } from './geo.js';
+import { HAZE_UNIFORMS } from './worldshade.js';
 import { fmtCrashData } from './crash.js';
 import { FlightModel, FIXED_DT } from './physics.js';
 import { FLEET, FLEET_ORDER, getAircraftConfig } from './fleet.js';
@@ -26,6 +29,7 @@ const LOAD_COST_MS = {
   gfx: 60, sky: 3, lights: 1, terrain: 5800, water: 430, trees: 1000, roads: 52, town: 80,
   airbase: 250, baseDetails: 100, civil: 120, city: 285, surroundings: 15, clouds: 45, collision: 2,
   env: 40, systems: 10, previews: 1500, shaders: 900,
+  geodata: 2600, ltfe: 120, ocean: 15,
 };
 const LOAD_LABEL = {
   gfx: 'Starting graphics…',
@@ -42,6 +46,9 @@ const LOAD_LABEL = {
   systems: 'Setting up flight systems…',
   previews: 'Rendering aircraft preview…',
   shaders: 'Compiling shaders…',
+  geodata: 'Streaming Bodrum terrain and Sentinel-2 imagery…',
+  ltfe: 'Building Milas–Bodrum Airport (LTFE)…',
+  ocean: 'Adding the Aegean Sea…',
 };
 const PROFILE_KEY = 'ffs.loadProfile';
 
@@ -105,6 +112,18 @@ class LoadTracker {
 
 const WORLD_STAGES = ['sky', 'lights', 'terrain', 'water', 'trees', 'roads', 'town', 'airbase', 'baseDetails', 'civil', 'city', 'surroundings', 'clouds', 'collision'];
 
+// Bölgeler: gerçek dünya (Bodrum, varsayılan) ve kurgusal eğitim bölgesi. Kalkış noktası bölgeyi
+// belirler; bölge değişince dünya yeniden kurulur (kalite değişimiyle aynı yol).
+const REGIONS = {
+  bodrum: { World: GeoWorld, stages: GeoWorld.STAGES, label: 'Loading Bodrum region…' },
+  training: { World, stages: WORLD_STAGES, label: 'Loading the training area…' },
+};
+const ALL_SPAWNS = [
+  ...bodrumSpawnInfo(),
+  ...SPAWNS.map((s) => ({ id: s.id, region: 'training', airport: s.airport, name: s.name, runway: s.runway, sub: s.sub.replace(s.kindLabel, s.kindLabel + ' (training area)') })),
+];
+const spawnDesc = (id) => ALL_SPAWNS.find((s) => s.id === id) || ALL_SPAWNS[0];
+
 class App {
   constructor() {
     this.ui = new UI();
@@ -161,8 +180,9 @@ class App {
 
   async init() {
     const ui = this.ui;
-    const stages = ['gfx', ...WORLD_STAGES, 'env', 'systems', 'previews', 'shaders'];
-    const prog = new LoadTracker(stages, 'boot-' + this.settings.quality, (v, label) => ui.setProgress(v, label));
+    const region = spawnDesc(this.settings.spawn).region;
+    const stages = ['gfx', ...REGIONS[region].stages, 'env', 'systems', 'previews', 'shaders'];
+    const prog = new LoadTracker(stages, 'boot-' + region + '-' + this.settings.quality, (v, label) => ui.setProgress(v, label));
     ui.resetProgress(LOAD_LABEL.gfx);
     prog.step('gfx');
     await this.breathe();
@@ -174,7 +194,7 @@ class App {
     this.onResize();
     prog.end('gfx');
 
-    this.world = await this.createWorld(this.settings.quality, prog);
+    this.world = await this.createWorld(this.settings.quality, prog, region);
 
     prog.step('env');
     await this.breathe();
@@ -225,6 +245,7 @@ class App {
     await this.breathe();
     this.updateSelectCamera(0);
     this.world.update(0, this.camera, this.camera.position);
+    if (this.world.prewarm) this.world.prewarm(this.camera);
     await this.precompile(this.scene);
     this.warmupFrame();
     prog.end('shaders');
@@ -238,6 +259,7 @@ class App {
     this.buildSelectGrid();
     this.showSelect();
     if (isIOS() && !isStandalone()) ui.el.selHint.textContent = 'On iPhone, tap Share → Add to Home Screen to play full screen.';
+    if (this._regionFallback) ui.message('Bodrum terrain data could not be loaded (offline?) — the training area is shown instead', 6000);
     this.registerSW();
     this.checkOrientation();
     this.lastTime = performance.now();
@@ -260,9 +282,23 @@ class App {
   }
 
   /** Dünyayı zaman dilimli kurar; ilerlemeyi aşama aşama bildirir. */
-  async createWorld(quality, prog) {
-    const world = new World(this.scene, this.renderer, quality, { defer: true });
-    await world.build((id, frac) => prog.step(id, frac), () => this.breathe());
+  async createWorld(quality, prog, region = 'bodrum') {
+    const WC = (REGIONS[region] || REGIONS.bodrum).World;
+    const world = new WC(this.scene, this.renderer, quality, { defer: true });
+    try {
+      await world.build((id, frac) => prog.step(id, frac), () => this.breathe());
+    } catch (e) {
+      // Gerçek dünya verisi alınamadı (çevrimdışı, önbellekte yok): kurgusal bölgeye geri dön
+      if (region === 'training') throw e;
+      console.warn('Region could not be loaded, falling back to the training area', e);
+      world.dispose();
+      this.settings.spawn = SPAWNS[0].id;
+      this._regionFallback = true;
+      return this.createWorld(quality, prog, 'training');
+    }
+    // Uzak düzlem bölgeye göre (gerçek dünyada ufuk yüzlerce km)
+    this.camera.far = world.cameraFar;
+    this.camera.updateProjectionMatrix();
     return world;
   }
 
@@ -585,23 +621,23 @@ class App {
   buildSpawnRow() {
     const row = this.ui.el.selApRow;
     if (!row || row.childElementCount) return;
-    for (const sp of SPAWNS) {
+    for (const sp of ALL_SPAWNS) {
       const b = document.createElement('button');
       b.className = 'ap-chip'; b.type = 'button'; b.id = 'ap-' + sp.id;
       b.innerHTML = '<b></b><span></span>';
-      b.querySelector('b').textContent = sp.name;
+      b.querySelector('b').textContent = sp.name + (sp.region === 'bodrum' ? ' · ' + sp.runway : '');
       b.querySelector('span').textContent = sp.sub;
       b.addEventListener('click', () => this.setSpawn(sp.id));
       row.appendChild(b);
     }
-    this.setSpawn(this.settings.spawn || 'base', true);
+    this.setSpawn(this.settings.spawn || ALL_SPAWNS[0].id, true);
   }
 
   setSpawn(id, quiet) {
-    if (!SPAWNS.some((s) => s.id === id)) id = SPAWNS[0].id;
+    if (!ALL_SPAWNS.some((s) => s.id === id)) id = ALL_SPAWNS[0].id;
     this.settings.spawn = id;
     if (!quiet) saveSettings(this.settings);
-    for (const sp of SPAWNS) {
+    for (const sp of ALL_SPAWNS) {
       const b = document.getElementById('ap-' + sp.id);
       if (b) b.classList.toggle('on', sp.id === id);
     }
@@ -725,6 +761,9 @@ class App {
     try {
       const cfg = getAircraftConfig(id);
       this.ui.hide('select');
+      // Seçilen kalkış noktası başka bölgedeyse önce dünya o bölgeye kurulur
+      const region = spawnDesc(this.settings.spawn).region;
+      if (this.world.regionId !== region) await this.rebuildWorld(this.settings.quality, region, null, true);
       if (this.aircraftId !== id || !this.aircraft) {
         const label = 'Loading ' + cfg.name + '…';
         const prog = new LoadTracker(['model', 'flight', 'shaders'], 'aircraft-' + id, (v, l) => this.ui.setProgress(v, l));
@@ -745,7 +784,7 @@ class App {
         prog.save();
         this.ui.hide('loading');
       } else {
-        this.physics.reset(spawnPose(this.settings.spawn));
+        this.physics.reset(this.world.spawnPose(this.settings.spawn));
         this.cameraRig.reset();
         this.weapons.reset(); this._weaponsT = null;
       }
@@ -772,7 +811,7 @@ class App {
     if (this.envMap && this.aircraft.setEnvironment) this.aircraft.setEnvironment(this.envMap);
     if (onModelBuilt) onModelBuilt();
     this.physics = new FlightModel(this.world, cfg);
-    this.physics.reset(spawnPose(this.settings.spawn));
+    this.physics.reset(this.world.spawnPose(this.settings.spawn));
     this.cameraRig.setAircraft(this.aircraft, cfg);
     this.weapons.attach(this.aircraft, this.physics);
     this.weapons.reset(); this._weaponsT = null;
@@ -796,8 +835,10 @@ class App {
   updateSelectCamera(dt) {
     this.selT = (this.selT || 0.8) + dt * 0.05;
     // Kamera seçili kalkış havalimanının üzerinde döner: hangi üsten kalkacağı görünür
-    const ap = AIRPORT_BY_ID[(SPAWNS.find((s) => s.id === this.settings.spawn) || SPAWNS[0]).airport];
-    const c = this.camera, r = 360, cx = ap.x - 120, cz = ap.z + 470, cy = ap.elev + 110;
+    const aps = this.world.airportById;
+    const ap = aps[spawnDesc(this.settings.spawn).airport] || aps[Object.keys(aps)[0]];
+    const V = this.world.selectView || { r: 360, h: 110, dx: -120, dz: 470 };
+    const c = this.camera, r = V.r, cx = ap.x + V.dx, cz = ap.z + V.dz, cy = ap.elev + V.h;
     c.position.set(cx + Math.cos(this.selT) * r, cy + Math.sin(this.selT * 0.6) * 22, cz + Math.sin(this.selT) * r);
     c.up.set(0, 1, 0);
     c.lookAt(cx, ap.elev + 8, cz);
@@ -872,7 +913,7 @@ class App {
   restart() {
     this.clearCrash();
     this.ui.hide('crash');
-    this.physics.reset(spawnPose(this.settings.spawn));
+    this.physics.reset(this.world.spawnPose(this.settings.spawn));
     this.lightsOn = false; this.aircraft.setLandingLights(false); this.ui.setToggle(this.ui.el.btnLights, false);
     this.controls.resetLever(0);
     this.controls.setEnabled(true);
@@ -884,7 +925,7 @@ class App {
     this.lastTime = performance.now();
     this.accumulator = 0; this._stickSynced = false;
     this.syncAircraft(0);
-    const sp = SPAWNS.find((s) => s.id === this.settings.spawn) || SPAWNS[0];
+    const sp = spawnDesc(this.settings.spawn);
     // Pist tanımlayıcısı pist geometrisinden hesaplanır (world.js / runway.js), uçak başından değil
     const rwy = sp.runway;
     const flaps0 = (getAircraftConfig(this.aircraftId).systems.flapNames || ['UP'])[0];
@@ -965,17 +1006,29 @@ class App {
     const wasRunning = this.state === 'running';
     if (wasRunning) this.pause();
     this.ui.hide('settings'); this.ui.hide('pause');
-    const prog = new LoadTracker([...WORLD_STAGES, 'env', 'shaders'], 'quality-' + q, (v, l) => this.ui.setProgress(v, l));
-    this.ui.resetProgress('Applying graphics quality…');
+    await this.rebuildWorld(q, this.world.regionId, 'Applying graphics quality…');
+    if (this.state === 'paused') this.ui.show('pause');
+    this.needsRender = true;
+  }
+
+  /**
+   * Dünyayı yeniden kurar (kalite ön ayarı ya da bölge değişimi). Fizik, kamera ve silahlar yeni
+   * dünyaya bağlanır; uçak modeli ve fizik durumu korunur (bölge değişiminde uçuş zaten yeniden
+   * başlatılır).
+   */
+  async rebuildWorld(q, region, label, atSpawn = false) {
+    const R = REGIONS[region] || REGIONS.bodrum;
+    const prog = new LoadTracker([...R.stages, 'env', 'shaders'], 'rebuild-' + region + '-' + q, (v, l) => this.ui.setProgress(v, l));
+    this.ui.resetProgress(label || R.label);
     this.ui.show('loading');
     await this.breathe();
     const preset = QUALITY_PRESETS[q];
     // Kurulum süresince döngü dünyaya dokunmaz (eski dünya bırakıldı, yenisi hazır değil)
     this.world.dispose();
     this.world = null;
-    const world = await this.createWorld(q, prog);
+    const world = await this.createWorld(q, prog, region);
     this.world = world;
-    this.physics.world = world;
+    if (this.physics) this.physics.world = world;
     this.cameraRig.world = world;
     this.weapons.world = world;
     this.aq.set(0); this.aq.reset();      // yeni kalite ön ayarı: uyarlanabilir kademe baştan
@@ -989,6 +1042,10 @@ class App {
     this.onResize();
     prog.step('shaders');
     await this.breathe();
+    // Görünür arazi düğümleri yükleme ekranında kurulur ve programları derlenir (uçuşta takılma yok)
+    if (atSpawn && this.physics) this.camera.position.copy(this._spawnCamPos());
+    this.world.update(0, this.camera, this.camera.position);
+    if (this.world.prewarm) this.world.prewarm(this.camera);
     await this.precompile(this.scene);
     this.warmupFrame();
     this.weaponsWarmup();
@@ -996,8 +1053,14 @@ class App {
     await this.ui.progressSettled();
     prog.save();
     this.ui.hide('loading');
-    if (this.state === 'paused') this.ui.show('pause');
     this.needsRender = true;
+  }
+
+  /** Kalkış noktasının biraz arkası ve yukarısı (yeni bölgede ilk görüntü için arazi ısıtma konumu). */
+  _spawnCamPos() {
+    const sp = this.world.spawnPose(this.settings.spawn), h = sp.hdg * Math.PI / 180;
+    const gy = this.world.heightAt(sp.x, sp.z);
+    return new THREE.Vector3(sp.x - Math.sin(h) * 40, gy + 12, sp.z + Math.cos(h) * 40);
   }
 
   // ---- Service worker ----
@@ -1008,6 +1071,7 @@ class App {
       if (hadController) this.ui.show('updateToast');
     });
     navigator.serviceWorker.register('./sw.js').then((reg) => {
+      if (!reg) return;            // kayıt engellendi (ör. otomasyon / gizli mod)
       this.swRegistration = reg;
       reg.addEventListener('updatefound', () => {
         const nw = reg.installing;
@@ -1073,6 +1137,13 @@ class App {
     L.push(`<b>FCS</b>    qCmd ${n(f.qCmd * DEGR, 1)}  pCmd ${n(f.pCmd * DEGR, 1)}  rCmd ${n(f.rCmd * DEGR, 1)} °/s`);
     L.push(`       pMax ${n(f.pMax * DEGR, 0)}°/s  nTarget ${n(f.nTarget)}  nAvail ${n(f.nAvail)}`);
     L.push(`       αCmd ${n(f.aCmd * DEGR, 1)}°  g-blend ${n(f.wG)}  authority ${n(f.auth)}`);
+    if (this.world && this.world.geoInfo) {
+      // Gerçek dünya: konum ve ÜÇ AYRI yükseklik (MSL / WGS84 elipsoit / zemin üstü), yön (ızgara/gerçek/manyetik)
+      const G = this.world.geoInfo(p.pos, T.heading, this._geo || (this._geo = {}));
+      L.push(`<b>GEO</b>    ${fmtDMS(G.lat, 'N', 'S')} ${fmtDMS(G.lon, 'E', 'W')}`);
+      L.push(`       MSL ${n(G.hMsl, 1)} m  ELL ${n(G.hEll, 1)} m (N ${n(G.geoidN, 1)})  AGL ${n(G.hAgl, 1)} m  terrain ${n(G.terrainMsl, 1)} m`);
+      L.push(`       HDG grid ${n(T.heading, 1)}°  true ${n(G.hdgTrue, 1)}°  mag ${n(G.hdgMag, 1)}°  conv ${n(G.convergence, 3)}°`);
+    }
     L.push(`<b>AERO</b>   separation ${n(d.sepFrac)}  tailEff ${n(d.tailEff)}  CLmax ${n(d.CLmaxCfg)}`);
     L.push(`       αtrim ${n(d.alphaTrim * DEGR, 1)}°  onGround ${p.onGround ? 'yes' : 'no'}  rateClamp ${d.rateClamped ? 'YES' : 'no'}  forceGuard ${d.forceGuard ? 'YES' : 'no'}`);
     el.innerHTML = L.join('\n');
@@ -1094,7 +1165,7 @@ class App {
     this.ui.setMenu(false);
     this.ui.hide('touch'); this.ui.hide('guide');
     const pos = p.pos, gY = Math.max(this.world.heightAt(pos.x, pos.z), WATER_LEVEL);
-    const surface = surfaceTypeAt(pos.x, pos.z);
+    const surface = this.world.surfaceTypeAt(pos.x, pos.z);
     const paved = surface === 'runway' || surface === 'taxiway' || surface === 'apron';
     const dir = p.vel.clone().setY(0); const vh = dir.length(); if (vh > 0.1) dir.multiplyScalar(1 / vh);
     this.crashSeq = {
@@ -1143,7 +1214,7 @@ class App {
     if (p.onGround && vh > 4 && C.scrapeT <= 0 && !C.destroyed && !(p.wreck && p.wreck.water)) {
       C.scrapeT = 0.07;
       const d = C.dir.set(p.vel.x, 0, p.vel.z).multiplyScalar(1 / vh);
-      const sf = surfaceTypeAt(pos.x, pos.z);
+      const sf = this.world.surfaceTypeAt(pos.x, pos.z);
       fx.scrape(pos, gY, vh, sf === 'runway' || sf === 'taxiway' || sf === 'apron', d);
     }
     if (C.fire) {
@@ -1188,6 +1259,10 @@ class App {
     const pose = this.pose;
     this.aircraft.group.position.copy(pose.pos);
     this.aircraft.group.quaternion.copy(pose.quat);
+    // Gerçek dünya bölgesinde zemin çizimde kameraya göre d²/2R alçalır: uçak da aynı miktarda
+    // (yalnızca görsel; fizik düz yerel çerçevededir). Kurgusal dünyada hzCurv = 0.
+    const kc = HAZE_UNIFORMS.hzCurv.value;
+    if (kc) { const dx = pose.pos.x - this.camera.position.x, dz = pose.pos.z - this.camera.position.z; this.aircraft.group.position.y -= (dx * dx + dz * dz) * kc; }
     // Amortisör sıkışması kadar gövde alçalır, tekerlekler pistte kalır (yalnızca görsel)
     const gc = p.gearComp || 0;
     if (gc) this.aircraft.group.position.y -= gc;
@@ -1199,6 +1274,7 @@ class App {
     A.throttle = p.engine; A.engine = p.engine; A.afterburner = p.abLevel; A.time = p.time;
     A.nozzle = p.engine_.nozzle !== undefined ? p.engine_.nozzle : p.engine;
     A.groundSpeed = p.onGround ? p.vel.length() : 0; A.dt = dt; A.gearComp = gc;
+    A.steer = p.noseSteer || 0;
     A.camDist = this.camera.position.distanceTo(pose.pos);
     this.aircraft.update(A);
   }
@@ -1289,12 +1365,17 @@ class App {
       const wdt = this._weaponsT === null ? dt : Math.min(0.1, Math.max(0, poseT - this._weaponsT));
       this._weaponsT = poseT;
       this.weapons.update(wdt, this.pose, this.camera, this._wind);
+      // Gerçek dünya: HUD manyetik yön gösterir (ızgara + yakınsama − WMM sapması)
+      const Tm = this.physics.telemetry;
+      if (this.world.geoInfo) { const G = this.world.geoInfo(this.pose.pos, Tm.heading, this._geoHud || (this._geoHud = {})); Tm.hdgMag = G.hdgMag; }
+      else Tm.hdgMag = undefined;
       if (this.physDebug) this.drawPhysDebug();
     }
     const wrecking = this.state === 'crashing' || this.state === 'crashed';
     if (wrecking) this.updateCrash(dt);
     if (running || wrecking || this.needsRender) {
       this.world.setWind(this.physics.windAt(this.physics.groundY + 8, this.physics.time), this.physics.wind.kt);
+      this.world.focusVel = this.physics.vel;
       this.world.update(running || wrecking ? dt : 0, this.camera, this.pose.pos);
       this.renderer.render(this.scene, this.camera);
       if (wrecking) this.hud.clear();
@@ -1321,7 +1402,9 @@ class App {
       this.frameCount++; this.fpsTime += dt;
       if (this.fpsTime >= 0.5) {
         const sc = this.aq.tier > 0 ? ' · ' + this.aq.label : '';
-        this.ui.el.fps.textContent = Math.round(this.frameCount / this.fpsTime) + '/' + this.targetFps + ' fps' + sc + ' · ' + this.renderer.info.render.calls + ' draws';
+        // Gerçek dünyada bellek baskısı göstergesi: GPU'daki görüntü karosu / bütçe, inşa edilmiş düğüm
+        const T = this.world.terrain, ts = T ? ` · terrain ${T.stats.drawn}/${T.stats.nodes} · tex ${T.img.loadedCount()}/${T.img.budget}` : '';
+        this.ui.el.fps.textContent = Math.round(this.frameCount / this.fpsTime) + '/' + this.targetFps + ' fps' + sc + ' · ' + this.renderer.info.render.calls + ' draws' + ts;
         this.frameCount = 0; this.fpsTime = 0;
       }
     }

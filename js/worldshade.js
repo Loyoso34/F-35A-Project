@@ -21,6 +21,9 @@ export const HAZE_UNIFORMS = {
   hzHorizon: { value: new THREE.Color() },
   hzGround: { value: new THREE.Color() },
   hzSunColor: { value: new THREE.Color() },
+  // Dünya eğriliği (yalnızca çizim): kameradan yatay d uzaklıktaki nokta d²·hzCurv kadar alçalır.
+  // Kurgusal dünyada 0 (düz harita, çıktı birebir aynı); gerçek dünya bölgesinde 1/(2R).
+  hzCurv: { value: 0 },
 };
 
 // Gökyüzü renk işlevi: World.skyGLSL ile birebir aynı (gök kubbesi de bunu kullanır)
@@ -37,7 +40,7 @@ export const SKY_GLSL = `
   }`;
 
 const HAZE_UNI_DECL = `
-  uniform float hazeDensity; uniform float hazeFar;
+  uniform float hazeDensity; uniform float hazeFar; uniform float hzCurv;
   uniform vec3 hzSunDir; uniform vec3 hzZenith; uniform vec3 hzHorizon; uniform vec3 hzGround; uniform vec3 hzSunColor;`;
 // Pus rengi (rgb) ve oranı (a). Köşe gölgelendiricisinde (yerleşik malzemeler) ve su için
 // piksel gölgelendiricisinde aynı işlev kullanılır.
@@ -86,17 +89,34 @@ const HAZE_APPLY = `
 const HAZE_VS = `
   vHaze = hazeAt(transpose(mat3(viewMatrix)) * mvPosition.xyz + cameraPosition);`;
 
+// project_vertex'in eğrilikli hâli: görünüm uzayında dünya "yukarı" ekseni boyunca d²·hzCurv
+// kadar alçaltır (d: kameraya yatay uzaklık). Kamera göreli olduğu için kesinlik kaybı yoktur.
+export const CURVE_PROJECT = `
+  vec4 mvPosition = vec4( transformed, 1.0 );
+  #ifdef USE_BATCHING
+    mvPosition = batchingMatrix * mvPosition;
+  #endif
+  #ifdef USE_INSTANCING
+    mvPosition = instanceMatrix * mvPosition;
+  #endif
+  mvPosition = modelViewMatrix * mvPosition;
+  {
+    vec3 dW = transpose(mat3(viewMatrix)) * mvPosition.xyz;
+    mvPosition.xyz -= mat3(viewMatrix)[1] * ((dW.x * dW.x + dW.z * dW.z) * hzCurv);
+  }
+  gl_Position = projectionMatrix * mvPosition;`;
+
 /** Pus işlevini bir three.js yerleşik malzemesine bağlar (onBeforeCompile). */
 export function applyHaze(material, key = 'h') {
   const prev = material.onBeforeCompile;
   material.onBeforeCompile = (sh, r) => {
     if (prev) prev(sh, r);
     Object.assign(sh.uniforms, HAZE_UNIFORMS);
-    sh.vertexShader = HAZE_PARS_VS + '\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n' + HAZE_VS);
+    sh.vertexShader = HAZE_PARS_VS + '\n' + sh.vertexShader.replace('#include <project_vertex>', CURVE_PROJECT + '\n' + HAZE_VS);
     sh.fragmentShader = HAZE_PARS_FS_V + '\n' + sh.fragmentShader.replace('#include <fog_fragment>', '').replace('#include <tonemapping_fragment>', HAZE_APPLY);
   };
   const prevKey = material.customProgramCacheKey ? material.customProgramCacheKey.bind(material) : null;
-  material.customProgramCacheKey = () => 'haze2|' + key + '|' + (prevKey ? prevKey() : '');
+  material.customProgramCacheKey = () => 'haze3|' + key + '|' + (prevKey ? prevKey() : '');
   material.needsUpdate = true;
   return material;
 }

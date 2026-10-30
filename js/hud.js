@@ -1,5 +1,8 @@
 // Yeşil HUD: hız, irtifa, baş, dikey hız, AoA, G, gaz, takım/flap, yunuslama merdiveni, uçuş yolu işareti.
 import * as THREE from 'three';
+// Gösterilen yön: gerçek dünya bölgesinde MANYETİK (pist numaralarıyla ve yayımlanmış usullerle
+// tutarlı; main.js telemetriye hdgMag yazar), kurgusal bölgede harita yönü.
+const hdgOf = (T) => (T.hdgMag !== undefined ? T.hdgMag : T.heading);
 
 // Havacılık yeşili: neon yerine hafif yumuşatılmış ton; koyu kenar gölgesiyle açık gökyüzünde de okunur
 const GREEN = '#4cff7c';
@@ -74,7 +77,7 @@ export class HUD {
     // RA: 100 ft üstünde 10 ft adımlarla (titremesin), altında 1 ft
     if (agl < RA_MAX) items.push(['RA', thousands(agl > 100 ? Math.round(agl / 10) * 10 : Math.round(agl)), 'FT', '0,000']);
     items.push(['VS', (vs > 0 ? '+' : vs < 0 ? '−' : '') + thousands(Math.abs(vs)), 'FPM', '+0,000']);
-    items.push(['HDG', String(Math.round(T.heading) % 360 || 360).padStart(3, '0'), '°', '000']);
+    items.push(['HDG', String(Math.round(hdgOf(T)) % 360 || 360).padStart(3, '0'), T.hdgMag !== undefined ? '°M' : '°', '000']);
     const fL = `600 9px ${SANS}`, fV = `700 14px ${MONO}`, fU = `600 8px ${SANS}`;
     const gap = 16, padX = 12, hgt = 26;
     const widths = items.map(([l, , u, tpl]) => { ctx.font = fL; let x = ctx.measureText(l).width + 5; ctx.font = fV; x += ctx.measureText(tpl).width; if (u) { ctx.font = fU; x += 3 + ctx.measureText(u).width; } return x; });
@@ -140,7 +143,7 @@ export class HUD {
     const on = Math.floor(this.blink * 4) % 2 === 0;
     const warnStall = T.stall ? 2 : T.stallWarn ? 1 : 0;
     const warnGear = !T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0;
-    const key = Math.round(S.ias) + '|' + Math.round(S.alt) + '|' + Math.round(S.vs / 50) + '|' + Math.round(T.heading) + '|' + (S.agl < RA_MAX ? Math.round(S.agl / 10) : -1)
+    const key = Math.round(S.ias) + '|' + Math.round(S.alt) + '|' + Math.round(S.vs / 50) + '|' + Math.round(hdgOf(T)) + '|' + (S.agl < RA_MAX ? Math.round(S.agl / 10) : -1)
       + '|' + warnStall + (warnGear ? 'g' : '') + ((warnStall || warnGear) && on ? '*' : '')
       + '|' + this.w + 'x' + this.h + '|' + opts.safe.top + ',' + opts.safe.left + ',' + opts.safe.right;
     if (this.mode === 'external' && key === this.extKey) return;
@@ -260,7 +263,7 @@ export class HUD {
     ctx.fillText('VS ' + (vs > 0 ? '+' : '') + vs, rx + 6, rowY + boxH / 2 + 10);
     // Radar altimetre (AGL, ana teker tabanından): 5000 ft altında "R" ile gösterilir
     ctx.fillText(S.agl < RA_MAX ? 'R ' + thousands(S.agl > 100 ? Math.round(S.agl / 10) * 10 : Math.round(S.agl)) : 'R ----', rx + 6, rowY + boxH / 2 + 26);
-    ctx.fillText('HDG ' + String(Math.round(T.heading) % 360 || 360).padStart(3, '0'), rx + 6, rowY + boxH / 2 + 42);
+    ctx.fillText('HDG ' + String(Math.round(hdgOf(T)) % 360 || 360).padStart(3, '0') + (T.hdgMag !== undefined ? 'M' : ''), rx + 6, rowY + boxH / 2 + 42);
 
     // ---- Baş bandı (üst) ----
     const tapeY = insetT + 62;
@@ -269,8 +272,8 @@ export class HUD {
     ctx.beginPath(); ctx.rect(cx - tapeW / 2, tapeY - 16, tapeW, 34); ctx.clip();
     const pxPerDeg = tapeW / 60;
     for (let d = -40; d <= 40; d += 5) {
-      const hd = Math.round(T.heading / 5) * 5 + d;
-      const x = cx + (hd - T.heading) * pxPerDeg;
+      const hd = Math.round(hdgOf(T) / 5) * 5 + d;
+      const x = cx + (hd - hdgOf(T)) * pxPerDeg;
       const major = hd % 10 === 0;
       ctx.beginPath(); ctx.moveTo(x, tapeY + 4); ctx.lineTo(x, tapeY + (major ? 12 : 8)); ctx.stroke();
       if (major) {

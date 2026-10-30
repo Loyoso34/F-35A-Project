@@ -2,13 +2,14 @@
   "name": "f35a-flighttest",
   "private": true,
   "type": "module",
-  "description": "Başsız uçuş fiziği test matrisi (js/physics.js'in kendisi Node'da çalışır)",
+  "description": "Ba\u015fs\u0131z u\u00e7u\u015f fizi\u011fi test matrisi (js/physics.js'in kendisi Node'da \u00e7al\u0131\u015f\u0131r)",
   "scripts": {
     "test": "node --import ./register.mjs scenarios.mjs",
     "nosedown": "node --import ./register.mjs nosedown.mjs",
     "test:crash": "node --import ./register.mjs crash.mjs",
     "test:world": "node --import ./register.mjs world.mjs",
-    "test:all": "node --import ./register.mjs scenarios.mjs && node --import ./register.mjs crash.mjs && node --import ./register.mjs world.mjs"
+    "test:all": "node --import ./register.mjs scenarios.mjs && node --import ./register.mjs crash.mjs && node --import ./register.mjs world.mjs && node --import ./register.mjs geo.mjs && node --import ./register.mjs geoworld.mjs",
+    "test:geo": "node --import ./register.mjs geo.mjs && node --import ./register.mjs geoworld.mjs"
   },
   "dependencies": {
     "three": "0.170.0"
