@@ -10,7 +10,7 @@ const F35_CFG = {
   id: 'f35a',
   name: 'F-35A Lightning II',
   sub: 'Single-seat 5th-generation multirole fighter',
-  specs: ['Length 15.7 m', 'Wingspan 10.7 m', 'Max Mach 1.6'],
+  specs: ['Length 15.67 m', 'Wingspan 10.67 m', 'Max Mach 1.6'],
   accent: '#39ff6a',
   build: (o) => new F35A(o),
   geom: {
@@ -67,12 +67,15 @@ const F35_CFG = {
     chase: { dist: [16.5, 23], vRef: 320, up: 3.0, ahead: 42, lookUp: 1.3, fov: 55 },
     orbit: { dist: 26, min: 6, max: 260, lookUp: 1, fov: 50 },
     flyby: { fov: 42, ahead: [180, 900], side: [60, 150], up: 3, vScale: 4.5, reset: 1300 },
-    wing: { eye: [0.55, 0.85, -2.1], look: [5.0, -0.45, 2.2], fov: 62 },
-    gear: { eye: [1.05, -0.15, -1.9], look: [1.75, -2.4, 0.8], fov: 58 },
+    // v4.0 model çerçevesi: ağırlık merkezi burundan 8,9 m (eskiden 8,0); kanat kamerası kanopi
+    // rayının dışında, yükseltilmiş sırtın üstünde; takım kamerası kanat kökünün altında, gövde
+    // yanının dışında, ana tekerleğe bakar.
+    wing: { eye: [0.66, 1.0, -3.0], look: [5.0, -0.45, 1.3], fov: 62 },
+    gear: { eye: [2.45, -0.62, -1.6], look: [2.17, -1.95, 0.8], fov: 58 },
     shake: 1,
   },
   audio: { rumbleF: [38, 75], rumbleFilter: [120, 260], rumbleGain: [0.10, 0.22], roarBP: [220, 620], roarLP: [500, 2200], roarGain: [0.05, 0.55], whineF: [700, 3500], whineGain: [0.004, 0.028], hissHP: [1800, 2500], hissGain: 0.05, ab: 1, idle: 0.22, rollLP: 220 },
-  thumb: { pos: [-9.5, 3.4, -12.5], look: [0, 0.2, 0.6], fov: 26 },
+  thumb: { pos: [-9.5, 3.4, -13.4], look: [0, 0.2, -0.3], fov: 26 },
 };
 
 export const FLEET = { f35a: F35_CFG };

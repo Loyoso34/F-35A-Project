@@ -9,12 +9,18 @@ import { getLivery } from './liveries.js';
 const nonIndexed = (g) => (g.index ? g.toNonIndexed() : g);
 const DEG = Math.PI / 180;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+// v4.0 geometri yeniden yapımı. Kaynaklar (PUBLIC_DATA_SOURCES.md §10): boy 15,67 m, açıklık
+// 10,67 m, yükseklik 4,38 m (USAF/Lockheed Martin); kanat hücum kenarı ok açısı 34,1°, firar
+// kenarı −13°, sivrilme 0,24, teker izi 4,34 m, dingil açıklığı 6,02 m (Virginia Tech F-35A
+// tasarım analizi, çizimden ölçüm). Ağırlık merkezi istasyonu (burundan 8,9 m) fizikteki ana
+// takım kolunu (0,8 m) korur; burun takımı kolu ölçülen dingil açıklığına uzatıldı.
+const CG_STATION = 8.9;
 export const F35 = {
-  length: 15.7, span: 10.7, height: 4.4,
-  cgStation: 8.0,
+  length: 15.67, span: 10.67, height: 4.38,
+  cgStation: CG_STATION,
   wheelBottomY: -2.25,
-  noseGearZ: -4.3, mainGearZ: 0.8, mainGearX: 1.75,
-  pilotEye: new THREE.Vector3(0, 1.26, -3.05),
+  noseGearZ: 3.68 - CG_STATION, mainGearZ: 0.8, mainGearX: 2.17,
+  pilotEye: new THREE.Vector3(0, 1.26, 4.95 - CG_STATION),
 };
 
 function st(s) { return s - F35.cgStation; }
@@ -22,9 +28,11 @@ function st(s) { return s - F35.cgStation; }
 // Kanopi kesit profili [istasyon, yarı genişlik, yükseklik] (güverte üstü), süperelips
 // üssü CANOPY_N. Kokpit içi parçalar bu profilden türetilen yüzeyle (canopySurfaceY)
 // kırpılır: hiçbir köşe camdan ya da gövdeden dışarı taşamaz.
+// v4.0: kanopi tabanı (güverte) arkaya doğru yükselir; tepe çizgisi pilot başından sonra
+// yükseltilmiş sırta (≈1,07 m) yumuşakça iner — tek parça, bow'suz F-35 kanopisinin damla biçimi.
 const CANOPY = [
-  [3.0, 0.08, 0.02], [3.25, 0.30, 0.17], [3.55, 0.44, 0.37], [3.9, 0.52, 0.54], [4.3, 0.57, 0.69],
-  [4.7, 0.59, 0.78], [5.1, 0.59, 0.80], [5.5, 0.57, 0.75], [5.9, 0.52, 0.60], [6.3, 0.43, 0.40], [6.65, 0.28, 0.17], [6.9, 0.10, 0.03],
+  [3.0, 0.08, 0.02], [3.25, 0.30, 0.17], [3.55, 0.44, 0.37], [3.9, 0.52, 0.55], [4.3, 0.57, 0.685],
+  [4.7, 0.59, 0.77], [5.1, 0.59, 0.775], [5.5, 0.57, 0.69], [5.9, 0.52, 0.57], [6.3, 0.43, 0.33], [6.65, 0.28, 0.12], [6.9, 0.10, 0.05],
 ];
 const CANOPY_N = 2.3;
 
@@ -40,40 +48,50 @@ function paintVC(g, hex) {
 // Gövde kesit profilleri. Her profil: üst merkez -> chine -> alt köşe -> alt merkez (sağ yarı).
 // yt: üst y, (xc,yc): chine, (xs,ys): yanak kontrol noktası (hava alığı şişkinliği),
 // (xb,yb): alt köşe, ybot: alt merkez, nt: üst süperelips üssü, nb: alt süperelips üssü.
-// Radom: TEĞET OJİV. Yarıçap r(s) = √(ρ² − (L−s)²) − ρ + R,  ρ = (R²+L²)/2R,
-// L = 2.90 m radom boyu, R = 0.70 m taban yarıçapı. Ojiv uçta HIZLA genişler
-// (r(0.15) zaten tabanın %11'i), bu yüzden burun küt ve yuvarlak görünür.
-// Önceki tablo yalnızca 0 / 0.70 / 1.80 istasyonlarını tanımlıyordu ve aradaki
-// smoothstep enterpolasyonunun uçta türevi sıfır olduğu için burun uzun, ince
-// bir İĞNEye dönüşüyordu. Ara istasyonlar ojivden hesaplanarak eklendi.
+// Radom: üst çizgi ve chine genişliği TEĞET OJİV r(s) = √(ρ² − (L−s)²) − ρ + R,
+// ρ = (R²+L²)/2R (L = 2,90 m; üstte R = 0,81 m, chine'de 0,80 m), alt çizgi sığ kuvvet eğrisi.
+// Tablo her loft istasyonunda tanımlıdır: smoothstep enterpolasyonu burunda dalga üretmez.
 const FORE_PROFILES = [
-  [0.00, { yt: 0.013, xc: 0.017, yc: 0.001, xs: 0.015, ys: -0.006, xb: 0.009, yb: -0.011, ybot: -0.014, nt: 2.15, nb: 2.15, dk: 0.004, cb: 0.85 }],
-  [0.15, { yt: 0.065, xc: 0.084, yc: 0.008, xs: 0.072, ys: -0.028, xb: 0.043, yb: -0.054, ybot: -0.066, nt: 2.15, nb: 2.15, dk: 0.004, cb: 0.85 }],
-  [0.35, { yt: 0.145, xc: 0.188, yc: 0.018, xs: 0.161, ys: -0.062, xb: 0.095, yb: -0.121, ybot: -0.147, nt: 2.18, nb: 2.18, dk: 0.004, cb: 0.85 }],
-  [0.70, { yt: 0.268, xc: 0.347, yc: 0.034, xs: 0.298, ys: -0.114, xb: 0.176, yb: -0.224, ybot: -0.272, nt: 2.2, nb: 2.2, dk: 0.004, cb: 0.85 }],
-  [1.20, { yt: 0.408, xc: 0.529, yc: 0.052, xs: 0.455, ys: -0.174, xb: 0.268, yb: -0.341, ybot: -0.415, nt: 2.25, nb: 2.25, dk: 0.004, cb: 0.85 }],
-  [1.80, { yt: 0.526, xc: 0.682, yc: 0.068, xs: 0.587, ys: -0.224, xb: 0.345, yb: -0.440, ybot: -0.535, nt: 2.3, nb: 2.3, dk: 0.004, cb: 0.85 }],
-  [2.40, { yt: 0.593, xc: 0.768, yc: 0.082, xs: 0.661, ys: -0.253, xb: 0.389, yb: -0.496, ybot: -0.603, nt: 2.35, nb: 2.35, dk: 0.03, cb: 0.85 }],
-  [2.90, { yt: 0.61, xc: 0.79, yc: 0.10, xs: 0.68, ys: -0.26, xb: 0.40, yb: -0.51, ybot: -0.62, nt: 2.4, nb: 2.4, dk: 0.10, cb: 0.85 }],
-  [3.30, { yt: 0.635, xc: 0.85, yc: 0.125, xs: 0.73, ys: -0.27, xb: 0.44, yb: -0.57, ybot: -0.67, nt: 2.45, nb: 2.5, dk: 0.35, cb: 0.85 }],
-  [3.60, { yt: 0.65, xc: 0.90, yc: 0.15, xs: 0.78, ys: -0.29, xb: 0.47, yb: -0.62, ybot: -0.72, nt: 2.5, nb: 2.6, dk: 0.49, cb: 0.85 }],
-  [4.10, { yt: 0.67, xc: 0.97, yc: 0.175, xs: 0.88, ys: -0.33, xb: 0.49, yb: -0.68, ybot: -0.78, nt: 2.6, nb: 2.8, dk: 0.60, cb: 0.85 }],
+  // v4.0 burun: uç alçakta (y −0,20); chine çizgisi uçtan hava alığı üst dudağına DÜZ yükselir
+  // (y = −0,20 + 0,0855·s); alt yüz sığ ve düz (radom altı), üst yüz teğet ojiv (R 0,81 m,
+  // L 2,9 m). Kesit chine'de keskin, altı basık: F-35'in yassı, köşeli radomu.
+  [0.00, { yt: -0.187, xc: 0.016, yc: -0.200, xs: 0.015, ys: -0.207, xb: 0.010, yb: -0.212, ybot: -0.213, nt: 2.15, nb: 2.20, dk: 0.004, cb: 0.85 }],
+  [0.10, { yt: -0.141, xc: 0.058, yc: -0.191, xs: 0.055, ys: -0.208, xb: 0.035, yb: -0.222, ybot: -0.224, nt: 2.16, nb: 2.20, dk: 0.004, cb: 0.85 }],
+  [0.22, { yt: -0.073, xc: 0.125, yc: -0.181, xs: 0.119, ys: -0.215, xb: 0.075, yb: -0.242, ybot: -0.247, nt: 2.17, nb: 2.20, dk: 0.004, cb: 0.85 }],
+  [0.35, { yt: -0.005, xc: 0.193, yc: -0.170, xs: 0.183, ys: -0.221, xb: 0.116, yb: -0.262, ybot: -0.270, nt: 2.17, nb: 2.20, dk: 0.004, cb: 0.85 }],
+  [0.52, { yt: 0.079, xc: 0.275, yc: -0.156, xs: 0.261, ys: -0.228, xb: 0.165, yb: -0.287, ybot: -0.297, nt: 2.19, nb: 2.20, dk: 0.004, cb: 0.85 }],
+  [0.70, { yt: 0.159, xc: 0.355, yc: -0.140, xs: 0.337, ys: -0.235, xb: 0.213, yb: -0.312, ybot: -0.325, nt: 2.20, nb: 2.20, dk: 0.004, cb: 0.85 }],
+  [0.95, { yt: 0.259, xc: 0.453, yc: -0.119, xs: 0.431, ys: -0.244, xb: 0.272, yb: -0.346, ybot: -0.363, nt: 2.22, nb: 2.20, dk: 0.004, cb: 0.85 }],
+  [1.20, { yt: 0.346, xc: 0.538, yc: -0.097, xs: 0.512, ys: -0.252, xb: 0.323, yb: -0.378, ybot: -0.398, nt: 2.23, nb: 2.20, dk: 0.004, cb: 0.85 }],
+  [1.50, { yt: 0.432, xc: 0.624, yc: -0.072, xs: 0.593, ys: -0.261, xb: 0.374, yb: -0.416, ybot: -0.440, nt: 2.25, nb: 2.20, dk: 0.004, cb: 0.85 }],
+  [1.80, { yt: 0.501, xc: 0.692, yc: -0.046, xs: 0.657, ys: -0.270, xb: 0.415, yb: -0.454, ybot: -0.480, nt: 2.27, nb: 2.20, dk: 0.004, cb: 0.85 }],
+  [2.10, { yt: 0.553, xc: 0.743, yc: -0.020, xs: 0.706, ys: -0.279, xb: 0.446, yb: -0.491, ybot: -0.519, nt: 2.29, nb: 2.20, dk: 0.004, cb: 0.85 }],
+  [2.40, { yt: 0.588, xc: 0.778, yc: 0.005, xs: 0.739, ys: -0.288, xb: 0.467, yb: -0.528, ybot: -0.558, nt: 2.32, nb: 2.20, dk: 0.030, cb: 0.85 }],
+  [2.65, { yt: 0.604, xc: 0.794, yc: 0.027, xs: 0.755, ys: -0.296, xb: 0.477, yb: -0.559, ybot: -0.589, nt: 2.33, nb: 2.20, dk: 0.030, cb: 0.85 }],
+  [2.90, { yt: 0.610, xc: 0.800, yc: 0.048, xs: 0.760, ys: -0.303, xb: 0.480, yb: -0.590, ybot: -0.620, nt: 2.35, nb: 2.20, dk: 0.100, cb: 0.85 }],
+  [3.30, { yt: 0.635, xc: 0.85, yc: 0.082, xs: 0.78, ys: -0.30, xb: 0.50, yb: -0.64, ybot: -0.67, nt: 2.45, nb: 2.4, dk: 0.35, cb: 0.85 }],
+  [3.60, { yt: 0.65, xc: 0.90, yc: 0.108, xs: 0.82, ys: -0.31, xb: 0.52, yb: -0.69, ybot: -0.72, nt: 2.5, nb: 2.6, dk: 0.49, cb: 0.85 }],
+  [4.10, { yt: 0.67, xc: 0.97, yc: 0.150, xs: 0.90, ys: -0.33, xb: 0.52, yb: -0.75, ybot: -0.78, nt: 2.6, nb: 2.8, dk: 0.60, cb: 0.85 }],
   [4.50, { yt: 0.68, xc: 1.02, yc: 0.185, xs: 0.94, ys: -0.35, xb: 0.46, yb: -0.71, ybot: -0.80, nt: 2.6, nb: 3.0, dk: 0.63, cb: 0.85 }],
 ];
 // Ana gövde: chine altındaki yan yüzey (hava alığı yanağı -> alt köşe) iki fasetli, orta karın düz;
 // arka gövde motor yatağı etrafında yuvarlaklaşır.
 const MAIN_PROFILES = [
-  [5.00, { yt: 0.69, xc: 1.12, yc: 0.18, xs: 1.46, ys: -0.42, xb: 1.18, yb: -0.85, ybot: -0.92, nt: 2.6, nb: 3.2, dk: 0.64, cb: 0.8 }],
-  [5.80, { yt: 0.73, xc: 1.26, yc: 0.11, xs: 1.54, ys: -0.47, xb: 1.22, yb: -0.90, ybot: -0.98, nt: 2.7, nb: 3.3, dk: 0.57, cb: 0.65 }],
-  [6.60, { yt: 0.79, xc: 1.46, yc: -0.02, xs: 1.74, ys: -0.53, xb: 1.28, yb: -0.95, ybot: -1.02, nt: 2.8, nb: 3.4, dk: 0.35, cb: 0.45 }],
-  [7.60, { yt: 0.83, xc: 1.66, yc: -0.10, xs: 1.92, ys: -0.57, xb: 1.33, yb: -0.99, ybot: -1.04, nt: 2.9, nb: 3.5, dk: 0.04, cb: 0.3 }],
-  [8.80, { yt: 0.83, xc: 1.76, yc: -0.10, xs: 1.98, ys: -0.58, xb: 1.36, yb: -1.00, ybot: -1.05, nt: 2.9, nb: 3.5, dk: 0.004, cb: 0.25 }],
-  [10.0, { yt: 0.77, xc: 1.76, yc: -0.10, xs: 1.92, ys: -0.56, xb: 1.32, yb: -0.96, ybot: -1.00, nt: 2.8, nb: 3.4, dk: 0.004, cb: 0.25 }],
-  [11.2, { yt: 0.69, xc: 1.66, yc: -0.08, xs: 1.74, ys: -0.50, xb: 1.20, yb: -0.84, ybot: -0.88, nt: 2.7, nb: 3.0, dk: 0.004, cb: 0.25 }],
-  [12.4, { yt: 0.64, xc: 1.52, yc: -0.05, xs: 1.52, ys: -0.40, xb: 1.02, yb: -0.68, ybot: -0.74, nt: 2.6, nb: 2.6, dk: 0.004, cb: 0.25 }],
-  [13.4, { yt: 0.63, xc: 1.40, yc: -0.02, xs: 1.34, ys: -0.34, xb: 0.86, yb: -0.56, ybot: -0.64, nt: 2.5, nb: 2.2, dk: 0.004, cb: 0.25 }],
-  [14.2, { yt: 0.62, xc: 1.26, yc: 0.00, xs: 1.16, ys: -0.28, xb: 0.72, yb: -0.48, ybot: -0.58, nt: 2.4, nb: 2.0, dk: 0.004, cb: 0.25 }],
-  [14.6, { yt: 0.61, xc: 1.18, yc: 0.00, xs: 1.08, ys: -0.26, xb: 0.66, yb: -0.46, ybot: -0.56, nt: 2.4, nb: 2.0, dk: 0.004, cb: 0.25 }],
+  // v4.0: sırt kokpitin arkasında yükselir (0,83 -> 1,07 m) ve kanopi tabanı da arkaya doğru
+  // yükselir: kanopi kalın, geniş bir sırta kaynaşır (eski modelde kanopi ince bir gövdenin
+  // üstünde ayrı bir kabarcıktı). Alt gövde ana takım istasyonlarında genişler (yuva + bacak).
+  [5.00, { yt: 0.69, xc: 1.15, yc: 0.18, xs: 1.60, ys: -0.42, xb: 1.18, yb: -0.85, ybot: -0.92, nt: 2.6, nb: 3.2, dk: 0.64, cb: 0.8 }],
+  [5.80, { yt: 0.80, xc: 1.34, yc: 0.11, xs: 1.72, ys: -0.47, xb: 1.24, yb: -0.92, ybot: -0.99, nt: 2.7, nb: 3.3, dk: 0.57, cb: 0.65 }],
+  [6.20, { yt: 0.89, xc: 1.46, yc: 0.045, xs: 1.82, ys: -0.505, xb: 1.28, yb: -0.945, ybot: -1.01, nt: 2.8, nb: 3.35, dk: 0.47, cb: 0.55 }],
+  [6.60, { yt: 1.00, xc: 1.58, yc: -0.02, xs: 1.90, ys: -0.54, xb: 1.32, yb: -0.97, ybot: -1.03, nt: 2.9, nb: 3.4, dk: 0.38, cb: 0.45 }],
+  [7.60, { yt: 1.07, xc: 1.72, yc: -0.10, xs: 2.00, ys: -0.58, xb: 1.40, yb: -1.00, ybot: -1.05, nt: 3.0, nb: 3.5, dk: 0.16, cb: 0.30 }],
+  [8.80, { yt: 1.06, xc: 1.78, yc: -0.10, xs: 2.06, ys: -0.58, xb: 1.46, yb: -1.00, ybot: -1.05, nt: 3.0, nb: 3.5, dk: 0.10, cb: 0.25 }],
+  [10.0, { yt: 0.98, xc: 1.78, yc: -0.10, xs: 2.04, ys: -0.56, xb: 1.44, yb: -0.97, ybot: -1.01, nt: 2.9, nb: 3.4, dk: 0.10, cb: 0.25 }],
+  [11.2, { yt: 0.85, xc: 1.68, yc: -0.08, xs: 1.80, ys: -0.50, xb: 1.24, yb: -0.84, ybot: -0.88, nt: 2.8, nb: 3.0, dk: 0.08, cb: 0.25 }],
+  [12.4, { yt: 0.73, xc: 1.54, yc: -0.05, xs: 1.54, ys: -0.40, xb: 1.04, yb: -0.68, ybot: -0.74, nt: 2.7, nb: 2.6, dk: 0.06, cb: 0.25 }],
+  [13.4, { yt: 0.66, xc: 1.40, yc: -0.02, xs: 1.34, ys: -0.34, xb: 0.86, yb: -0.56, ybot: -0.64, nt: 2.6, nb: 2.2, dk: 0.004, cb: 0.25 }],
+  [14.2, { yt: 0.61, xc: 1.26, yc: 0.00, xs: 1.16, ys: -0.28, xb: 0.72, yb: -0.48, ybot: -0.58, nt: 2.5, nb: 2.0, dk: 0.004, cb: 0.25 }],
+  [14.6, { yt: 0.60, xc: 1.18, yc: 0.00, xs: 1.08, ys: -0.26, xb: 0.66, yb: -0.46, ybot: -0.56, nt: 2.4, nb: 2.0, dk: 0.004, cb: 0.25 }],
 ];
 
 export function lerpProfile(table, s) {
@@ -735,8 +753,9 @@ export class F35A {
       const sideRowsFore = fore.map((h) => h.slice(4, 9).map((q) => ({ x: side * q.x, y: q.y, z: q.z })));
       this.paintGeos.push(ensureOutward(loft(sideRowsFore, { uScale: 1, vScale: 0.5 }), bodyAxisRef));
       this._hull.push(this.paintGeos[this.paintGeos.length - 1]);
-      // Dudak halkası: chine 4.55'te, alt köşe 5.7'de (süpürülmüş)
-      const lipRing = lipHalf.slice(4, 9).map((q, k) => ({ x: side * q.x, y: q.y, z: st(4.55 + (k / 4) * 1.15) }));
+      // Dudak halkası: chine 4.55'te, alt köşe 5.2'de (v4.0: süpürme 1,15 m'den 0,65 m'ye
+      // indirildi; ağız yana değil öne-yana bakar, öndeki açılardan F-35'in büyük DSI ağzı görünür)
+      const lipRing = lipHalf.slice(4, 9).map((q, k) => ({ x: side * q.x, y: q.y, z: st(4.55 + (k / 4) * 0.65) }));
       const sideRowsMain = [lipRing, ...main.slice(1).map((h) => h.slice(4, 9).map((q) => ({ x: side * q.x, y: q.y, z: q.z })))];
       const uvSide = (i, k) => [(i === 0 ? 0 : oldIdx(mainS[i], MAIN_S_OLD)) / (MAIN_S_OLD.length - 1) * 2.5, k / 4 * 0.5];
       this.paintGeos.push(ensureOutward(loft(sideRowsMain, { uvAt: uvSide }), bodyAxisRef));
@@ -772,7 +791,10 @@ export class F35A {
     // Burun ucu: kesitler s=0'da küçük ama AÇIK bir halkayla başlıyordu (önden-yukarıdan
     // bakınca uçta delik). Birkaç santim önde bir tepe noktasına kapatılır.
     const tip = this.bellyRing(fore[0], botRows[0]);
-    const apex = tip.ring.map(() => ({ x: 0, y: 0, z: st(-0.025) }));
+    // Tepe noktası uç halkasının merkez yüksekliğinde (v4.0: burun ucu y ≈ −0,20; eskiden y = 0
+    // sabitti ve alçaltılmış uçta yukarı bakan bir diken oluşturuyordu)
+    const tipY = tip.ring.reduce((a, q) => a + q.y, 0) / tip.ring.length;
+    const apex = tip.ring.map(() => ({ x: 0, y: tipY, z: st(-0.025) }));
     this.paintGeos.push(ensureOutward(loft([apex, tip.ring], { closeRing: true, uvAt: (i, k) => [i, tip.uk[k]] }), (v, o) => o.set(0, 0, st(0.3))));
     this.buildAftBody(this.bellyRing(main[main.length - 1], botRows[botRows.length - 1]));
   }
@@ -902,8 +924,9 @@ export class F35A {
     // "yumurta" gibi görünüyordu; daha yassı ve uzun yapılarak duvara kaynaştırıldı.
     for (const side of [-1, 1]) {
       // DSI: alçak, geniş, ağzın içine doğru yayılan tümsek (yalnızca ~0,3 m'si dudağın önünde)
+      // v4.0: daha alçak (dudak açıklığının ~%15'i): ağzın çoğu koyu kanal olarak görünür
       const bump = new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, 0, Math.PI);
-      bump.scale(0.11, 0.30, 0.82);
+      bump.scale(0.075, 0.27, 0.78);
       bump.rotateY(side * 0.05);
       bump.translate(side * 0.86, -0.31, st(5.05));
       this.paintGeos.push(bump);
@@ -1277,7 +1300,8 @@ export class F35A {
       const a = shapeRow(sv, w, h, base, 0.004), b = shapeRow(sv, w, h, base, thick).map((q) => ({ x: q.x, y: q.y, z: q.z + depth }));
       this.group.add(new THREE.Mesh(this.track(loft([a, b], { uScale: 1, vScale: 1 })), frameMat));
     };
-    arc(4.3, 0.016, 0.04);
+    // v4.0: tek parça, bow'suz F-35 kanopisi — orta çerçeve kaldırıldı; yalnızca ön kenar ve
+    // arka çerçeve kalır.
     arc(3.14, 0.03, 0.05);
     arc(6.62, 0.022, 0.04);
     // Kanopi çerçevesi: camın taban kenarı boyunca koyu, sızdırmaz kenar bandı (iki yan).
@@ -1304,8 +1328,11 @@ export class F35A {
     }
   }
 
+  // v4.0 kanat: hücum kenarı 34,1°, firar kenarı −13°, sivrilme 0,243 (gövde eksenine uzatılmış
+  // kök veteri 6,44 m, uç veteri 1,57 m), yarı açıklık 5,335 m -> alan 42,7 m² (yayımlanan).
+  // Eski kanadın uç veteri 2,4 m'ydi (alan ~51 m²): kanat ucu fazla geniş görünüyordu.
   wingPlanform() {
-    return { rootX: 1.35, tipX: 5.35, leRoot: 6.55, teRoot: 12.55, leTip: 9.15, teTip: 11.55, thickRoot: 0.05, thickTip: 0.035, y: -0.12, hinge: 0.76 };
+    return { rootX: 1.35, tipX: 5.335, leRoot: 6.43, teRoot: 11.64, leTip: 9.13, teTip: 10.70, thickRoot: 0.05, thickTip: 0.035, y: -0.12, hinge: 0.76 };
   }
 
   // Kanat paneli kesitleri (sağ yarı için x>0; side ile aynalanır)
@@ -1368,7 +1395,9 @@ export class F35A {
 
   buildTails() {
     this.parts.stabs = {};
-    const S = { rootX: 0.8, tipX: 3.45, leRoot: 12.35, teRoot: 15.75, leTip: 14.35, teTip: 15.55, thickRoot: 0.045, thickTip: 0.035, y: -0.08, pivot: 14.25 };
+    // v4.0: plan biçimi hizalı (hücum kenarı kanatla aynı 34,1°, firar kenarı −13°); alan
+    // yan başına ~5,7 m² (kökten, ölçülen toplam 11,96 m²), kök firar kenarı uçağın en arka noktası.
+    const S = { rootX: 0.8, tipX: 3.5, leRoot: 12.35, teRoot: 15.70, leTip: 14.18, teTip: 15.08, thickRoot: 0.045, thickTip: 0.035, y: -0.08, pivot: 14.25 };
     for (const side of [-1, 1]) {
       const rows = [];
       const N = 5, K = 8;
@@ -1387,14 +1416,15 @@ export class F35A {
       this.group.add(mesh);
       this.parts.stabs[side < 0 ? 'left' : 'right'] = mesh;
     }
-    // Dikey kuyruklar (dışa 22° eğik) + dümenler
+    // Dikey kuyruklar (dışa 20° eğik) + dümenler. v4.0: kökler motorun üstünde değil arka
+    // gövdenin omuzlarında, stabilatör bumlarının üstünde (x ±1,08); hücum kenarı 40°, firar
+    // kenarı hafif öne (−5°), kök veteri 2,95 m, uç 1,12 m, yan başına ~3,9 m² (ölçülen toplam
+    // 7,95 m²). height: kök-uç mesafesi; toplam yükseklik kamuya açık 4,38 m'ye oturur:
+    //   rootY + height·cos(20°) − wheelBottomY = 0.36 + 1.886·0.940 + 2.25 = 4.38 m
+    // Kökün ön kısmı arka gövdenin içinde kalır (görünen kök çizgisi gövde yüzeyini izler).
     this.parts.rudders = {};
-    const cant = 22 * DEG;
-    // height: dikey kuyruk kök-uç mesafesi. Toplam yükseklik (teker altından kuyruk
-    // ucuna) kamuya açık 4.38 m değerine oturması için seçildi:
-    //   rootY + height·cos(22°) − wheelBottomY = 0.42 + 1.95·0.927 + 2.25 = 4.48 m
-    // Kök veteri 3,2 m, hücum kenarı ~46° ok açısı: gerçek F-35'in daha dar, dik kuyruğu
-    const V = { rootLE: 11.0, rootTE: 14.2, tipLE: 13.0, tipTE: 14.5, height: 1.95, rootX: 0.66, rootY: 0.42, hinge: 0.68 };
+    const cant = 20 * DEG;
+    const V = { rootLE: 11.45, rootTE: 14.40, tipLE: 13.03, tipTE: 14.235, height: 1.886, rootX: 1.08, rootY: 0.36, hinge: 0.68 };
     for (const side of [-1, 1]) {
       const up = new THREE.Vector3(side * Math.sin(cant), Math.cos(cant), 0);
       const nrm = new THREE.Vector3(Math.cos(cant) * side, -Math.sin(cant), 0);
@@ -1577,7 +1607,7 @@ export class F35A {
             float dHaze = (1.0 - smoothstep(rh * 0.15, rh, r)) * (1.0 - z) * (0.6 + 0.8 * n2);
             vec3 outC = mix(vec3(1.0, 0.60, 0.20), vec3(0.95, 0.26, 0.08), clamp(u * 1.1 + (n - 0.5) * 0.3, 0.0, 1.0));
             em += (outC * dOut * 0.85 * (ab + flash * 0.5)
-                 + vec3(1.0, 0.84, 0.62) * dCore * 1.5 * (ab * 0.85 + mil * 0.25)
+                 + vec3(1.0, 0.84, 0.62) * dCore * 1.5 * (ab * 0.85 + mil * 0.05)
                  + vec3(1.0, 0.80, 0.95) * dDia * 4.5 * ab
                  + vec3(0.9, 0.93, 1.0) * dHaze * haze * 0.05 * n) * dsW;
             tau += (dOut * 0.9 * ab + dCore * 0.8 * ab + dHaze * haze * (0.02 + 0.05 * n2)) * dsW;
@@ -1688,22 +1718,33 @@ export class F35A {
       return grp;
     };
     // Bacak: pivot P, tekerlek merkezi W (takım inik, amortisör serbest), aks ofseti W.x - P.x
-    const mkLeg = (P, W, r, w, build) => {
+    // stub (v4.0, ana takımlar): aks kısa bir saplama (stub m) ile dışa uzanır, bacak kalanı
+    // DIŞA EĞİK (splay) kapatır: 4,34 m teker izi uzun bir yatay aks olmadan elde edilir.
+    // Tekerlek göbeği bacağın eğimini geri alan bir çerçevede durur: aks yataydır, lastik dik.
+    const mkLeg = (P, W, r, w, build, stub = null) => {
       const pivot = new THREE.Group(); pivot.position.copy(P);
-      const dy = W.y - P.y, dz = W.z - P.z, L = Math.hypot(dy, dz);
-      const rake = Math.atan2(-dz, -dy);
-      const leg = new THREE.Group(); leg.rotation.x = rake; pivot.add(leg);
+      const sx = Math.sign(W.x - P.x) || 1;
+      const A = stub === null ? V(P.x, W.y, W.z) : V(W.x - sx * stub, W.y, W.z);   // bacak ucu (aks kökü)
+      const d = A.clone().sub(P), L = d.length(), dir = d.clone().normalize();
+      const rake = Math.atan2(-d.z, -d.y);
+      const leg = new THREE.Group(); pivot.add(leg);
+      leg.quaternion.setFromUnitVectors(V(0, -1, 0), dir);
+      const inv = leg.quaternion.clone().invert();
+      const axle = V(W.x - A.x, 0, 0).applyQuaternion(inv);   // bacak çerçevesinde aks vektörü
       const slide = new THREE.Group(); leg.add(slide);
       const fixedG = [], slideG = [];
-      const extra = build({ L, rake, fixedG, slideG });
+      const extra = build({ L, rake, fixedG, slideG, axle });
       leg.add(merged(fixedG, gearMat));
       slide.add(merged(slideG, gearMat));
       const wheel = mkWheel(r, w);
-      wheel.position.set(W.x - P.x, -L, 0);
       if (W.x - P.x < 0) wheel.rotation.y = Math.PI;   // jantın dış yüzü dışarı baksın
-      slide.add(wheel);
+      const hub = new THREE.Group();
+      hub.position.set(0, -L, 0).add(axle);
+      hub.quaternion.copy(inv);
+      hub.add(wheel);
+      slide.add(hub);
       this.group.add(pivot);
-      return { pivot, leg, slide, wheel, L, rake, baseY: P.y, cosRake: Math.cos(rake), radius: r, extra, rest: V(0, dy, dz).normalize() };
+      return { pivot, leg, slide, wheel, L, rake, baseY: P.y, cosRake: -dir.y, radius: r, extra, rest: dir };
     };
     // Gövde altını izleyen kapak: menteşe x0'da, serbest kenar x1'de; s0..s1 boyunca
     // Serbest kenar, gövdenin alt yan çizgisini (kesit noktası h6) aşmaz: ana takım yuvasının
@@ -1856,10 +1897,13 @@ export class F35A {
     };
     for (const side of [-1, 1]) {
       const r = 0.37, w = 0.29;
-      const legX = 1.60, bx0 = 1.36, bx1 = 1.72;   // yuva alt fasette kalır (dış kenar gövdenin en geniş yerine taşmaz)
-      const P = V(side * legX, bottomSurfaceY(8.95, legX) + 0.28, st(8.95));
+      // v4.0: ana takım ölçülen dingil açıklığına göre 0,9 m geride (9,85 istasyonunda muylu);
+      // bacak dışa ~13° eğik, aks 0,18 m: teker izi 4,34 m. Yuva alt fasette, genişleyen alt
+      // gövdenin içinde kalır (dış kenar gövdenin en geniş yerine taşmaz).
+      const legX = 1.72, bx0 = 1.46, bx1 = 1.86, GS = 9.85;
+      const P = V(side * legX, bottomSurfaceY(GS, legX) + 0.28, st(GS));
       const W = V(side * F35.mainGearX, wb + r, F35.mainGearZ);
-      const g = mkLeg(P, W, r, w, ({ L, rake, fixedG, slideG }) => {
+      const g = mkLeg(P, W, r, w, ({ L, rake, fixedG, slideG, axle }) => {
         rod(fixedG, V(0, 0, -0.19), V(0, 0, 0.19), 0.075, WHITE, 12);                     // muylu (x ekseni dönüşü için z boyunca gövdeye bağlı)
         rod(fixedG, V(-side * 0.17, 0, 0), V(side * 0.07, 0, 0), 0.06, WHITE, 12);       // dışa kısa: yuva kenarında (1,72) yan kaplamadan dışarı taşmasın
         taper(fixedG, 0, -0.58 * L, 0.106, 0.095, WHITE);                                 // dış silindir
@@ -1877,11 +1921,12 @@ export class F35A {
         // Kayan grup: krom piston, aks gövdesi, aks, fren kaliperi
         taper(slideG, -0.56 * L, -L + 0.08, 0.072, 0.072, CHROME);
         box(slideG, 0.17, 0.19, 0.20, 0, -L, 0, WHITE);
-        const ox = W.x - P.x;
-        rod(slideG, V(0, -L, 0), V(ox * 1.02, -L, 0), 0.05, GREY, 10);
-        box(slideG, 0.05, 0.12, 0.10, ox - Math.sign(ox) * (w * 0.32), -L + r * 0.42, -0.06, DARK);
+        const end = V(0, -L, 0);
+        rod(slideG, end, end.clone().addScaledVector(axle, 1.02 + 0.5 * w / axle.length()), 0.05, GREY, 10);
+        const cal = end.clone().addScaledVector(axle, 1 - (w * 0.32) / axle.length());
+        box(slideG, 0.05, 0.12, 0.10, cal.x, cal.y + r * 0.42, -0.06, DARK);
         return null;
-      });
+      }, 0.18);
       // Öne katlanır; tekerlek yuvaya DİK (bıçak gibi) girer: 0,74 m çaplı tekerlek ancak
       // 0,29 m genişliğiyle 0,36 m'lik ağızdan geçer. Yuvanın ön ucunda gövde daralır, ağız
       // tekerlekten ancak birkaç santim geniştir; bu yüzden üç hareket birlikte ayarlandı:
@@ -1895,9 +1940,9 @@ export class F35A {
       stowTo(g, V(-side * Math.sin(2 * DEG), 0.08, -Math.cos(2 * DEG)));
       this.parts.gear[side < 0 ? 'left' : 'right'] = Object.assign(g, {
         lift: 0.22, flat: side * 15 * DEG, yaw: side * 9.75 * DEG, yawFrom: 0.6,
-        doors: [mkDoor(side * bx0, side * (bx1 - 0.006), 7.05, 9.15, sideEdge)],
+        doors: [mkDoor(side * bx0, side * (bx1 - 0.006), GS - 1.9, GS + 0.2, sideEdge)],
       });
-      mkBay(side * bx0, side * (bx1 - 0.006), 7.05, 9.15, sideEdge);
+      mkBay(side * bx0, side * (bx1 - 0.006), GS - 1.9, GS + 0.2, sideEdge);
     }
   }
 
@@ -1914,12 +1959,15 @@ export class F35A {
     eots.computeVertexNormals(); // indekssiz: yüzey başına düz normal (fasetler)
     this.group.add(new THREE.Mesh(this.track(eots), m.glass));
     // Silah bombesi: sol kanat kökü üst yüzeyi
+    // v4.0: GAU-22/A sol omuzda (yükseltilmiş sırtın sol yanı): bombe yüzeyden ~8 cm taşar
+    const gunY = topSurfaceY(8.7, 1.25) - 0.035;
     const gun = new THREE.CapsuleGeometry(0.16, 1.6, 4, 10);
+    gun.scale(1, 0.45, 1);
     gun.rotateX(Math.PI / 2);
-    gun.translate(-1.1, 0.22, st(8.7));
+    gun.translate(-1.25, gunY, st(8.7));
     this.paintGeos.push(gun);
     const gunPort = new THREE.CircleGeometry(0.06, 8);
-    gunPort.translate(-1.1, 0.22, st(7.85) - 0.01);
+    gunPort.translate(-1.25, gunY, st(7.85) - 0.01);
     this.group.add(new THREE.Mesh(this.track(gunPort), m.dark));
     // Silah yuvaları: buildWeaponBays (gerçek iç hacim + menteşeli kapaklar). Eski düz kapak
     // kabukları ve koyu aralık levhası kaldırıldı. İniş takımı yuvaları buildGear'da.
@@ -2655,7 +2703,8 @@ export class F35A {
     const abRise = afterburner - (this._lastAb || 0); this._lastAb = afterburner;
     this.abFlash = Math.max(0, this.abFlash * (1 - 6 * Math.max(dt, 0.001)) + Math.max(0, abRise) * 40);
     const flash = Math.min(1, this.abFlash);
-    this.matGlow.opacity = mil * 0.10 + afterburner * 0.75 + flash * 0.4;
+    // Askeri güçte (art yakıcı yok) gündüz görünür alev yoktur: yalnızca derinde soluk ısı tonu
+    this.matGlow.opacity = mil * 0.035 + afterburner * 0.75 + flash * 0.4;
     this.matGlow.color.setRGB(1.0, 0.45 + 0.45 * afterburner, 0.15 + 0.7 * afterburner);
     this.matNozzleInner.emissiveIntensity = mil * 0.06 + afterburner * 1.6 + flash;   // askeri güçte yalnızca derinde sıcak bir ton
     // Nozul petallerinin ısınması (AB'de turuncu ton)
