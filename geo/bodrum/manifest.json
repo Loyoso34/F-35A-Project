@@ -25,7 +25,7 @@
   "encoding": "terrarium",
   "quantM": 0.25,
   "waterBit": 0,
-  "vertical": "MSL (EGM96 geoid; sea clamped to 0 m)"
+  "vertical": "MSL (EGM96 geoid); water cells store bathymetry as negative heights, the water surface is 0 m"
  },
  "bounds": {
   "core": [

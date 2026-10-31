@@ -29,7 +29,8 @@ function st(s) { return s - F35.cgStation; }
 // üssü CANOPY_N. Kokpit içi parçalar bu profilden türetilen yüzeyle (canopySurfaceY)
 // kırpılır: hiçbir köşe camdan ya da gövdeden dışarı taşamaz.
 // v4.0: kanopi tabanı (güverte) arkaya doğru yükselir; tepe çizgisi pilot başından sonra
-// yükseltilmiş sırta (≈1,07 m) yumuşakça iner — tek parça, bow'suz F-35 kanopisinin damla biçimi.
+// yükseltilmiş sırta (≈1,07 m) yumuşakça iner — F-35'in tek parça saydam kanopisinin damla biçimi
+// (bow çerçevesi ayrıca çizilir).
 const CANOPY = [
   [3.0, 0.08, 0.02], [3.25, 0.30, 0.17], [3.55, 0.44, 0.37], [3.9, 0.52, 0.55], [4.3, 0.57, 0.685],
   [4.7, 0.59, 0.77], [5.1, 0.59, 0.775], [5.5, 0.57, 0.69], [5.9, 0.52, 0.57], [6.3, 0.43, 0.33], [6.65, 0.28, 0.12], [6.9, 0.10, 0.05],
@@ -1300,9 +1301,11 @@ export class F35A {
       const a = shapeRow(sv, w, h, base, 0.004), b = shapeRow(sv, w, h, base, thick).map((q) => ({ x: q.x, y: q.y, z: q.z + depth }));
       this.group.add(new THREE.Mesh(this.track(loft([a, b], { uScale: 1, vScale: 1 })), frameMat));
     };
-    // v4.0: tek parça, bow'suz F-35 kanopisi — orta çerçeve kaldırıldı; yalnızca ön kenar ve
-    // arka çerçeve kalır.
+    // F-35 kanopisinin saydam kısmı tek parça gerilmiş akriliktir, ancak çerçeveye entegre bir
+    // bow vardır (kanopiyi iki parçalı gösteren çizgi). v4.0 ara sürümünde yanlışlıkla
+    // kaldırılmıştı; ön kenar, bow ve arka çerçeve birlikte çizilir.
     arc(3.14, 0.03, 0.05);
+    arc(4.3, 0.016, 0.04);
     arc(6.62, 0.022, 0.04);
     // Kanopi çerçevesi: camın taban kenarı boyunca koyu, sızdırmaz kenar bandı (iki yan).
     // Camın kendi yüzeyi üzerinde, 3 mm dışarıda; gövde güvertesine oturur, boşluk yok.

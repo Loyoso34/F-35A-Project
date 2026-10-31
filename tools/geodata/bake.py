@@ -491,7 +491,7 @@ def main():
     # Local Transverse Mercator origin = LTFE aerodrome reference point (OurAirports, airports.csv)
     man['reference'] = {'lat': AERODROME['lat'], 'lon': AERODROME['lon'], 'name': 'LTFE ARP'}
     man['dem'].update({'url': 'dem/{z}/{x}/{y}.png', 'encoding': 'terrarium', 'quantM': DEM_Q, 'waterBit': 0,
-                       'vertical': 'MSL (EGM96 geoid; sea clamped to 0 m)'})
+                       'vertical': 'MSL (EGM96 geoid); water cells store bathymetry as negative heights, the water surface is 0 m'})
     man['imagery'].update({'url': 'img/{z}/{x}/{y}.webp', 'albedoScale': ALBEDO_SCALE,
                            'note': 'pixel = sRGB(BOA reflectance * albedoScale); deep water offset to SEA_REF'})
     meta = json.load(open(os.path.join(a.cache, 's2', CORE_SCENES[0], CORE_SCENES[0] + '.json')))['properties']

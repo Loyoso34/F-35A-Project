@@ -31,9 +31,11 @@ methods and says so.
 | Max takeoff weight | 31 800 kg (70 000 lb) | **[V]** | USAF F-35A fact sheet. |
 | Simulated clean takeoff mass | 21 600 kg | **[E]** | Empty + full internal fuel. This is the mass the model uses at spawn. |
 
-**Measured model geometry** (airframe bounding box, excluding light billboards and
-the additive exhaust plume): length **15.75 m**, span **10.70 m**, height **4.48 m**
-with the gear extended — against the published 15.7 / 10.7 / 4.38 m. The exhaust
+**Measured model geometry** (v4.0; airframe bounding box, excluding light billboards,
+the additive exhaust plume and the cockpit interior): length **15.73 m**, span **10.74 m**,
+height **4.39 m** with the gear extended (3.33 m gear up) — against the published
+15.67 / 10.67 / 4.38 m. v3.9 measured 15.77 / 10.77 / 4.53 m. The airframe geometry and
+its sources are in §10. The exhaust
 section length and the vertical-tail height are set *from* those published figures
 rather than chosen by eye. The model is the **F-35A (CTOL)** only: there is no lift
 fan, no STOVL roll post, no enlarged wing, no wing fold and no arrestor hook.
@@ -211,9 +213,9 @@ and shadows agree with the shadows that are part of the imagery.
 | Sea harmonisation | **[E]** | Sen2Cor's atmospheric correction over water differs between scenes (deep-water blue ρ from 0.0004 to 0.02 here). Each scene's water (selected by distance > 500 m from the DEM coastline, not by reflectance) is offset additively to the primary scene's deep-water median (0.0006, 0.0035, 0.0110), fading to the original within 60 m of the coast. |
 | Water mask | **[E]** | v3.9: **sea = outside the OSM land polygons** (Overture `base/land`, subtype `land`, rasterised with 4×4 supersampling per DEM cell), except where the DEM is ≥ 15 m (a coastline offset at a cliff stays land: 7 213 cells). **Inland water** (lakes, reservoirs) = NDWI ≥ 0.1 on B03/B08, majority per cell, on OSM land. Before v3.9 NDWI alone decided: sun glint on the 2024-10-03 scenes pushed NDWI below 0.1 over most of the Gulf of Gökova, which was baked as 0.5 m land (≈ 2.4 M z12 cells). The scene classification (SCL class 6) is not used: it labels LTFE's dark runway asphalt as water. NDWI false positives inside the aerodrome are cleared. |
 | Sea no-data | **[E]** | Terrarium z12 has no bathymetry (the sea is exactly 0 m). Where the z9 grid has seabed or there is no Sentinel-2 coverage, the z12 cell takes the bilinear z9 value. This also restores the relief of the part of Kalymnos (≈ 37.03 N 26.98 E) whose z12 Terrarium tile is empty. |
-| DEM spikes | **[E]** | Terrarium z9 contains isolated bad cells (4952 m on Leros, real summit ≈ 320 m; 3546 m near Arki; 1202 m on Symi; two cells of 779/528 m among 6–60 m terrain at 36.92 N 28.14 E). A cell > 400 m above the median of its 5×5 neighbourhood is replaced by that median (iterated): 12 cells. z12 has no such spikes (largest excess over the 5×5 median: 39 m, real terrain). |
+| DEM spikes | **[E]** | Terrarium z9 contains isolated bad cells (4952 m on Leros, real summit ≈ 320 m; 3546 m near Arki; 1202 m on Symi; two cells of 779/528 m among 6–60 m terrain at 36.92 N 28.14 E). A cell > 400 m above the median of its 5×5 neighbourhood is replaced by that median (iterated): 12 cells. **v4.0** adds a second filter for narrower needles that a 5×5 median misses when two bad cells are adjacent: a cell more than 180 m (z9) above **all eight** neighbours is lowered to the highest neighbour (5 more z9 cells). On z12 the same test with 20 m removed 40 single-cell needles, all in the strip filled from z9 west of 27.0 E (11 cells) or 1 m "shoals" in deep water (29 cells); real peaks are never higher than all eight 30 m neighbours by 20 m in this data set. |
 | Imagery registration | **[E]** measured | 2D correlation of rasterised OSM features against Sentinel-2 reflectance at three sites: the imagery is shifted +6 m E, +12 m N onto OSM before mosaicking (DEM water mask uses the same transform). |
-| DEM quantisation | **[E]** | Terrarium tiles re-quantised to 0.25 m (still decodable by any Terrarium decoder; half the size). Blue bit 0 = water flag. Sea clamped to 0 m MSL (the water surface). |
+| DEM quantisation | **[E]** | Terrarium tiles re-quantised to 0.25 m (still decodable by any Terrarium decoder; half the size). Blue bit 0 = water flag. **v4.0:** water cells keep the (z9-derived) **depth as a negative height**, quantised to 0.5 m above 20 m depth, 2 m to 100 m and 10 m below (8.2 MB instead of 9.7 MB unquantised); the decoder turns it into a 0 m water surface plus a depth channel, so physics and collision still see the sea at 0 m MSL. Median sea depth in the core box: 76 m. |
 | Vertical datum | **[V]** | DEM and OurAirports elevations are orthometric (≈ MSL, EGM96 geoid). Physics `y = h_MSL − 4` (`WATER_LEVEL`), so the HUD's MSL altitude is unchanged. |
 
 ### Milas–Bodrum Airport (LTFE)
@@ -257,6 +259,52 @@ Tests: `tools/flighttest/instruments.mjs` (CAS at sea level = TAS; M1.0 at the t
 ## 9. Time of day (v3.9.0)
 
 Sun position from the Astronomical Almanac low-precision formulas (`js/sun.js`, ≈ 0.01° 1950–2050, no refraction) at the region reference point on the imagery date (2024-10-03), local time UTC+3. Check: at the imagery time it gives azimuth 162.19°, elevation 47.04° against the Sentinel-2 metadata 162.2° / 46.83° (the metadata refers to the scene centre). Presets: 12:10 (imagery time, default), 08:30, 16:30, 18:25 (sun 4° high). Sky and light colours warm with low sun by an artistic blend, not a scattering model. Limitation: the imagery keeps the shadows of its own acquisition time; at other times only the real-time relief lighting follows the new sun. No night. Not available in the fictional training world (its building shadows are baked for a fixed sun).
+
+## 10. Visual model and presentation (v4.0.0)
+
+### Airframe geometry
+
+The model is procedural (`js/aircraft.js`: cross-section profiles lofted along fuselage
+stations; no third-party mesh). v4.0 rebuilt the fuselage, nose, canopy, inlets, wing,
+tails and landing gear. Stations are measured from the nose tip; the model origin is
+station 8.9 m.
+
+| Item | Value | Tag | Source / derivation |
+|---|---|---|---|
+| Length, span, height | 15.67 m, 10.67 m, 4.38 m | **[V]** | USAF F-35A fact sheet; Lockheed Martin F-35A specification. Measured model: 15.73 / 10.74 / 4.39 m (§1). |
+| Wing area | 42.7 m² | **[V]** | Lockheed Martin. The model planform (trapezoid continued to the centreline: root chord 6.44 m, tip chord 1.57 m, semi-span 5.335 m) gives 42.7 m². v3.9's wing had a 2.4 m tip chord (≈ 51 m²). |
+| Wing leading-edge sweep 34.1°, trailing edge −13° (forward), taper 0.24 | | **[E]** | Measured from the planform drawing of a Virginia Tech student design analysis of the F-35A (not a manufacturer document; units inferred from the drawing). Consistent with the published span and area above. |
+| Main-gear track 4.34 m, wheelbase 6.02 m | | **[E]** | Same drawing. The CG station (8.9 m) is placed so the physics main-gear arm (0.8 m behind the CG) is unchanged; the nose gear moved forward to the measured wheelbase. Rotation and ground-handling tests pass unchanged. |
+| Main-gear leg splay ≈ 13°, short axle | | **[E]** | Read off public photographs; no published figure. |
+| Horizontal stabilators: edges parallel to the wing (34.1° / −13°), ≈ 5.7 m² each | | **[E]** | Edge alignment of the planform is a publicly described low-observable design feature; the area is an approximation from the same drawing (sum 11.96 m²). |
+| Vertical tails: 20° outward cant, ≈ 40° leading-edge sweep, root chord 2.95 m, tip chord 1.12 m, roots at ±1.08 m on the aft-body shoulders | | **[E]** | Approximations read off public photographs and three-view imagery; no official numbers were found. The tail height is set so the overall height with gear down equals the published 4.38 m. |
+| Nose (ogive with chine line), DSI bump, caret inlets, raised dorsal spine, gun fairing on the left shoulder | | **[E]** | Shaped from public photographs; no dimensioned public data. |
+| Canopy | one-piece transparency with an integrated bow frame | **[V]** | GKN Aerospace manufactures the one-piece stretched-acrylic transparency; the frame (with the bow that makes it look two-piece) is added by Lockheed Martin. An intermediate v4.0 build had removed the bow by mistake; the release keeps it. |
+| Moving parts | ailerons/flaperons, stabilators, rudders, LEFs, gear legs/doors/wheels, nozzle | — | Same hinge logic as v3.9 with hinge lines moved to the new planform; gear retraction, compression and steering are driven by the physics as before. |
+| Afterburner | Visible flame core only with afterburner; at military power only a faint heat glow | **[E]** | Military-power exhaust of the F135 is not visibly luminous in daylight photographs. |
+
+Before/after renders from identical cameras (front, rear, top, side, quarters, bottom,
+nose close-up) were compared before the release; every view shows the geometric change.
+
+### Ocean and terrain rendering
+
+| Change | Tag | Detail |
+|---|---|---|
+| Water colour from depth | **[E]** | v3.9 used the Sentinel-2 imagery as the colour of the water body. Scene-to-scene atmospheric-correction offsets and sun glint produced straight/diagonal seams and patches, and the deep-water reflectance (blue ρ ≈ 0.011) rendered nearly black. v4.0 colours open water from the bathymetry (Beer–Lambert-style blend from a deep Aegean blue to the imagery in the shallows, depth < ≈ 10–40 m); the imagery only contributes where the water is genuinely shallow and bright. Fresnel sky reflection and sun glint are unchanged. The deep colour is an artistic choice, not a measurement. |
+| Outer ocean ring | **[E]** | The ring beyond the data boundary uses the same terrain/water shader with "deep water" attributes, so there is no colour step at the edge of the baked area. |
+| Spikes | **[E]** | See §7 "DEM spikes". |
+| Coastline | **[V]** OSM | OSM land polygons (Overture `base/land`) decide sea vs land (§7). |
+| Texture filtering | **[E]** | Anisotropic filtering 4× / 8× / 12× for the Performance / Balanced / Ultra presets. |
+| Not done | — | Terrain LOD geomorphing (vertex blending between levels) is not implemented; level changes can still pop at close range. |
+
+### Interface
+
+| Item | Detail |
+|---|---|
+| HUD | All non-conformal HUD symbology and the external data strip are drawn at **80 %** of the v3.9 size (`HUD_SCALE = 0.8` in `js/hud.js`). Conformal elements (horizon, pitch-ladder angles, flight-path marker position) keep their true positions; only line lengths, label sizes and spacing shrink. Colours: primary #F5F7FA, secondary #CBD3DD, dark translucent glass; amber/red only for warnings. |
+| Touch controls | Stick ring/knob, throttle, flap lever, rudder and in-flight buttons at 80 % visible size. Invisible hit extensions keep each target at least 44 × 44 CSS px without overlapping a neighbour (verified by hit-testing every pixel of an 844 × 390 viewport). Stick sensitivity (60 px = full deflection) is unchanged; the rudder knob follows the finger 1:1. |
+| Loading screen | Backdrop `assets/loading-bodrum.webp` is a frame rendered **by this simulator** (its own F-35A model over its own Sentinel-2/DEM Bodrum terrain); it is not a photograph. The progress bar reflects real loading stages. |
+| Mission preparation | Aircraft data shown are the published values above (USAF / Lockheed Martin); runway data from §7; the airport map is drawn from the OSM geometry in `geo/bodrum/airport`. No other aircraft or airport is offered. |
 
 ---
 

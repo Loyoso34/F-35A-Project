@@ -2,12 +2,14 @@
 
 iPhone Safari (iOS 17+), Android Chrome ve masaüstü tarayıcılarda çalışan, ana ekrana eklenebilen (PWA) bir uçuş simülatörü. Derleme adımı yoktur; yalnızca statik dosyalardan oluşur ve Three.js CDN üzerinden sabit sürümle yüklenir.
 
-Oyundaki tek uçak **F-35A Lightning II**'dir. Açılışta **hangar** ekranı gelir: kalkış havaalanı ve boya şeması seçilir, F-35A kartına dokununca uçuş başlar.
+Oyundaki tek uçak **F-35A Lightning II**'dir. Açılışta **görev hazırlığı** ekranı gelir: pist
+(10L doğuya / 28R batıya), gün saati ve boya şeması seçilir, **Fly** ile uçuş başlar.
 
-**Varsayılan bölge gerçek dünyadır: Bodrum (Muğla) ve Milas–Bodrum Havalimanı (LTFE)** — gerçek
+**Tek bölge gerçek dünyadır: Bodrum (Muğla) ve Milas–Bodrum Havalimanı (LTFE)** — gerçek
 yükseklik verisi, Sentinel-2 uydu görüntüsü, gerçek koordinatlarda iki paralel pist (bkz. "Gerçek
-dünya: Bodrum" bölümü). Kurgusal eğitim bölgesi (Anadolu Hava Üssü / Yeşilova) hangardaki
-**Departure** satırından seçilmeye devam eder.
+dünya: Bodrum" bölümü). v4.0'dan itibaren kurgusal eğitim bölgesi (Anadolu Hava Üssü / Yeşilova)
+arayüzden seçilemez; kodu yalnızca GeoWorld'ün temel sınıfı ve başsız testler için durur (aşağıdaki
+eski bölümler tarihçedir).
 
 ## Dosya yapısı
 
@@ -1090,9 +1092,59 @@ python3 -I tools/geodata/vectors.py --cache <önbellek> --out geo/bodrum   # mey
 **iPhone'da test.** 1) Safari ile yayın adresini açın, Paylaş › Ana Ekrana Ekle. 2) Ayarlar ›
 Quality: Performance / Balanced / Ultra; FPS counter › Debug. 3) LTFE 10L'den kalkıp Bodrum
 üzerinde 300–1000 ft'te uçun; paneldeki kare aralığı p95 ve "adaptive tier" değerini not edin.
-4) Meydanda taksi, 28R'ye iniş. 5) Time of day ve bölge değişimi (eğitim ↔ Bodrum).
+4) Meydanda taksi, 28R'ye iniş. 5) Time of day (görev hazırlığı ekranında ya da Ayarlar'da).
 **60 fps cihazda ölçülmedi**; geliştirme ortamındaki değerler yazılımsal (SwiftShader) çizimdir ve
 cihaz performansını göstermez.
+
+## v4.0.0: görsel yenileme — F-35A geometrisi, okyanus, arazi, arayüz
+
+Ayrıntılı kaynaklar ve etiketler ([V] doğrulanmış / [E] yaklaşık): `PUBLIC_DATA_SOURCES.md` §1, §7, §10.
+
+**F-35A geometrisi (`js/aircraft.js`).** Burun (alçak uç, düz chine çizgisi, ogive), yükseltilmiş sırt
+ve arkaya yükselen kanopi tabanı, genişletilmiş hava alığı yanakları ve daha alçak DSI tümseği;
+kanat plan biçimi ölçülmüş değerlerden (hücum kenarı 34,1°, firar kenarı −13°, sivrilme 0,24,
+alan 42,7 m² — v3.9'da uç veteri 2,4 m ve alan ≈ 51 m² idi); stabilatörler kanatla hizalı; dikey
+kuyruklar 20° eğik ve arka gövde omuzlarında; iniş takımı ölçülen dingil açıklığı (6,02 m) ve iz
+genişliği (4,34 m) ile, ana bacaklar ≈ 13° açık; sol omuzda top kaportası; kanopi tek parça saydam,
+entegre bow çerçeveli. Hareketli yüzeyler, takım, kapaklar ve art yakıcı aynı mantıkla çalışır;
+askeri güçte görünür alev yok (yalnızca hafif ısı parıltısı). Ağırlık merkezi istasyonu fizikteki ana
+takım kolunu (0,8 m) korur: dönüş ve yer testleri değişmeden geçer. Ölçülen kutu: 15,73 × 10,74 ×
+4,39 m (yayımlanan 15,67 × 10,67 × 4,38 m). Aynı kameralardan önce/sonra görüntüleri karşılaştırıldı.
+
+**Okyanus.** Kök nedenler: (1) su gövdesinin rengi uydu görüntüsünden geliyordu; sahneler arası
+atmosfer düzeltme farkları ve güneş parıltısı düz/çapraz dikişler ve lekeler üretiyordu; (2) derin su
+yansıtıcılığı (mavi ρ ≈ 0,011) neredeyse siyah görünüyordu; (3) veri sınırının ötesindeki halka farklı
+bir malzemeyle çiziliyordu. Düzeltme: DEM karoları artık deniz hücrelerinde **batimetriyi** taşır (negatif
+yükseklik, nicemlenmiş); çözücü 0 m su yüzeyi + derinlik kanalı üretir. Su rengi derinlikten hesaplanır
+(derin Ege mavisi → sığlıkta görüntü); görüntü yalnızca gerçekten sığ ve parlak suda kullanılır. Halka
+aynı gölgelendiriciyle çizilir. Fresnel gök yansıması ve güneş parıltısı korunur. Fizik ve çarpışma
+denizi yine 0 m MSL'de görür.
+
+**Arazi.** z9'da 5×5 medyan filtresinin kaçırdığı bitişik hatalı hücreler için ikinci filtre (sekiz
+komşunun hepsinden 180 m yüksek hücre en yüksek komşuya iner); z12'de aynı test 20 m ile (z9'dan
+doldurulmuş şeritteki ve derin sudaki tek hücreli iğneler). Kıyı çizgisi OSM kara çokgenlerinden.
+Anizotropik süzme Performance/Balanced/Ultra için 4×/8×/12×. **Yapılmadı:** LOD geçişlerinde köşe
+harmanlaması (geomorphing) yok; yakın mesafede seviye değişimi hâlâ fark edilebilir.
+
+**Arayüz.**
+- **Yükleme ekranı:** simülatörün kendi motoruyla çizilmiş Bodrum körfezi üzerinde F-35A kareli arka
+  plan (`assets/loading-bodrum.webp`, 43 KB; fotoğraf değildir), gerçek yükleme aşamalarına bağlı ilerleme.
+- **Görev hazırlığı:** canlı 3B hangar önizlemesi (seçili pist eşiğinde park hâlinde F-35A, yavaş
+  dönen kamera), yayımlanmış uçak verileri, pist seçimi (10L / 28R; uzunluk, manyetik yön, eşik
+  yüksekliği), gün saati, rüzgâr, OSM geometrisinden çizilmiş meydan şeması. Başka uçak ya da meydan yok.
+- **HUD ve kumandalar %80:** `js/hud.js` içinde `HUD_SCALE = 0.8`. Konformal öğeler (ufuk, yunuslama
+  merdiveni açıları, uçuş yolu işaretinin konumu) gerçek konumlarında kalır; çizgi boyları, yazılar ve
+  aralıklar küçülür. Renkler: birincil #F5F7FA, ikincil #CBD3DD, koyu cam zemin, yarı saydam beyaz
+  kenarlık; amber/kırmızı yalnızca uyarılarda. Dokunmatik kumandaların görünür ölçüleri %80
+  (`index.html`); görünmez `::before` uzantıları her dokunma hedefini ≥ 44 × 44 px tutar ve komşuya
+  taşmaz. Joystick duyarlılığı (60 px = tam sapma) değişmedi; dümen topuzu parmağı birebir izler.
+
+**Doğrulama (geliştirme ortamı, SwiftShader).** `tools/flighttest` testlerinin tamamı geçer
+(`npm run test:all`, 161 denetim). Tarayıcıda 844 × 390 dokunmatik görünümde CDP dokunuş olaylarıyla:
+joystick halkası parmağın altında açılır, 30 px → 0,5 sapma (v3.9 ile aynı), bırakınca merkeze döner;
+dümen 20 px → topuz 20 px; gaz ve flap izleri kalibre; her denetimin vuruş alanı ≥ 44 px, hiçbir
+denetimin görünür alanı başka denetime ait değil. Konsol hatasız. **iPhone'da gerçek dokunuş ve 60 fps
+ölçülmedi.**
 
 ## Yerel test
 

@@ -1,9 +1,9 @@
 /* F-35A Simülatör – Service Worker */
-const CACHE_VERSION = '3.9.0';
+const CACHE_VERSION = '4.0.0';
 const CACHE_NAME = 'f35a-sim-' + CACHE_VERSION;
 // Gerçek dünya karoları (geo/<bölge>/dem|img): sürümden BAĞIMSIZ ayrı önbellek. Veri değişince
 // GEO_CACHE adı değiştirilir. Görülen karolar çevrimdışı uçuş için saklanır; sınırlı boyut.
-const GEO_CACHE = 'f35a-geo-bodrum-v39';
+const GEO_CACHE = 'f35a-geo-bodrum-v40';   // v4.0: DEM karoları yeniden pişirildi (batimetri, kıyı çizgisi, sivri temizliği)
 const GEO_MAX_ENTRIES = 4600;           // tüm bölge 4374 dosya (~25 MB); taşarsa en eskiler silinir
 const THREE_VERSION = '0.170.0';
 const CDN_BASE = 'https://cdn.jsdelivr.net/npm/three@' + THREE_VERSION + '/';
@@ -51,6 +51,7 @@ const APP_FILES = [
   './js/perfoverlay.js',
   './js/sun.js',
   './geo/bodrum/manifest.json',
+  './assets/loading-bodrum.webp',
 ];
 const ICON_FILES = ['./icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 const CDN_FILES = [
@@ -113,7 +114,7 @@ async function geoTile(request) {
 
 function isCacheFirst(url) {
   if (url.href.startsWith(CDN_BASE)) return true;
-  return url.origin === self.location.origin && url.pathname.includes('/icons/');
+  return url.origin === self.location.origin && (url.pathname.includes('/icons/') || url.pathname.includes('/assets/'));
 }
 
 async function networkFirst(request) {
