@@ -14,11 +14,11 @@
     "y1": 200
    }
   },
-  "bytes": 8158597,
+  "bytes": 8158413,
   "stats": {
    "core_min": 0.0,
    "core_max": 1411.72265625,
-   "water_frac": 0.4633941650390625,
+   "water_frac": 0.46339508727356626,
    "sea_depth_median": 76.0
   },
   "url": "dem/{z}/{x}/{y}.png",

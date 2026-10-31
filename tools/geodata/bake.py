@@ -291,6 +291,24 @@ def land_fraction_grid(cache, z, rng, ss=4):
     return m.reshape(H, ss, W, ss).mean(axis=(1, 3))
 
 
+def despike_max8(h, thresh, iters=3):
+    """A cell higher than ALL eight neighbours by more than `thresh` is set to the highest
+    neighbour (real summits do not stand that far above every neighbour: z9 180 m ≈ 36° on all
+    sides at 244 m spacing; z12 20 m at 31 m spacing — the largest such excess in the real z12
+    data is 5 m, the outliers were single cells in the strip filled from z9)."""
+    h = h.copy(); total = 0
+    for _ in range(iters):
+        P = np.pad(h, 1, mode='edge')
+        nb = np.max(np.stack([P[1 + dy:1 + dy + h.shape[0], 1 + dx:1 + dx + h.shape[1]]
+                              for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dy or dx]), axis=0)
+        bad = (h - nb) > thresh
+        n = int(bad.sum())
+        if not n:
+            break
+        h[bad] = nb[bad]; total += n
+    return h, total
+
+
 def water_mask_grid(z, rng, s2dir):
     """Fraction of open water per DEM cell, from the core scenes (NaN = no data).
 
@@ -341,7 +359,8 @@ def bake_dem(cache, out_dir):
     # a 2 km strip of open sea was baked as 0.5 m land (dark line seen from altitude).
     ro = tile_range(OUTER, DEM_OUTER_Z)
     ho, nsp = despike(dem_grid(cache, DEM_OUTER_Z, ro), 400.0)
-    print(f'  z9 despike: {nsp} cells', flush=True)
+    ho, nsp8 = despike_max8(ho, 180.0)
+    print(f'  z9 despike: {nsp} + {nsp8} cells', flush=True)
     k = 1 << (DEM_CORE_Z - DEM_OUTER_Z)
     from scipy.ndimage import map_coordinates
     gy9, gx9 = np.mgrid[0:h.shape[0], 0:h.shape[1]]
@@ -354,6 +373,8 @@ def bake_dem(cache, out_dir):
     nodata = (h == 0.0) & ((h9 < 0.0) | np.isnan(wm))
     h[nodata] = h9[nodata]
     print(f'  z12 no-data (0 m) filled from z9: {int(nodata.sum())} cells', flush=True)
+    h, n12 = despike_max8(h, 20.0)
+    print(f'  z12 single-cell spikes removed: {n12}', flush=True)
     # Water. With the OSM coastline (Overture base/land; the imagery is registered to OSM): sea =
     # outside OSM land, unless the DEM there is >= 15 m (a coastline offset at a cliff: left as
     # land); inland water = Sentinel-2 NDWI on OSM land (lakes, reservoirs). Without it: Sentinel-2

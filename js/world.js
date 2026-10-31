@@ -1002,9 +1002,9 @@ function bakedShadowGeometry(items, sunL, y = 0.04) {
 }
 
 export const QUALITY_PRESETS = {
-  low: { pixelRatio: 1, shadows: false, shadowMap: 0, drawDistance: 16000, trees: 19000, treeDistance: 5200, traffic: 160, water: 'simple', terrainSegments: 24, anisotropy: 2, clouds: 46, lod: [4500, 9500] },
-  medium: { pixelRatio: 1.5, shadows: true, shadowMap: 1024, drawDistance: 26000, trees: 42000, treeDistance: 8000, traffic: 420, water: 'reflective', terrainSegments: 32, anisotropy: 4, clouds: 80, lod: [7000, 15500] },
-  high: { pixelRatio: 2, shadows: true, shadowMap: 2048, drawDistance: 42000, trees: 72000, treeDistance: 12000, traffic: 800, water: 'reflective', terrainSegments: 40, anisotropy: 8, clouds: 125, lod: [9500, 21000] },
+  low: { pixelRatio: 1, shadows: false, shadowMap: 0, drawDistance: 16000, trees: 19000, treeDistance: 5200, traffic: 160, water: 'simple', terrainSegments: 24, anisotropy: 4, clouds: 46, lod: [4500, 9500] },
+  medium: { pixelRatio: 1.5, shadows: true, shadowMap: 1024, drawDistance: 26000, trees: 42000, treeDistance: 8000, traffic: 420, water: 'reflective', terrainSegments: 32, anisotropy: 8, clouds: 80, lod: [7000, 15500] },
+  high: { pixelRatio: 2, shadows: true, shadowMap: 2048, drawDistance: 42000, trees: 72000, treeDistance: 12000, traffic: 800, water: 'reflective', terrainSegments: 40, anisotropy: 12, clouds: 125, lod: [9500, 21000] },
 };
 
 export class World {
