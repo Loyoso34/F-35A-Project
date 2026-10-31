@@ -915,7 +915,9 @@ class App {
   }
 
   start() {
-    if (this.previewAc) this.previewAc.group.visible = false;
+    // Önizleme uçağı uçuşta bellekten atılır (≈ 80 geometri, kendi 1024² boya dokuları); görev
+    // hazırlığına dönüşte showSelect() yeniden kurar. iPhone'da GPU belleği uçuşa kalır.
+    if (this.previewAc) { this.scene.remove(this.previewAc.group); this.previewAc.dispose(); this.previewAc = null; }
     if (this.aircraft) this.aircraft.group.visible = true;
     this.audio.unlock();
     this.audio.setProfile(getAircraftConfig(this.aircraftId).audio);
