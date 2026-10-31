@@ -25,7 +25,7 @@ export class UI {
       loadingProgress: $('loading-progress'), loadingVer: $('loading-ver'), btnLoadRetry: $('btn-load-retry'),
       start: $('start-screen'), btnStart: $('btn-start'), startHint: $('start-hint'),
       pause: $('pause-menu'), btnResume: $('btn-resume'), btnRestart: $('btn-restart'), btnSettings: $('btn-settings'),
-      settings: $('settings'), btnSettingsClose: $('btn-settings-close'), qualitySeg: $('quality-seg'), tiltSeg: $('tilt-seg'), soundSeg: $('sound-seg'), fpsSeg: $('fps-seg'), fovSeg: $('fov-seg'), btnCalibrate: $('btn-calibrate'), version: $('version'),
+      settings: $('settings'), btnSettingsClose: $('btn-settings-close'), qualitySeg: $('quality-seg'), tiltSeg: $('tilt-seg'), soundSeg: $('sound-seg'), fpsSeg: $('fps-seg'), fovSeg: $('fov-seg'), todSeg: $('tod-seg'), btnCalibrate: $('btn-calibrate'), version: $('version'),
       crash: $('crash'), crashReason: $('crash-reason'), btnCrashRestart: $('btn-crash-restart'), btnCrashHangar: $('btn-crash-hangar'),
       crashTitle: $('crash-title'), crashSpeed: $('crash-speed'), crashVs: $('crash-vs'), crashAtt: $('crash-att'), crashGear: $('crash-gear'), crashNotes: $('crash-notes'),
       orient: $('orient-overlay'), contextLost: $('context-lost'), btnReload: $('btn-reload'),
@@ -269,7 +269,7 @@ export function isIOS() {
   return /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 export function loadSettings() {
-  const def = { quality: 'medium', tilt: 0, sound: 1, fps: 0, fov: 'normal', aircraft: 'f35a', spawn: 'ltfe-10l', geo: 1 };
+  const def = { quality: 'medium', tilt: 0, sound: 1, fps: 0, fov: 'normal', tod: 'default', aircraft: 'f35a', spawn: 'ltfe-10l', geo: 1 };
   let s;
   try { s = Object.assign({}, def, JSON.parse(localStorage.getItem('f35a.settings') || '{}')); } catch (e) { return def; }
   // v3.8: gerçek dünya bölgesi (Bodrum, LTFE) varsayılan başlangıçtır. Eski kayıtlar bir kez

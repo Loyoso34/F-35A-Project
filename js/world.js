@@ -1162,11 +1162,20 @@ export class World {
     }
     this.sun = sun;
     this.group.add(sun);
-    this.group.add(new THREE.HemisphereLight(0x9ec3ee, 0x55603c, 1.05));
+    this.hemi = new THREE.HemisphereLight(0x9ec3ee, 0x55603c, 1.05);
+    this.group.add(this.hemi);
     const fill = new THREE.DirectionalLight(0xcfe0f5, 0.55);
     fill.position.set(-this.sunDir.x, 0.35, -this.sunDir.z).normalize().multiplyScalar(500);
     this.group.add(fill);
+    this.fill = fill;
   }
+
+  /**
+   * Gün saati: kurgusal eğitim haritasında desteklenmez (yapı gölgeleri sabit güneşe göre
+   * pişirilmiştir; güneş değişirse gölgeler yanlış yöne düşerdi). Gerçek bölge (GeoWorld) uygular.
+   */
+  get supportsTimeOfDay() { return false; }
+  setTimeOfDay() { return false; }
 
   /**
    * Gölge kamerasının yarı genişliği: kamera uçağa yakınken daralır (aynı gölge haritasıyla
@@ -3206,7 +3215,7 @@ export class World {
         const cell = this.colGrid.get(key(i, j));
         if (!cell) continue;
         for (const b of cell) {
-          if (x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ && y - r < b.maxY && y + r > b.minY) return true;
+          if (x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ && y - r < b.maxY && y + r > b.minY && (!b.test || b.test(x, z, r))) return true;
         }
       }
     }

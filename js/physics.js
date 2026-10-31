@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { clamp, smoothstep } from './noise.js';
 import { WATER_LEVEL, surfaceTypeAt } from './world.js';
 import { classifyImpact, WRECK_PARAMS } from './crash.js';
-import { atmosphere, G0, RHO0 } from './atmosphere.js';
+import { atmosphere, G0, RHO0, calibratedAirspeed } from './atmosphere.js';
 import { coefficients, clMaxConfig, alphaForCL, clAtAlpha } from './aero.js';
 import { Engine } from './engine.js';
 import { FCS } from './fcs.js';
@@ -709,7 +709,7 @@ export class FlightModel {
     }
     // Telemetri: hız ve konum çarpma sonrası da doğru (arayüz/kamera/ses için)
     const t = this.telemetry;
-    t.tas = vel.length(); t.gsKt = t.tas * KT; t.altFt = (pos.y - WATER_LEVEL) * FT; t.aglFt = Math.max(0, pos.y - gY - W.ride) * FT; t.vsFpm = vel.y * FT * 60;
+    t.tas = vel.length(); t.gsKt = Math.hypot(vel.x, vel.z) * KT; t.altFt = (pos.y - WATER_LEVEL) * FT; t.aglFt = Math.max(0, pos.y - gY - W.ride) * FT; t.vsFpm = vel.y * FT * 60;
     t.engine = this.engine_.n; t.ab = 0; t.onGround = contact; t.stall = false; t.stallWarn = false; t.buffet = 0;
   }
 
@@ -725,7 +725,8 @@ export class FlightModel {
     // Aynı nesne yerinde güncellenir: tüketiciler (HUD, ses, testler) her zaman
     // güncel değeri okur, fizik döngüsü çöp üretmez.
     const t = this.telemetry;
-    t.tas = V; t.kias = V * Math.sqrt(atm.rho / RHO0) * KT; t.ktas = V * KT;
+    // IAS = CAS (pitot darbe basıncı; konum hatası modellenmez), EAS ayrı alan.
+    t.tas = V; t.kias = calibratedAirspeed(V, atm) * KT; t.keas = V * Math.sqrt(atm.rho / RHO0) * KT; t.ktas = V * KT;
     t.mach = extra.mach !== undefined ? extra.mach : V / atm.a;
     // MSL: ortalama deniz seviyesi = deniz yüzeyi (WATER_LEVEL). Havaalanı kotu korunur, hiçbir
     // yerde sıfıra zorlanmaz (sivil meydan 185 m yayladadır).
@@ -755,7 +756,10 @@ export class FlightModel {
     t.stall = !this.onGround && aAbs > stallOn && V > 15;
     t.buffet = this._buffet || 0;
     t.fuelKg = this.fuel; t.surface = extra.surface || 'runway'; t.thrustKN = (extra.thrust || 0) / 1000;
-    t.gsKt = this.vel.length() * KT;
+    // Yer hızı: yatay yer-göreli hız (eskiden 3B hız vektörünün boyu: tırmanış/dalışta fazla okurdu).
+    // Yerel düzlem çerçevesinde (TM) yataydır; dünya eğriliğinin etkisi bu ölçekte ihmal edilebilir.
+    t.gsKt = Math.hypot(this.vel.x, this.vel.z) * KT;
+    t.trackDeg = t.gsKt > 2 ? ((Math.atan2(this.vel.x, -this.vel.z) / DEG) + 360) % 360 : heading;
     t.windDeg = this.wind.kt > 0 ? Math.round(((this.wind.dirDeg % 360) + 360) % 360) : 0;
     t.windKt = this.wind.kt;
     t.xwindKt = this.wind.kt * Math.sin((((this.wind.dirDeg - heading) % 360) + 360) % 360 * DEG);

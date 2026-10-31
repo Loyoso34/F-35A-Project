@@ -8,7 +8,8 @@
     "nosedown": "node --import ./register.mjs nosedown.mjs",
     "test:crash": "node --import ./register.mjs crash.mjs",
     "test:world": "node --import ./register.mjs world.mjs",
-    "test:all": "node --import ./register.mjs scenarios.mjs && node --import ./register.mjs crash.mjs && node --import ./register.mjs world.mjs && node --import ./register.mjs geo.mjs && node --import ./register.mjs geoworld.mjs",
+    "test:all": "node --import ./register.mjs scenarios.mjs && node --import ./register.mjs crash.mjs && node --import ./register.mjs world.mjs && node --import ./register.mjs geo.mjs && node --import ./register.mjs geoworld.mjs && node --import ./register.mjs instruments.mjs",
+    "test:instruments": "node --import ./register.mjs instruments.mjs",
     "test:geo": "node --import ./register.mjs geo.mjs && node --import ./register.mjs geoworld.mjs"
   },
   "dependencies": {

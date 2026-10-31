@@ -108,6 +108,9 @@ export const CURVE_PROJECT = `
 
 /** Pus işlevini bir three.js yerleşik malzemesine bağlar (onBeforeCompile). */
 export function applyHaze(material, key = 'h') {
+  // Bir kez: hazeAll() sonradan aynı malzemeye ikinci kez eklemesin (bildirimler çakışırdı)
+  if (material.userData.hazed) return material;
+  material.userData.hazed = true;
   const prev = material.onBeforeCompile;
   material.onBeforeCompile = (sh, r) => {
     if (prev) prev(sh, r);

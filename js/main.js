@@ -15,6 +15,7 @@ import { CameraRig, CAMERA_NAMES, CAMERA_LABELS } from './cameras.js';
 import { liveriesFor, defaultLiveryId } from './liveries.js';
 import { UI, isStandalone, isIOS, loadSettings, saveSettings } from './ui.js';
 import { AdaptiveQuality, perfMultipliers } from './perf.js';
+import { PerfOverlay } from './perfoverlay.js';
 import { WeaponSystem } from './weapons.js';
 
 // ---------------------------------------------------------------------------
@@ -29,7 +30,7 @@ const LOAD_COST_MS = {
   gfx: 60, sky: 3, lights: 1, terrain: 5800, water: 430, trees: 1000, roads: 52, town: 80,
   airbase: 250, baseDetails: 100, civil: 120, city: 285, surroundings: 15, clouds: 45, collision: 2,
   env: 40, systems: 10, previews: 1500, shaders: 900,
-  geodata: 2600, ltfe: 120, ocean: 15,
+  geodata: 2600, ltfe: 300, features: 1500, ocean: 15,
 };
 const LOAD_LABEL = {
   gfx: 'Starting graphics…',
@@ -48,6 +49,7 @@ const LOAD_LABEL = {
   shaders: 'Compiling shaders…',
   geodata: 'Streaming Bodrum terrain and Sentinel-2 imagery…',
   ltfe: 'Building Milas–Bodrum Airport (LTFE)…',
+  features: 'Placing buildings, roads and trees…',
   ocean: 'Adding the Aegean Sea…',
 };
 const PROFILE_KEY = 'ffs.loadProfile';
@@ -139,6 +141,7 @@ class App {
     this.frameMs = 1000 / 60;
     this.nextRender = 0;
     this.renderScale = 1;      // kalite ön ayarının piksel oranına uygulanan çarpan (0.8–1)
+    this.perfOverlay = new PerfOverlay(document.getElementById('perfdbg'));
     // Uyarlanabilir kalite: önce ikincil efektler, en son yumuşak adımlarla çözünürlük (perf.js)
     this.aq = new AdaptiveQuality({
       apply: (tier, scale) => {
@@ -218,6 +221,7 @@ class App {
       onLights: () => this.toggleLights(),
       onFire: () => this.fireMissile(),
       onPhysDebug: () => this.togglePhysDebug(),
+      onPerfDebug: () => this.togglePerfDebug(),
       onMenu: () => this.ui.toggleMenu(),
       onMenuActivity: () => this.ui.menuActivity(),
       onViewDrag: (dx, dy) => this.cameraRig.drag(dx, dy),
@@ -296,6 +300,7 @@ class App {
       this._regionFallback = true;
       return this.createWorld(quality, prog, 'training');
     }
+    this.applyTimeOfDay(world);
     // Uzak düzlem bölgeye göre (gerçek dünyada ufuk yüzlerce km)
     this.camera.far = world.cameraFar;
     this.camera.updateProjectionMatrix();
@@ -417,8 +422,13 @@ class App {
       saveSettings(this.settings);
     });
     ui.bindSeg(el.soundSeg, 's', (v) => { this.settings.sound = v === '1' ? 1 : 0; saveSettings(this.settings); this.applySound(); });
-    ui.bindSeg(el.fpsSeg, 'f', (v) => { this.settings.fps = v === '1' ? 1 : 0; saveSettings(this.settings); el.fps.textContent = ''; });
+    ui.bindSeg(el.fpsSeg, 'f', (v) => { this.settings.fps = v === '2' ? 2 : v === '1' ? 1 : 0; saveSettings(this.settings); el.fps.textContent = ''; this.perfOverlay.setOn(this.settings.fps === 2); });
     if (el.fovSeg) ui.bindSeg(el.fovSeg, 'v', (v) => { this.settings.fov = v; saveSettings(this.settings); this.applyFov(); });
+    if (el.todSeg) ui.bindSeg(el.todSeg, 'd', (v) => {
+      this.settings.tod = v; saveSettings(this.settings);
+      if (this.world && !this.world.supportsTimeOfDay) this.ui.message('Time of day applies to the Bodrum region', 1800);
+      this.applyTimeOfDay();
+    });
     el.btnCalibrate.addEventListener('click', () => { this.controls.calibrate(); ui.message('Tilt calibrated'); });
   }
   applySettingsToUI() {
@@ -427,7 +437,9 @@ class App {
     ui.setSeg(el.tiltSeg, 't', this.settings.tilt);
     ui.setSeg(el.soundSeg, 's', this.settings.sound);
     ui.setSeg(el.fpsSeg, 'f', this.settings.fps);
+    this.perfOverlay.setOn(this.settings.fps === 2);
     if (el.fovSeg) ui.setSeg(el.fovSeg, 'v', this.settings.fov || 'normal');
+    if (el.todSeg) ui.setSeg(el.todSeg, 'd', this.settings.tod || 'default');
     this.applyFov();
     this.applySound();
     if (this.physics) this.updateToggleButtons();
@@ -1110,6 +1122,30 @@ class App {
     this.ui.message(this.physDebug ? 'Physics panel on (Shift+D)' : 'Physics panel off');
   }
 
+  perfInfo() {
+    const pi = this._perfInfo || (this._perfInfo = {});
+    pi.renderer = this.renderer; pi.scene = this.scene; pi.world = this.world; pi.aq = this.aq;
+    pi.targetFps = this.targetFps; pi.renderScale = this.renderScale; pi.pixelRatio = this.renderer.getPixelRatio();
+    return pi;
+  }
+
+  /** Gün saati (yalnızca gerçek bölge; eğitim haritasında yapı gölgeleri sabit güneşe göre pişmiştir). */
+  applyTimeOfDay(world = this.world) {
+    if (!world) return;
+    const key = this.settings.tod || 'default';
+    if (world.supportsTimeOfDay) { world.setTimeOfDay(key); this.needsRender = true; }
+  }
+
+  /** Performans katmanı (` tuşu ya da Ayarlar > FPS counter > Debug): HUD'dan ayrı DOM paneli. */
+  togglePerfDebug() {
+    this.settings.fps = this.settings.fps === 2 ? 0 : 2;
+    saveSettings(this.settings);
+    this.ui.setSeg(this.ui.el.fpsSeg, 'f', this.settings.fps);
+    this.ui.el.fps.textContent = '';
+    this.perfOverlay.setOn(this.settings.fps === 2);
+    this.ui.message(this.settings.fps === 2 ? 'Performance overlay on (`)' : 'Performance overlay off');
+  }
+
   drawPhysDebug() {
     const el = document.getElementById('physdbg');
     if (!el) return;
@@ -1122,7 +1158,8 @@ class App {
     const kN = (v) => (Number.isFinite(v) ? (v / 1000).toFixed(1) : '—');
     const L = [];
     // Oyuncuya görünen her yazı İngilizcedir; bu panel de açılabildiği için buna dahildir.
-    L.push(`<b>AIR</b>    TAS ${n(T.ktas, 0)} kt   IAS ${n(T.kias, 0)} kt   M ${n(T.mach, 3)}`);
+    L.push(`<b>AIR</b>    TAS ${n(T.ktas, 0)} kt   IAS(CAS) ${n(T.kias, 0)} kt   EAS ${n(T.keas, 0)} kt   M ${n(T.mach, 3)}`);
+    L.push(`       GS ${n(T.gsKt, 0)} kt   track ${n(T.trackDeg, 0)}°   RA ${n(T.aglFt, 0)} ft`);
     L.push(`       alt ${n(T.altFt, 0)} ft   q̄ ${n(d.qbar, 0)} Pa   VS ${n(T.vsFpm, 0)} ft/min`);
     L.push(`<b>FLOW</b>   α ${n(T.alpha, 2)}°   β ${n(T.beta, 2)}°   nz ${n(T.g, 2)} g`);
     L.push(`<b>RATES</b>  p ${n(p.rates.p * DEGR, 1)}  q ${n(p.rates.q * DEGR, 1)}  r ${n(p.rates.r * DEGR, 1)} °/s`);
@@ -1295,6 +1332,7 @@ class App {
     requestAnimationFrame((t) => this.loop(t));
     if (this.contextLost) return;
     if (!this.framePacer(now)) return;   // 60 fps kilidi
+    const cpu0 = performance.now();
     // Bazı tarayıcılar döndürmede resize olayını geç/eksik gönderir: boyutu her karede
     // doğrula (değiştiyse görüntü alanı modülü onResize'ı çağırır)
     this.vp.measure();
@@ -1309,8 +1347,11 @@ class App {
     // Uçak seçim ekranı: henüz uçak yok, arka planda üs üzerinde sinematik kamera döner
     if (!this.physics || this.state === 'select') {
       this.updateSelectCamera(dt);
+      const w0 = performance.now();
       this.world.update(dt, this.camera, this.camera.position);
+      const w1 = performance.now();
       this.renderer.render(this.scene, this.camera);
+      if (this.perfOverlay.on) { const r1 = performance.now(); this.perfOverlay.sample(frameDt * 1000, r1 - cpu0, w1 - w0, r1 - w1); this.perfOverlay.update(dt, this.perfInfo()); }
       this.hud.clear();
       this.needsRender = false;
       this.audio.update(dt, null, false);
@@ -1376,8 +1417,11 @@ class App {
     if (running || wrecking || this.needsRender) {
       this.world.setWind(this.physics.windAt(this.physics.groundY + 8, this.physics.time), this.physics.wind.kt);
       this.world.focusVel = this.physics.vel;
+      const w0 = performance.now();
       this.world.update(running || wrecking ? dt : 0, this.camera, this.pose.pos);
+      const w1 = performance.now();
       this.renderer.render(this.scene, this.camera);
+      if (this.perfOverlay.on) { const r1 = performance.now(); this.perfOverlay.sample(frameDt * 1000, r1 - cpu0, w1 - w0, r1 - w1); }
       if (wrecking) this.hud.clear();
       else {
         const cockpit = this.cameraRig.mode === 'cockpit';
@@ -1397,6 +1441,7 @@ class App {
     this.audio.update(dt, this.physics.telemetry, running || (wrecking && this.crashSeq && !this.crashSeq.destroyed));
     // ---- Uyarlanabilir kalite (perf.js): ham kare aralığıyla, yalnızca uçuşta ölçülür ----
     if (running) this.aq.sample(frameDt, this.frameMs);
+    if (this.perfOverlay.on) this.perfOverlay.update(dt, this.perfInfo());
     // FPS göstergesi
     if (this.settings.fps) {
       this.frameCount++; this.fpsTime += dt;

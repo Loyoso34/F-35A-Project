@@ -6,12 +6,21 @@
 import * as THREE from 'three';
 import { World, QUALITY_PRESETS } from './world.js';
 import { LocalFrame, GeoidGrid, MSL_Y } from './geo.js';
-import { GeoTerrain, CURVE_K } from './geoterrain.js';
+import { GeoTerrain, CURVE_K, TERRAIN_UNIFORMS } from './geoterrain.js';
 import { BODRUM, LTFE } from './georegion.js';
+import { Ltfe3D } from './ltfe3d.js';
+import { GeoFeatures } from './geofeatures.js';
 import { buildRunway, buildLightPoints, trueHeadingFromEnds } from './runway.js';
-import { makePavementTexture, makeTerrainDetailTexture, makeWaterNormalTexture } from './textures.js';
+import { makePavementTexture, makeTerrainDetailTexture, makeWaterNormalTexture, makeConcreteTexture, makeFacadeTexture, makeCladdingTexture, makeHangarWallTexture } from './textures.js';
 import { HAZE_UNIFORMS, hazeAll } from './worldshade.js';
 import { clamp, smoothstep } from './noise.js';
+import { solarPosition, sunVector, localTimeMs, TIME_PRESETS } from './sun.js';
+
+// Alçak güneşte hedef renkler (doğrusal); setTimeOfDay yüksekliğe göre bunlara doğru karıştırır
+const TOD_COLORS = {
+  sun: new THREE.Color(1.0, 0.58, 0.32), light: new THREE.Color(1.0, 0.66, 0.42),
+  horizon: new THREE.Color(0.86, 0.62, 0.46), zenith: new THREE.Color(0.10, 0.20, 0.42),
+};
 
 const FT = 0.3048;
 const DEG = Math.PI / 180;
@@ -21,9 +30,14 @@ const DEG = Math.PI / 180;
 //   (mesafe < boyut × lodFactor), textureBudget: GPU'daki görüntü karosu sayısı (256² RGBA ≈ 0,35 MB
 //   mip dahil), nodeBudget: inşa edilmiş düğüm üst sınırı, buildMs: karede düğüm inşa süresi.
 export const GEO_QUALITY = {
-  low: { drawDistance: 70000, far: 300000, lodFactor: 1.9, textureBudget: 120, nodeBudget: 220, buildMs: 2.5, demBudget: 40 },
-  medium: { drawDistance: 100000, far: 420000, lodFactor: 2.5, textureBudget: 180, nodeBudget: 320, buildMs: 3.5, demBudget: 64 },
-  high: { drawDistance: 140000, far: 480000, lodFactor: 3.3, textureBudget: 300, nodeBudget: 460, buildMs: 5.0, demBudget: 96 },
+  // 3B ayrıntı: bldRadius / roadRadius / vegRadius (m, kameradan), vegDensity (ağaç yoğunluğu
+  // çarpanı), featureMs (karede bina/yol/ağaç inşa süresi).
+  low: { drawDistance: 70000, far: 300000, lodFactor: 1.9, textureBudget: 120, nodeBudget: 220, buildMs: 2.5, demBudget: 40,
+    bldRadius: 1800, roadRadius: 1400, vegRadius: 900, vegDensity: 0.6, featureMs: 2.0 },
+  medium: { drawDistance: 100000, far: 420000, lodFactor: 2.5, textureBudget: 180, nodeBudget: 320, buildMs: 3.5, demBudget: 64,
+    bldRadius: 2800, roadRadius: 2300, vegRadius: 1500, vegDensity: 1.0, featureMs: 3.0 },
+  high: { drawDistance: 140000, far: 480000, lodFactor: 3.3, textureBudget: 300, nodeBudget: 460, buildMs: 5.0, demBudget: 96,
+    bldRadius: 4200, roadRadius: 3300, vegRadius: 2400, vegDensity: 1.35, featureMs: 4.0 },
 };
 
 /** Bodrum kalkış noktalarının statik tanımı (hangar listesi dünya kurulmadan da gösterilir). */
@@ -37,7 +51,7 @@ export function bodrumSpawnInfo() {
 }
 
 export class GeoWorld extends World {
-  static get STAGES() { return ['sky', 'lights', 'geodata', 'ltfe', 'ocean', 'clouds', 'collision']; }
+  static get STAGES() { return ['sky', 'lights', 'geodata', 'ltfe', 'features', 'ocean', 'clouds', 'collision']; }
 
   /**
    * opts.base: bölge veri kökü (varsayılan ./geo/bodrum/); opts.fetch / decodeRGBA / fetchJSON /
@@ -50,7 +64,7 @@ export class GeoWorld extends World {
     this.quality = Object.assign({}, QUALITY_PRESETS[qualityKey] || QUALITY_PRESETS.medium, GEO_QUALITY[qualityKey] || GEO_QUALITY.medium);
     this.base = opts.base || BODRUM.base;
     this.halfSize = 125000;          // uçuş alanı ±125 km (veri ±150 km)
-    this.buildingBoxes = [];         // doğrulanmış yapı yüksekliği yok: çarpışma kutusu yok
+    this.buildingBoxes = [];         // meydan binaları (OSM ayak izi) buildAirport ile eklenir; şehir binaları GeoFeatures.hits
     this.townBoxes = [];
     this.cloudSpread = 150000;
     this.cloudBase = 1500;
@@ -74,6 +88,12 @@ export class GeoWorld extends World {
     const az = man.sun.azimuthDeg * DEG, el = man.sun.elevationDeg * DEG;
     this.sunDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)).normalize();
     this.prepareAirport();
+    // OSM meydan geometrisi (taksi yolları, apronlar, terminaller): conform() ve yüzey sorgusu bundan
+    if (man.airport) {
+      const u = this.base + man.airport.url;
+      const data = this.opts.fetchJSON ? await this.opts.fetchJSON(u) : await (await fetch(u)).json();
+      this.ltfe = new Ltfe3D(this.frame, LTFE, data);
+    }
   }
 
   async build(report, pause, sliceMs) {
@@ -88,6 +108,7 @@ export class GeoWorld extends World {
       { id: 'lights', run: () => this.buildLights() },
       { id: 'geodata', run: (p) => this.buildGeoTerrain(p) },
       { id: 'ltfe', run: () => this.buildAirport() },
+      { id: 'features', run: () => this.buildFeatures() },
       { id: 'ocean', run: () => this.buildOcean() },
       { id: 'clouds', run: () => this.buildClouds() },
       { id: 'collision', run: () => { this.buildCollisionGrid(); hazeAll(this.group); } },
@@ -132,6 +153,8 @@ export class GeoWorld extends World {
    * yumuşak geçiş. Fizik ve arazi örgüsü AYNI işlevi kullanır.
    */
   conform(x, z, h) {
+    // v3.9: OSM kaplamasına göre (yalnızca kaplama + 120 m geçiş); veri yoksa eski kutu
+    if (this.ltfe) return this.ltfe.conform(x, z, h);
     const a = LTFE, F = a.flat;
     const dx = x - a.x, dz = z - a.z;
     const u = dx * a.ux + dz * a.uz, v = -dx * a.uz + dz * a.ux;
@@ -161,7 +184,7 @@ export class GeoWorld extends World {
     this.group.add(tg);
     this.terrain = new GeoTerrain({
       frame: this.frame, manifest: this.man, base: this.base, group: this.renderer ? tg : null,
-      segments: 32, lodFactor: q.lodFactor, anisotropy: q.anisotropy, textureBudget: q.textureBudget,
+      segments: 64, lodFactor: q.lodFactor, anisotropy: q.anisotropy, textureBudget: q.textureBudget,
       nodeBudget: q.nodeBudget, buildMs: q.buildMs, demBudget: q.demBudget, detailTex: detail, waterNormalTex: waterN,
       conform: (x, z, h) => this.conform(x, z, h),
       fetch: this.opts.fetch, decodeRGBA: this.opts.decodeRGBA, clock: this.opts.clock,
@@ -180,6 +203,12 @@ export class GeoWorld extends World {
       this.rwLocal(r, x, z, o);
       const padA = r.ends[0].pad, padB = r.ends[1].pad;
       if (Math.abs(o.v) <= r.width / 2 + 0.5 && o.u >= -r.len / 2 - padA && o.u <= r.len / 2 + padB) return 'runway';
+    }
+    if (this.ltfe) {
+      const s = this.ltfe.surfaceAt(x, z);           // OSM taksi yolu (23 m, yaklaşık genişlik) / apron
+      if (s) return s;
+      if (this.ltfe.pavedDist(x, z) > 60 && this.terrain.waterAt(x, z) >= 0.5) return 'water';
+      return 'grass';
     }
     const dx = x - a.x, dz = z - a.z;
     const u = dx * a.ux + dz * a.uz, v = -dx * a.uz + dz * a.ux;
@@ -244,6 +273,95 @@ export class GeoWorld extends World {
       this.runwayGroups.push(g);
     }
     this.runwayLightSets = lights;
+    // OSM meydanı: taksi yolları, apronlar, işaretler, terminal/hangar gövdeleri (+ çarpışma)
+    if (this.ltfe) {
+      const conc = this.track(makeConcreteTexture(512)); conc.anisotropy = q.anisotropy;
+      const glass = this.track(makeFacadeTexture('glass', 256));
+      const clad = this.track(makeCladdingTexture(256));
+      const hang = this.track(makeHangarWallTexture(256));
+      for (const t of [conc, glass, clad, hang]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; }
+      this.ltfe.build(this.group, (x, z) => this.heightAt(x, z), {
+        concreteMap: conc, glassMap: glass, cladMap: clad, hangarMap: hang, shadows: q.shadows, track: (o) => this.track(o),
+      });
+      this.addAirportSolids();
+    }
+  }
+
+  /** Meydan binalarını çarpışma listesine ekler (çizim olmadan da çağrılabilir). */
+  addAirportSolids() {
+    if (!this.ltfe.buildingSolids) this.ltfe.computeSolids((x, z) => this.heightAt(x, z));
+    for (const b of this.ltfe.buildingSolids) {
+      if (b.test) continue;
+      const poly = b.poly;
+      // Kutu testi geçerse ayak izi çokgeniyle kesin test (eğik terminalin AABB'si boşluğu da kapsar)
+      b.test = (x, z, r) => Ltfe3D.inPoly(poly, x, z) || poly.some((p, i) => Ltfe3D.segDist({ ax: p.x, az: p.z, bx: poly[(i + 1) % poly.length].x, bz: poly[(i + 1) % poly.length].z }, x, z) < r);
+      this.buildingBoxes.push(b);
+    }
+  }
+
+  // ---- Gün saati -----------------------------------------------------------------------------
+  get supportsTimeOfDay() { return true; }
+  /**
+   * Güneş konumu bölgenin referans noktasında ve görüntü tarihinde (sun.js, Sentinel-2 meta
+   * verisiyle doğrulanmış formül), yerel saat (UTC+3). 'default' = görüntünün çekim anı (12:10).
+   * Gök/ışık renkleri güneş yüksekliğiyle sanatsal olarak ısınır (fiziksel saçılma modeli değil).
+   * Sınır: görüntü kendi çekim anının gölgelerini taşır; başka saatlerde kabartma ışığının payı
+   * artırılır ama görüntüdeki gölgeler silinmez. Gece desteklenmez.
+   * @returns {{azimuthDeg:number, elevationDeg:number}} uygulanan güneş konumu
+   */
+  setTimeOfDay(key) {
+    const U = this.skyUniforms;
+    if (!U || !this.sun || !this.hemi) return null;
+    const B = this._todBase || (this._todBase = {
+      dir: this.sunDir.clone(), zenith: U.zenith.value.clone(), horizon: U.horizon.value.clone(), ground: U.ground.value.clone(),
+      sunColor: U.sunColor.value.clone(), light: this.sun.color.clone(), sunI: this.sun.intensity, hemiI: this.hemi.intensity,
+      relief: TERRAIN_UNIFORMS.uRelief.value,
+    });
+    const t = TIME_PRESETS[key];
+    let pos;
+    if (t) {
+      pos = solarPosition(localTimeMs(this.man.sun.datetime.slice(0, 10), t.h, t.m), this.man.reference.lat, this.man.reference.lon);
+      sunVector(pos.azimuthDeg, pos.elevationDeg, this.sunDir);
+    } else {
+      this.sunDir.copy(B.dir);
+      pos = { azimuthDeg: this.man.sun.azimuthDeg, elevationDeg: this.man.sun.elevationDeg };
+    }
+    const el = Math.asin(clamp(this.sunDir.y, -1, 1)) / DEG;
+    const low = smoothstep(24, 2, el);            // 0: yüksek güneş, 1: ufka yakın
+    const W = TOD_COLORS;
+    U.sunDir.value.copy(this.sunDir);
+    U.sunColor.value.copy(B.sunColor).lerp(W.sun, low);
+    U.horizon.value.copy(B.horizon).lerp(W.horizon, low * 0.55);
+    U.zenith.value.copy(B.zenith).lerp(W.zenith, low * 0.45);
+    U.ground.value.copy(B.ground).multiplyScalar(1 - 0.35 * low);
+    if (this.scene.fog) this.scene.fog.color.copy(U.horizon.value);
+    this.sun.color.copy(B.light).lerp(W.light, low);
+    this.sun.intensity = B.sunI * (0.35 + 0.65 * smoothstep(0, 30, el));
+    this.hemi.intensity = B.hemiI * (0.55 + 0.45 * smoothstep(0, 35, el));
+    if (this.fill) this.fill.position.set(-this.sunDir.x, 0.35, -this.sunDir.z).normalize().multiplyScalar(500);
+    // Gölge kamerası tabanı güneş yönüne bağlı: yeniden kurulsun
+    this._lightBasis = null; this._lightBasisInv = null;
+    TERRAIN_UNIFORMS.uRelief.value = t ? Math.max(B.relief, 0.78) : B.relief;
+    this.timeKey = key;
+    return pos;
+  }
+
+  /** Binalar, yollar, ağaçlar (geofeatures.js): meydan çevresi uçuş başlamadan hazır. */
+  async buildFeatures() {
+    if (!this.man.buildings) return;
+    const fg = new THREE.Group(); fg.name = 'geo-features';
+    this.group.add(fg);
+    this.features = new GeoFeatures(this, this.renderer ? fg : null);
+    await this.features.preload(new THREE.Vector3(LTFE.x, MSL_Y + 120, LTFE.z + 300));
+  }
+
+  /** Yapı çarpışması: meydan binaları (çokgen) + şehir binaları (yönlü kutu, yüklü karolar). */
+  hitsBuilding(x, y, z, r = 3) {
+    return super.hitsBuilding(x, y, z, r) || (this.features ? this.features.hits(x, y, z, r) : false);
+  }
+  segmentHit(p0, p1) {
+    const a = super.segmentHit(p0, p1), b = this.features ? this.features.segmentHit(p0, p1) : -1;
+    return a < 0 ? b : b < 0 ? a : Math.min(a, b);
   }
 
   /** Bölge dışını örten deniz halkası (uzakta pus rengine karışır; ufuk çizgisi doğru batar). */
@@ -285,7 +403,10 @@ export class GeoWorld extends World {
   update(dt, camera, aircraftPos) {
     this.time += dt;
     this.updateSun(camera, aircraftPos);
-    if (this.terrain) this.terrain.update(camera, dt, aircraftPos, this.focusVel);
+    // Süreler performans katmanı içindir (ölçüm: performance.now, ms)
+    let t0 = performance.now();
+    if (this.terrain) { this.terrain.update(camera, dt, aircraftPos, this.focusVel); const t1 = performance.now(); this.terrain.stats.updateMs = t1 - t0; t0 = t1; }
+    if (this.features) { this.features.update(camera, aircraftPos, dt); this.features.stats.updateMs = performance.now() - t0; }
     // Pist ışıkları: GL noktaları ucuzdur; yaklaşmada seçilebilsin diye 14 km'ye kadar
     if (this.runwayLightSets) {
       const c = camera.position, d = Math.hypot(c.x - LTFE.x, c.y - MSL_Y, c.z - LTFE.z);
@@ -312,9 +433,11 @@ export class GeoWorld extends World {
   setPerf(o) {
     super.setPerf(o);
     if (this.terrain) this.terrain.detail = o.detail;
+    if (this.features) this.features.detail = o.detail;
   }
 
   dispose() {
+    if (this.features) this.features.dispose();
     if (this.terrain) this.terrain.dispose();
     HAZE_UNIFORMS.hzCurv.value = 0;
     super.dispose();

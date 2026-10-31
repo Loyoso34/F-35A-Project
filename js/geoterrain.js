@@ -249,23 +249,45 @@ export const TERRAIN_UNIFORMS = {
 function terrainCompile(sh) {
   Object.assign(sh.uniforms, HAZE_UNIFORMS, TERRAIN_UNIFORMS);
   sh.vertexShader = `attribute float water;
-    varying float vWater; varying vec3 vWP;
+    varying float vWater; varying vec3 vWP; varying float vNy;
     ` + HAZE_PARS_VS + '\n' + sh.vertexShader
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWater = water; vWP = (modelMatrix * vec4(position, 1.0)).xyz;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWater = water; vWP = (modelMatrix * vec4(position, 1.0)).xyz; vNy = objectNormal.y;')
     .replace('#include <project_vertex>', CURVE_PROJECT + `
   vHaze = hazeAt(transpose(mat3(viewMatrix)) * mvPosition.xyz + cameraPosition);`);
   sh.fragmentShader = `uniform float uRelief; uniform float uAlbedo; uniform float uExposure; uniform sampler2D uDetail; uniform sampler2D uWaterN; uniform float uTime;
-    varying float vWater; varying vec3 vWP; varying vec4 vHaze;
+    varying float vWater; varying vec3 vWP; varying vec4 vHaze; varying float vNy;
     ` + HAZE_PARS_FS.replace('varying vec4 vHaze;', '') + '\n' + sh.fragmentShader
     .replace('#include <map_fragment>', `#include <map_fragment>
     diffuseColor.rgb *= uAlbedo * uExposure;
     {
-      // Yakın ayrıntı: 15 m'lik görüntü piksellerinin içinde ~2-8 m'lik ton değişimi (yalnızca yakında)
+      // Yakın ayrıntı (yalnızca yakında; ORTALAMAYI KORUYAN ton çarpanı: uzaktan görüntü rengi aynen
+      // kalır). Görüntü 10 m çözünürlüklüdür; bu katman gerçek ayrıntı ÜRETMEZ, yalnızca pikselin
+      // içindeki düzgün boyamayı kırar. Karakter görüntü renginden türetilir: yeşil pikseller
+      // (maki/çam) öbekli koyu-açık lekeler, çıplak ve eğimli pikseller kaya çatlağı + ince tane.
       float camD = length(vWP - cameraPosition);
-      float nf = 1.0 - smoothstep(180.0, 1400.0, camD);
+      float nf = (1.0 - smoothstep(150.0, 1800.0, camD)) * (1.0 - vWater);
       if (nf > 0.0) {
-        float d1 = texture2D(uDetail, vWP.xz * 0.061).r, d2 = texture2D(uDetail, vWP.xz * 0.19 + 0.37).g;
-        diffuseColor.rgb *= mix(1.0, 0.86 + 0.28 * (d1 * 0.6 + d2 * 0.4), nf * (1.0 - vWater));
+        vec2 p = vWP.xz;
+        vec2 pr = mat2(0.8, -0.6, 0.6, 0.8) * p;            // döndürülmüş eksen: karo tekrarı kırılır
+        vec3 alb = diffuseColor.rgb;
+        float green = smoothstep(0.004, 0.03, alb.g - 0.5 * (alb.r + alb.b));
+        vec3 fn = normalize(cross(dFdx(vWP), dFdy(vWP)));
+        float slope = smoothstep(0.08, 0.45, 1.0 - abs(fn.y));
+        // Doku 512 piksel/tekrar: B 3, G 8, R 16 kafes hücresi -> ölçek = tekrar boyu / hücre sayısı
+        float m0 = texture2D(uDetail, p * 0.0042).b;        // ~80 m: ton dalgalanması
+        float d1 = texture2D(uDetail, pr * 0.0065).r;       // ~10 m öbekler
+        float d2 = texture2D(uDetail, p * 0.021 + 0.37).g;  // ~6 m, sırtlı (kaya hattı)
+        float clump = smoothstep(0.40, 0.66, d1 * 0.65 + d2 * 0.35);
+        float mVeg = 1.16 - 0.32 * clump;                   // öbek: koyu taç lekeleri (ortalama ~1)
+        float mBare = 0.82 + 0.36 * mix(d1 * 0.5 + d2 * 0.5, d2, slope);
+        float mm = mix(mBare, mVeg, green) * (0.92 + 0.16 * m0);
+        float nf2 = 1.0 - smoothstep(80.0, 450.0, camD);
+        if (nf2 > 0.0) {
+          float d3 = texture2D(uDetail, pr * 0.026 + 0.11).r;  // ~2,4 m
+          float d4 = texture2D(uDetail, p * 0.071 + 0.53).g;   // ~0,9 m tane
+          mm *= mix(1.0, (0.88 + 0.24 * d3) * (0.94 + 0.12 * d4), nf2);
+        }
+        diffuseColor.rgb *= mix(1.0, mm, nf);
       }
     }`)
     // Kabartma: görüntü güneşin gerçek konumunda çekildi ve gölgelemeyi zaten içerir. Doğrudan
@@ -279,7 +301,11 @@ function terrainCompile(sh) {
     .replace('#include <tonemapping_fragment>', `
     {
       // Su: Fresnel gök yansıması + güneş parıltısı (dalga normal haritası, iki ölçek, akan)
-      if (vWater > 0.01) {
+      // Yansıma payı: su bayrağı × düzlük. Deniz yüzeyi düzdür; bayrağın kısmi olduğu eğimli
+      // hücrelerde (görüntü-DEM kıyı uyumsuzluğu, gölgede NDWI) karada gök yansıması çizilmez.
+      // Köşe normali kullanılır (düğüm dikişindeki dikey etekler kenar normalini taşır: düz sayılır).
+      float wK = vWater * smoothstep(0.94, 0.99, vNy);
+      if (wK > 0.01) {
         vec3 V = normalize(cameraPosition - vWP);
         vec2 p = vWP.xz;
         // Dalga normali: iki ölçek; genlik mesafeyle ve bakış yüksekliğiyle hızla söner. Yükseklerden
@@ -299,7 +325,7 @@ function terrainCompile(sh) {
         float shin = mix(420.0, 70.0, smoothstep(500.0, 15000.0, camD));
         float spec = pow(max(dot(N, H), 0.0), shin) * mix(30.0, 1.6, smoothstep(500.0, 15000.0, camD));
         vec3 wcol = gl_FragColor.rgb * (1.0 - F) + sky * F * 0.85 + hzSunColor * spec * step(0.0, hzSunDir.y);
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, wcol, vWater);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, wcol, wK);
       }
     }
     gl_FragColor.rgb = hazeMix(gl_FragColor.rgb, vHaze);
@@ -317,7 +343,7 @@ if (LAMBERT_RELIEF === THREE.ShaderChunk.lights_lambert_pars_fragment) console.w
 function makeTerrainMaterial(map) {
   const m = new THREE.MeshLambertMaterial({ map });
   m.onBeforeCompile = terrainCompile;
-  m.customProgramCacheKey = () => 'geoterrain1';
+  m.customProgramCacheKey = () => 'geoterrain4';
   m.userData.hazed = true;
   return m;
 }
@@ -371,7 +397,9 @@ export class GeoTerrain {
     this.dem = new DemStore(this.man, o.base, o);
     this.img = new ImageryStore(this.man, o.base, o);
     this.N = o.segments || 32;
-    this.lodFactor = o.lodFactor || 2.6;
+    // Çarpan 32'lik ızgaraya göre tanımlıdır: N büyüdükçe düğüm başına köşe artar, aynı ekran
+    // yoğunluğu için bölme uzaklığı N/32 oranında küçülür (64'lük ızgarada ~1/4 düğüm = çizim çağrısı)
+    this.lodFactor = (o.lodFactor || 2.6) * 32 / this.N;
     this.detail = 1;       // uyarlanabilir kalite çarpanı (perf.js 'detail')
     this.nodeBudget = o.nodeBudget || 260;
     this.buildMs = o.buildMs || 3.0;
@@ -542,11 +570,36 @@ export class GeoTerrain {
     const h = this.rawMslGeo(g.lat, g.lon);
     return this.conform ? this.conform(x, z, h) : h;
   }
+  /**
+   * Hızlı yol (3B nesneler): ince DEM seviyesinin köşe koordinatı (gx, gy) ve aynı noktanın yerel
+   * (x, z)'si zaten biliniyorsa ters TM atlanır. İnce karo yüklü değilse NaN (çağıran bekler).
+   */
+  mslAtFine(gx, gy, x, z) {
+    const h = this.surfaceAtLevel(this.demFine, gx, gy);
+    if (Number.isNaN(h)) return NaN;
+    return this.conform ? this.conform(x, z, h) : h;
+  }
+  /** İnce DEM karosu (z12 x, y) ve komşuları hazır mı; değilse iste. */
+  fineReady(tx, ty) {
+    let ok = true;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = tx + dx, y = ty + dy, d = this.demFine;
+      if (!this.dem.inRange(d, x, y)) continue;
+      const t = this.dem.get(d, x, y);
+      if (!t) { this.dem.request(d, x, y, 0); ok = false; } else if (!t.ready && !t.failed) ok = false;
+    }
+    return ok;
+  }
+
   /** Su payı 0..1 (en ince yüklü seviye). */
   waterAt(x, z) {
     const g = this.frame.toGeo(x, z, this._g);
     for (const d of this.dem.levels) {
       const gx = lonToTileX(g.lon, d) * TILE, gy = latToTileY(g.lat, d) * TILE;
+      // Seviyenin kapsamı dışında bir sonraki (kaba) seviyeye geç: pixelTile kenar pikseline
+      // sıkıştırır; eskiden ince seviyenin kenar değeri kapsam dışına taşınıyordu.
+      const r = this.dem.range[d];
+      if (gx < r.x0 * TILE || gx >= (r.x1 + 1) * TILE || gy < r.y0 * TILE || gy >= (r.y1 + 1) * TILE) continue;
       const p = this.dem.pixelTile(d, Math.floor(gx), Math.floor(gy));
       if (!p) continue;
       return this.surfaceAtLevel(d, gx, gy, true);
@@ -969,7 +1022,7 @@ export class GeoTerrain {
     if (n.mesh) {
       this.releaseImagery(n);
       this.group.remove(n.mesh);
-      if (this.pool.length < 96) this.pool.push(n.mesh);
+      if (this.pool.length < 48) this.pool.push(n.mesh);
       else { n.mesh.geometry.dispose(); n.mesh.material.dispose(); }
       n.mesh = null;
     }

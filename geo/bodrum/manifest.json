@@ -1,24 +1,24 @@
 {
  "dem": {
   "levels": {
-   "9": {
-    "x0": 292,
-    "x1": 297,
-    "y0": 196,
-    "y1": 200
-   },
    "12": {
     "x0": 2355,
     "x1": 2367,
     "y0": 1585,
     "y1": 1598
+   },
+   "9": {
+    "x0": 292,
+    "x1": 297,
+    "y0": 196,
+    "y1": 200
    }
   },
-  "bytes": 7772826,
+  "bytes": 7351655,
   "stats": {
-   "core_min": 0,
+   "core_min": 0.0,
    "core_max": 1411.72265625,
-   "water_frac": 0.19404518211280908
+   "water_frac": 0.4633941650390625
   },
   "url": "dem/{z}/{x}/{y}.png",
   "encoding": "terrarium",
@@ -79,10 +79,15 @@
     "y1": 99
    }
   },
-  "bytes": 6763776,
+  "bytes": 6765100,
   "url": "img/{z}/{x}/{y}.webp",
   "albedoScale": 1.6,
-  "note": "pixel = sRGB(BOA reflectance * albedoScale); deep water offset to SEA_REF"
+  "note": "pixel = sRGB(BOA reflectance * albedoScale); deep water offset to SEA_REF",
+  "registration": {
+   "shiftEastM": 6.0,
+   "shiftNorthM": 12.0,
+   "note": "Sentinel-2 moved onto OpenStreetMap (2D correlation at LTFE, Bodrum, Milas)"
+  }
  },
  "id": "bodrum",
  "name": "Bodrum, Mu\u011fla, T\u00fcrkiye",
@@ -98,6 +103,18 @@
   "note": "sun at the acquisition of the primary scene"
  },
  "sources": [
+  {
+   "what": "Buildings, roads, aeroways",
+   "name": "Overture Maps Foundation release 2026-10-21.0 (OpenStreetMap; Microsoft ML Building Footprints)",
+   "url": "https://overturemaps.org",
+   "attribution": "\u00a9 OpenStreetMap contributors (ODbL); Microsoft Building Footprints (ODbL); Overture Maps Foundation"
+  },
+  {
+   "what": "Land cover",
+   "name": "ESA WorldCover 10 m 2021 v200",
+   "url": "https://esa-worldcover.org",
+   "attribution": "\u00a9 ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium (CC BY 4.0)"
+  },
   {
    "what": "Elevation",
    "name": "Terrain Tiles (Terrarium) on AWS Open Data; EU-DEM / SRTM / ETOPO1 sources",
@@ -1123,5 +1140,62 @@
   "model": "NOAA WMM-2025 via geomagnetism 0.2.0",
   "date": "2026-10-30",
   "declinationDeg": 5.41
+ },
+ "airport": {
+  "url": "airport/ltfe.json"
+ },
+ "buildings": {
+  "z": 14,
+  "url": "bld/{z}/{x}/{y}.bin",
+  "index": {
+   "x0": 9420,
+   "y0": 6341,
+   "w": 51,
+   "h": 53,
+   "bits": "gKf//5//B+D/////P0De/////wH4/////w/g/////38A/v////8D4I////8fAP/w////APxv////B+D/////PwD//////wH4v////w/A/////38A3vn///8D8O/n//8fwJ+//v//APz8///7B4Dkr/7XPwQA7////yEAgP///w8BAPz/j38AAKD5//8DAADu//8XAAAA///5AAAA/P/fAQAA+P+PJgCAgP//vwAAD/3/vwcA/+D//38A+I/3//8DwP//v30fAP//////MPj/3/r/B9D/////PwD+/////w/g3///MTAAT/7nA4ADeBAGAAA8wgEAAABgHQAAAAAAwCEAAAAABsADAAAAEOB/AAAAwID/AwAAAAD/HwAAAHD8HwAAAMDzHwAAAADcPwAAAPDh/wAA4P//+wMAwP97CAAAXP7gAQEAYPwDAA4AAIEeAGA="
+  },
+  "bytes": 3678768,
+  "count": 306068,
+  "osm": 26193,
+  "withHeight": 41,
+  "withLevels": 653
+ },
+ "roads": {
+  "z": 14,
+  "url": "road/{z}/{x}/{y}.bin",
+  "index": {
+   "x0": 9420,
+   "y0": 6339,
+   "w": 53,
+   "h": 55,
+   "bits": "AGAAEAAAAAAGADIAAAD+2P9/9j4A/vu37/8HwL7P////APj/v/3/D8D/77v//wHo//H//n0A/Jvh//8PgH/gT/n+Afj//Y3vugD8//ds/xPA/bj//3sA+P////8PAO9/f//9A+Cd7+//fwD8++39/w+An//87/gB8PN//3wcAADu7/+fBwOA+f///2AAAP//3x8MAODfL/gBAACY/z8HAACA+/9nCAAAAPv//QEAAPD//wMAAID//wEGAADw//95AAAH/H/+BwD4g//f/AeA//z/+88A8P//f/8PAP//////wOD//9//fwD//////weA//////8A4Nf//zPAAHz4/Q8AOIAHIAEAAC9wAAAAAOAdAAAAAIABhwAAAAA+ADwAAACAD/gfAAAAcIH/AwAAAA78fwAAAODH/wEAAAD8/AMAAOAA3z8AABj86/0DAID//58/AAD+/7sBAAAHPnwAAADg/AMADAAADH8AgAE="
+  },
+  "bytes": 1771168,
+  "classes": {
+   "motorway": 1,
+   "trunk": 2,
+   "primary": 3,
+   "secondary": 4,
+   "tertiary": 5,
+   "unclassified": 6,
+   "residential": 7,
+   "living_street": 8,
+   "service": 9,
+   "track": 10,
+   "unknown": 11
+  }
+ },
+ "vegetation": {
+  "z": 12,
+  "url": "veg/{z}/{x}/{y}.png",
+  "index": {
+   "x0": 2355,
+   "y0": 1585,
+   "w": 13,
+   "h": 14,
+   "bits": "/t//93/+7//nP/zn/////3/gT3//4TM="
+  },
+  "bytes": 5283154,
+  "channels": "R tree, G shrub, B grass+crop (fraction*255)"
  }
 }

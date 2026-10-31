@@ -516,6 +516,16 @@
       white-space: pre; max-height: calc(88 * var(--vh)); overflow: hidden; letter-spacing: 0.2px;
     }
     #physdbg[hidden] { display: none; }
+    /* Performans katmanı — HUD'dan ayrı; Ayarlar > FPS counter > Debug ya da ` tuşu */
+    #perfdbg {
+      position: absolute; right: calc(var(--sar) + 8px); top: calc(var(--sat) + 26px);
+      font: 10.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #cfe3ff; background: rgba(6,10,18,0.74); border: 1px solid rgba(120,170,255,0.28);
+      border-radius: 6px; padding: 6px 9px; pointer-events: none; z-index: 30;
+      white-space: pre; max-width: calc(100% - var(--sar) - var(--sal) - 16px); overflow: hidden;
+    }
+    #perfdbg[hidden] { display: none; }
+    #perfdbg b { color: #9fd0ff; font-weight: 600; }
     #physdbg b { color: #ffd479; font-weight: 600; }
   </style>
 </head>
@@ -526,6 +536,7 @@
   <div id="msg"></div>
   <div id="fps"></div>
   <div id="physdbg" hidden></div>
+  <div id="perfdbg" hidden></div>
 
   <div id="touch" data-anim="fade" hidden>
     <div class="zone" id="view-zone"></div>
@@ -665,10 +676,19 @@
           <button data-v="wide">Wide</button>
         </div>
       </div>
+      <div class="opt"><span>Time of day <small>(Bodrum region, 3 Oct, local time)</small></span>
+        <div class="seg" id="tod-seg">
+          <button data-d="default" class="on">12:10</button>
+          <button data-d="morning">08:30</button>
+          <button data-d="afternoon">16:30</button>
+          <button data-d="evening">18:25</button>
+        </div>
+      </div>
       <div class="opt"><span>FPS counter</span>
         <div class="seg" id="fps-seg">
           <button data-f="0" class="on">Off</button>
           <button data-f="1">On</button>
+          <button data-f="2">Debug</button>
         </div>
       </div>
       <p class="small">Version <span id="version"></span> · Changing the quality rebuilds the scenery.</p>

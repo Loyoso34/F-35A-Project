@@ -44,6 +44,12 @@ OUTER = (25.92, 36.08, 29.30, 38.60)    # low-resolution ring (inside the 3x3 Se
 DEM_CORE_Z, DEM_OUTER_Z = 12, 9
 IMG_CORE_Z, IMG_CORE_MIN = 13, 11
 IMG_OUTER_Z, IMG_OUTER_MIN = 10, 8
+# Sentinel-2 geolocation correction (m, east/north), applied to every scene before reprojection.
+# Measured by 2D correlation of rasterised OpenStreetMap features with the 10 m reflectance:
+# LTFE runways/taxiways/aprons (-8 E, -12 N for OSM->S2), Bodrum town 839 OSM footprints (-4, -10),
+# Milas 120 footprints (0, -20, weak). OSM is traced on sub-metre aerial imagery, so the imagery is
+# moved onto OSM. Residual uncertainty ~ +/-5 m. (Scene geolocation tolerance of S2 L2A is ~10 m.)
+IMG_SHIFT_EN = (6.0, 12.0)
 AERODROME = {'lat': 37.249314, 'lon': 27.66401, 'axis': 106.6}   # LTFE ARP (OurAirports)
 S2_BUCKET ='https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/35/S'
 # Core scenes in priority order (first valid pixel wins). Dates chosen for ~0 % cloud.
@@ -100,7 +106,8 @@ def mosaic(z, rng, scenes, src_path, depth, overview=None):
             kw = {'overview_level': overview} if overview is not None else {}
             with rasterio.open(path, **kw) as ds:
                 dst = np.zeros((H, W), np.float32)
-                reproject(rasterio.band(ds, 1), dst, src_nodata=0, dst_nodata=0, dst_transform=dst_tr,
+                src_tr = Affine.translation(*IMG_SHIFT_EN) * ds.transform
+                reproject(ds.read(1), dst, src_transform=src_tr, src_crs=ds.crs, src_nodata=0, dst_nodata=0, dst_transform=dst_tr,
                           dst_crs='EPSG:3857', resampling=Resampling.average, num_threads=4)
             got.append(dst)
         valid = (got[0] > 0) & (got[1] > 0) & (got[2] > 0) & (got[3] > 0)
@@ -237,6 +244,53 @@ def dem_grid(cache, z, rng):
     return H
 
 
+def despike(h, thresh, iters=4):
+    """Terrarium z9 has isolated bad cells in the Aegean islands (e.g. 4952 m on Leros at
+    37.19 N 26.77 E, real summit ~320 m; 3546 m near Arki; 1202 m on Symi, real ~616 m). A cell more
+    than `thresh` metres above the median of its 5x5 neighbourhood is replaced by that median,
+    repeated so that multi-cell spikes collapse from the top. Real relief at z9 (~245 m cells)
+    stays far below the threshold: the steepest massif in the box (Babadağ, 1969 m) drops < 200 m
+    within the window."""
+    from scipy.ndimage import median_filter
+    h = h.copy()
+    total = 0
+    for _ in range(iters):
+        med = median_filter(h, size=5, mode='nearest')
+        bad = (h - med) > thresh
+        n = int(bad.sum())
+        if not n:
+            break
+        h[bad] = med[bad]
+        total += n
+    return h, total
+
+
+def land_fraction_grid(cache, z, rng, ss=4):
+    """Fraction of OSM land per DEM cell (Overture base/land, subtype 'land': polygons built from
+    OSM coastlines; ODbL). ss x ss supersampling. None when the layer was not extracted."""
+    p = os.path.join(cache, 'overture', 'land.parquet')
+    if not os.path.exists(p):
+        return None
+    import pyarrow.parquet as pq
+    import shapely
+    from shapely import wkb
+    from rasterio.features import rasterize
+    R = 6378137.0
+    merc = lambda c: np.column_stack([np.radians(c[:, 0]) * R, np.log(np.tan(np.pi / 4 + np.radians(c[:, 1]) / 2)) * R])
+    shapes = []
+    for r in pq.read_table(p, columns=['geometry', 'subtype']).to_pylist():
+        if r['subtype'] != 'land':
+            continue
+        g = wkb.loads(r['geometry'])
+        if g.geom_type in ('Polygon', 'MultiPolygon'):
+            shapes.append((shapely.transform(g, merc), 1))
+    x0, x1, y0, y1 = rng
+    W, H = (x1 - x0 + 1) * 256, (y1 - y0 + 1) * 256
+    m = rasterize(shapes, out_shape=(H * ss, W * ss), transform=merc_transform(z, x0 * 256, y0 * 256) * Affine.scale(1 / ss),
+                  fill=0, dtype='uint8')
+    return m.reshape(H, ss, W, ss).mean(axis=(1, 3))
+
+
 def water_mask_grid(z, rng, s2dir):
     """Fraction of open water per DEM cell, from the core scenes (NaN = no data).
 
@@ -254,7 +308,7 @@ def water_mask_grid(z, rng, s2dir):
             wat = ((gg - nn) / np.maximum(gg + nn, 1.0) >= 0.1).astype(np.float32)
             wat[(gg == 0) | (nn == 0)] = np.nan
             dst = np.full((H, W), np.nan, np.float32)
-            reproject(wat, dst, src_transform=g.transform, src_crs=g.crs, src_nodata=np.nan, dst_nodata=np.nan,
+            reproject(wat, dst, src_transform=Affine.translation(*IMG_SHIFT_EN) * g.transform, src_crs=g.crs, src_nodata=np.nan, dst_nodata=np.nan,
                       dst_transform=dst_tr, dst_crs='EPSG:3857', resampling=Resampling.average)
         fill = np.isnan(acc) & ~np.isnan(dst)
         acc[fill] = dst[fill]
@@ -282,9 +336,37 @@ def bake_dem(cache, out_dir):
     rc = tile_range(CORE, DEM_CORE_Z)
     h = dem_grid(cache, DEM_CORE_Z, rc)
     wm = water_mask_grid(DEM_CORE_Z, rc, s2dir)
-    # Water: Sentinel-2 says water, or the DEM is clearly seabed (> 1 m below MSL; covers sun-glint
-    # gaps in SCL). Land the DEM puts below 0 m but the imagery shows as land is raised to 0.5 m.
-    water = (np.nan_to_num(wm, nan=0.0) >= 0.5) | (h < -1.0)
+    # Outer z9 grid first: despiked, and used to fill the z12 sea where Terrarium z12 has no
+    # bathymetry (exactly 0 m) outside the Sentinel-2 core scenes (west of ~27.0 E). Without this
+    # a 2 km strip of open sea was baked as 0.5 m land (dark line seen from altitude).
+    ro = tile_range(OUTER, DEM_OUTER_Z)
+    ho, nsp = despike(dem_grid(cache, DEM_OUTER_Z, ro), 400.0)
+    print(f'  z9 despike: {nsp} cells', flush=True)
+    k = 1 << (DEM_CORE_Z - DEM_OUTER_Z)
+    from scipy.ndimage import map_coordinates
+    gy9, gx9 = np.mgrid[0:h.shape[0], 0:h.shape[1]]
+    h9 = map_coordinates(ho, [(rc[2] * 256 + gy9 + 0.5) / k - 0.5 - ro[2] * 256, (rc[0] * 256 + gx9 + 0.5) / k - 0.5 - ro[0] * 256], order=1, mode='nearest')
+    del gy9, gx9
+    # Terrarium z12 has no bathymetry: the sea is exactly 0 m. Where the coarse z9 grid has seabed
+    # (or there is no Sentinel-2 coverage), take the z9 value. Sentinel-2 NDWI alone cannot be
+    # trusted at sea: sun glint on the 2024-10-03 scenes pushes NDWI below 0.1 over most of the
+    # Gulf of Gökova (~2.4 M z12 cells), which used to bake open sea as 0.5 m land.
+    nodata = (h == 0.0) & ((h9 < 0.0) | np.isnan(wm))
+    h[nodata] = h9[nodata]
+    print(f'  z12 no-data (0 m) filled from z9: {int(nodata.sum())} cells', flush=True)
+    # Water. With the OSM coastline (Overture base/land; the imagery is registered to OSM): sea =
+    # outside OSM land, unless the DEM there is >= 15 m (a coastline offset at a cliff: left as
+    # land); inland water = Sentinel-2 NDWI on OSM land (lakes, reservoirs). Without it: Sentinel-2
+    # says water, or the DEM is clearly seabed (> 1 m below MSL). Land the DEM puts below 0.5 m is
+    # raised to 0.5 m.
+    lf = land_fraction_grid(cache, DEM_CORE_Z, rc)
+    if lf is not None:
+        osm_sea = lf < 0.5
+        water = (osm_sea & (h < 15.0)) | (~osm_sea & (np.nan_to_num(wm, nan=0.0) >= 0.5))
+        print(f'  OSM coastline: sea {osm_sea.mean() * 100:.1f}% of cells, {int((osm_sea & (h >= 15.0)).sum())} sea cells left as land (DEM >= 15 m)', flush=True)
+    else:
+        osm_sea = np.zeros(h.shape, bool)
+        water = (np.nan_to_num(wm, nan=0.0) >= 0.5) | (h < -1.0)
     # Fresh/dark asphalt on LTFE's runways gives noisy NDWI: no open water inside the aerodrome
     # (runway axis 106.6 deg true through the ARP; box covers both runways, aprons and margins).
     x0, x1, y0, y1 = rc
@@ -296,18 +378,19 @@ def bake_dem(cache, out_dir):
     b = math.radians(AERODROME['axis'])
     u, v = dx * math.sin(b) + dy * math.cos(b), dx * math.cos(b) - dy * math.sin(b)
     water &= ~((np.abs(u - 50) < 1800) & (v > -330) & (v < 330))
-    sea = water & (h < 0.5)
+    # Sentinel-2 water above coarse seabed while z12 says land (EU-DEM noise at sea, e.g. 6-15 m
+    # "hills" south of Bodrum at 37.00 N): the sea surface. Inland reservoirs have z9 > 0 and stay.
+    noise = water & (h >= 0.5) & (h9 < -2.0)
+    print(f'  z12 water cells raised above coarse seabed, clamped to sea: {int(noise.sum())}', flush=True)
+    sea = water & ((h < 0.5) | noise | osm_sea)
     h = np.where(sea, 0.0, h)                       # the sea surface is 0 m MSL
     h = np.where(~water & (h < 0.5), 0.5, h)
     stats = {'core_min': float(h.min()), 'core_max': float(h.max()), 'water_frac': float(water.mean())}
     size = write_dem_tiles(h, water, DEM_CORE_Z, rc, out_dir)
     # Outer ring at z9 (Terrarium z9; seabed -> 0 m sea surface). Inside the core it is replaced by
     # the processed z12 data box-filtered 8x so that both levels agree.
-    ro = tile_range(OUTER, DEM_OUTER_Z)
-    ho = dem_grid(cache, DEM_OUTER_Z, ro)
     wo = ho < 0.0
     ho = np.where(wo, 0.0, ho)
-    k = 1 << (DEM_CORE_Z - DEM_OUTER_Z)
     hc = h.reshape(h.shape[0] // k, k, h.shape[1] // k, k).mean(axis=(1, 3))
     wc = water.reshape(water.shape[0] // k, k, water.shape[1] // k, k).mean(axis=(1, 3)) >= 0.5
     ox, oy = rc[0] * 256 // k - ro[0] * 256, rc[2] * 256 // k - ro[2] * 256
@@ -379,7 +462,10 @@ def main():
     meta = json.load(open(os.path.join(a.cache, 's2', CORE_SCENES[0], CORE_SCENES[0] + '.json')))['properties']
     man['sun'] = {'azimuthDeg': round(meta['view:sun_azimuth'], 2), 'elevationDeg': round(meta['view:sun_elevation'], 2),
                   'datetime': meta['datetime'], 'note': 'sun at the acquisition of the primary scene'}
-    man['sources'] = [
+    # Diğer araçların (vectors.py: OSM/Overture, WorldCover) kaynak kayıtları korunur
+    own = ('Elevation', 'Imagery', 'Aerodrome reference point')
+    keep = [x for x in man.get('sources', []) if x.get('what') not in own]
+    man['sources'] = keep + [
         {'what': 'Elevation', 'name': 'Terrain Tiles (Terrarium) on AWS Open Data; EU-DEM / SRTM / ETOPO1 sources',
          'url': 'https://registry.opendata.aws/terrain-tiles/',
          'attribution': 'Produced using Copernicus data and information funded by the European Union - EU-DEM layers; '

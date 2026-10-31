@@ -50,3 +50,23 @@ export function atmosphere(h) {
  * V_eas = V_tas * sqrt(sigma)
  */
 export function equivalentAirspeed(tas, sigma) { return tas * Math.sqrt(sigma); }
+
+const A0 = Math.sqrt(GAMMA * R_AIR * T0);   // 340,294 m/s
+
+/**
+ * Kalibre hava hızı (CAS) = konum/alet hatası olmayan gösterge hızı (IAS). Pitot darbe basıncından:
+ * ses altında izantropik bağıntı, ses üstünde Rayleigh pitot formülü (pitot önünde normal şok);
+ * sonra deniz seviyesi ISA'da aynı darbe basıncını veren hız (CAS < a0 kolu). Standart aerodinamik
+ * bağıntılardır (ör. Anderson, Introduction to Flight, böl. 4). Eskiden IAS olarak EAS
+ * (V·√σ) gösteriliyordu: yüksekte ve yüksek Mach'ta düşük okur (FL300 M0,80: EAS 288, CAS 304 kt).
+ * @param {number} tas m/s
+ * @param {{p:number,a:number}} atm atmosphere() çıktısı
+ * @returns {number} m/s
+ */
+export function calibratedAirspeed(tas, atm) {
+  const M = Math.abs(tas) / atm.a;
+  const qc = M <= 1
+    ? atm.p * (Math.pow(1 + 0.2 * M * M, 3.5) - 1)
+    : atm.p * (166.92158 * Math.pow(M, 7) / Math.pow(7 * M * M - 1, 2.5) - 1);
+  return A0 * Math.sqrt(5 * (Math.pow(qc / P0 + 1, 2 / 7) - 1));
+}

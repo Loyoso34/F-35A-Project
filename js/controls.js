@@ -392,6 +392,8 @@ export class Controls {
         case 'KeyP': case 'Escape': this.cb.onPause && this.cb.onPause(); break;
         // Shift+D: geliştirici fizik paneli (§40). Normal oyunda kapalı.
         case 'KeyD': if (e.shiftKey) this.cb.onPhysDebug && this.cb.onPhysDebug(); break;
+        // `: performans katmanı (kare süreleri, çizim çağrıları, bellek tahmini)
+        case 'Backquote': this.cb.onPerfDebug && this.cb.onPerfDebug(); break;
         default: return;
       }
       e.preventDefault();

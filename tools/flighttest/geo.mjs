@@ -29,5 +29,16 @@ check(Math.abs(G.tileYToLat(y, 13) - 37.2) < 1e-10 && Math.abs(G.tileXToLon(G.lo
 check(G.yFromMsl(0) === G.MSL_Y && G.mslFromY(G.yFromMsl(123.4)) === 123.4, 'MSL datum: sea level at y = MSL_Y');
 const gg = new G.GeoidGrid({ lat0: 37, lon0: 27, dlat: 1, dlon: 1, nlat: 2, nlon: 2, v: [30, 32, 34, 36] });
 check(Math.abs(gg.undulation(37.5, 27.5) - 33) < 1e-9 && gg.ellipsoidal(10, 37, 27) === 40, 'geoid grid bilinear; h_ell = h_msl + N');
+// Güneş konumu (gün saati): bağımsız referans = Sentinel-2 sahne meta verisi (manifest.sun)
+{
+  const S = await import('../../js/sun.js');
+  const man = JSON.parse(readFileSync(new URL('../../geo/bodrum/manifest.json', import.meta.url)));
+  const p = S.solarPosition(new Date(man.sun.datetime), man.reference.lat, man.reference.lon);
+  check(Math.abs(p.azimuthDeg - man.sun.azimuthDeg) < 0.5 && Math.abs(p.elevationDeg - man.sun.elevationDeg) < 0.5,
+    `solar position at the imagery time: az ${p.azimuthDeg.toFixed(2)}° el ${p.elevationDeg.toFixed(2)}° vs Sentinel-2 metadata ${man.sun.azimuthDeg}° / ${man.sun.elevationDeg}° (scene centre differs from the ARP)`);
+  const ev = S.solarPosition(S.localTimeMs('2024-10-03', 18, 25), man.reference.lat, man.reference.lon);
+  const ss = S.solarPosition(S.localTimeMs('2024-10-03', 18, 45), man.reference.lat, man.reference.lon);
+  check(ev.elevationDeg > 2 && ev.elevationDeg < 6 && ss.elevationDeg < 0.5 && ev.azimuthDeg > 255 && ev.azimuthDeg < 268, `evening preset 18:25 local: sun ${ev.elevationDeg.toFixed(1)}° high at ${ev.azimuthDeg.toFixed(0)}° (west); 18:45: ${ss.elevationDeg.toFixed(1)}°`);
+}
 console.log(fails ? `\n${fails} geo check(s) FAILED` : '\nall geo checks passed');
 process.exit(fails ? 1 : 0);
