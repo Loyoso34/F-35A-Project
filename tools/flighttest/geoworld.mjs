@@ -122,12 +122,18 @@ const L = R.LTFE;
   const hitIn = W.hitsBuilding(cx, term.minY + 6, cz, 1);
   const hitAbove = W.hitsBuilding(cx, term.maxY + 15, cz, 1);
   // AABB içinde ama çokgen dışında bir nokta (varsa): çarpışma yok
-  let gapMiss = true;
+  let gapMiss = true, gap = null;
   for (let i = 0; i < 200; i++) {
     const x = term.minX + (term.maxX - term.minX) * ((i * 0.618034) % 1), z = term.minZ + (term.maxZ - term.minZ) * ((i * 0.414214) % 1);
     let d = 1e9; for (let k = 0; k < term.poly.length; k++) { const a = term.poly[k], b = term.poly[(k + 1) % term.poly.length]; d = Math.min(d, A.constructor.segDist({ ax: a.x, az: a.z, bx: b.x, bz: b.z }, x, z)); }
-    if (!A.constructor.inPoly(term.poly, x, z) && d > 3 && W.hitsBuilding(x, term.minY + 6, z, 1)) { gapMiss = false; break; }
+    if (A.constructor.inPoly(term.poly, x, z) || d <= 3) continue;
+    if (!gap && d > 8) gap = { x, z };
+    if (W.hitsBuilding(x, term.minY + 6, z, 1)) { gapMiss = false; break; }
   }
+  // Parça testi (füze, kamera yay kolu) de çokgeni kullanır: kutu boşluğundan dikey parça isabet değil
+  const segGap = gap ? W.segmentHit(new THREE.Vector3(gap.x, term.maxY + 5, gap.z), new THREE.Vector3(gap.x, term.minY + 2, gap.z)) : -1;
+  const segIn = W.segmentHit(new THREE.Vector3(cx, term.maxY + 20, cz), new THREE.Vector3(cx, term.minY + 2, cz));
+  check(segGap === -1 && segIn > 0 && segIn < 1, `segment test honours the footprint: through the bounding-box gap ${segGap === -1 ? 'clear' : 'HIT ' + fmt(segGap, 2)}, through the terminal roof hit at t=${fmt(segIn, 2)}`);
   check(sol.length > 50 && hitIn && !hitAbove && gapMiss, `${sol.length} OSM aerodrome buildings collide by footprint polygon: inside "${term.name}" hit, ${fmt(term.maxY - term.minY - 1.5, 0)} m roof + 15 m clear, outside-footprint points in its bounding box clear`);
   let onPave = 0;
   for (const r of L.runways) for (let u = -r.len / 2; u <= r.len / 2; u += 50) { const x = r.cx + r.ux * u, z = r.cz + r.uz * u; if (W.hitsBuilding(x, W.heightAt(x, z) + 3, z, 6)) onPave++; }

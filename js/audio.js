@@ -1,7 +1,7 @@
 // Prosedürel Web Audio: modern savaş uçağı motoru.
 // Katmanlar: gövde gürlemesi (rezonanslı düşük frekans), türbin ıslığı (harmonikler), egzoz kükremesi
 // (kahverengi gürültü, gaz kolu ile spektrum değişir), art yakıcı (yumuşak kırpma + çıtırtı + ateşleme darbesi),
-// rüzgar, yer gürültüsü, stall uyarısı. Kokpit içinde boğuk/gürlemeli, dışarıda parlak ve kükremeli.
+// rüzgar, yer gürültüsü, stall uyarısı, iniş takımı hidroliği + kilit sesi, teker koyma (lastik cıyaklaması). Kokpit içinde boğuk/gürlemeli, dışarıda parlak ve kükremeli.
 // Dış "uçuş geçişi" kamerasında Doppler ve mesafe zayıflaması uygulanır. Master kompresör kırpmayı önler.
 // F-35A (F135) ses profili; fleet.js aynı değerleri verir
 const DEFAULT_PROFILE = {
@@ -130,6 +130,12 @@ export class AudioEngine {
     this.rollGain = ctx.createGain(); this.rollGain.gain.value = 0;
     this.roll.connect(this.rollLP); this.rollLP.connect(this.rollGain); this.rollGain.connect(this.bus);
 
+    // --- İniş takımı hidroliği: takım HAREKET EDERKEN (konum fizikten) dar bantlı vızıltı
+    this.gearHum = this.loopSource(pink, 0.8);
+    this.gearBP = ctx.createBiquadFilter(); this.gearBP.type = 'bandpass'; this.gearBP.frequency.value = 420; this.gearBP.Q.value = 4;
+    this.gearHumGain = ctx.createGain(); this.gearHumGain.gain.value = 0;
+    this.gearHum.connect(this.gearBP); this.gearBP.connect(this.gearHumGain); this.gearHumGain.connect(this.bus);
+
     // --- Stall uyarısı
     this.stallOsc = ctx.createOscillator(); this.stallOsc.type = 'square'; this.stallOsc.frequency.value = 720;
     this.stallGain = ctx.createGain(); this.stallGain.gain.value = 0;
@@ -243,6 +249,19 @@ export class AudioEngine {
     const rollG = running && T.onGround ? Math.min(T.tas / 60, 1) * (cockpit ? 0.35 : 0.2) : 0;
     this.rollGain.gain.setTargetAtTime(rollG, t, k);
     this.rollLP.frequency.setTargetAtTime(P.rollLP, t, k);
+    // İniş takımı: vızıltı yalnızca fizikteki takım konumu değişirken; uçlara varınca kilit sesi
+    const gp = T.gear;
+    // (sıfırlamada konum bir karede atlar: büyük sıçrama hareket sayılmaz, kilit sesi çalmaz)
+    const dgp = this._gearPrev === undefined ? 0 : Math.abs(gp - this._gearPrev);
+    const moving = running && dgp > 1e-6 && dgp < 0.2;
+    this.gearHumGain.gain.setTargetAtTime(moving ? (cockpit ? 0.045 : 0.03) * dg : 0, t, 0.06);
+    if (moving) this.gearBP.frequency.setTargetAtTime(380 + 120 * gp, t, 0.2);
+    if (moving && (gp === 0 || gp === 1)) this.gearLock(gp === 1, cockpit, dg);
+    this._gearPrev = gp;
+    // Teker koyma: havadan yere geçişte, şiddet son havadaki batış hızıyla (ft/dk)
+    if (running && T.onGround && this._air && T.gsKt > 40) this.touchdown(Math.max(0, -this._lastVs), T.gsKt, cockpit, dg);
+    if (!T.onGround) this._lastVs = T.vsFpm;
+    this._air = running && !T.onGround;
     // Stall: 4 Hz kesikli ton (yalnızca kokpit uyarısı; dışarıda daha kısık)
     if (running && (T.stall || T.stallWarn)) {
       this.stallPhase += dt * 4;
@@ -326,6 +345,26 @@ export class AudioEngine {
     this._noise(this._buf('b', 2.0, 'brown', 93), t, 0.5 + S, 0.9 * S * g, 'lowpass', 1400, 140, 0.6);
     this._noise(this._buf('w', 2.0, 'white', 91), t + 0.02, Math.min(1.9, scrapeSec), 0.16 * S * g, 'bandpass', 2600, 900, 1.4);
     if (severity === 'catastrophic') this.explosion(dist);
+  }
+
+  /** Takım kilidi: mekanik darbe (indirmede daha dolgun: takım yuvaya oturur ve kilitlenir). */
+  gearLock(down, cockpit, dg = 1) {
+    if (!this.ready || this.muted) return;
+    const t = this.ctx.currentTime, g = (cockpit ? 1 : 0.6) * dg;
+    this._tone(t, down ? 150 : 190, 55, 0.16, (down ? 0.2 : 0.13) * g);
+    this._noise(this._buf('b', 2.0, 'brown', 93), t, 0.14, 0.22 * g, 'lowpass', 900, 180);
+  }
+  /**
+   * Teker koyma: lastiklerin dönmeye başlarken kayması (kısa bant geçiren cıyaklama, yer hızıyla
+   * daha tiz) + gövde darbesi (batış hızıyla). sink: ft/dk, gs: kt.
+   */
+  touchdown(sink, gs, cockpit, dg = 1) {
+    if (!this.ready || this.muted) return;
+    const t = this.ctx.currentTime, s = Math.min(1, 0.25 + sink / 600), g = (cockpit ? 0.8 : 1) * dg;
+    const f = 900 + Math.min(gs, 180) * 6;
+    this._noise(this._buf('w', 2.0, 'white', 91), t, 0.22, 0.10 * s * g, 'bandpass', f, f * 0.7, 6);
+    this._noise(this._buf('w', 2.0, 'white', 91), t + 0.05, 0.16, 0.06 * s * g, 'bandpass', f * 1.15, f * 0.8, 6);
+    this._tone(t, 80, 34, 0.25, 0.3 * s * (cockpit ? 1.2 : 0.7) * dg);
   }
 
   // Art yakıcı ateşleme darbesi: kısa düşük frekanslı patlama

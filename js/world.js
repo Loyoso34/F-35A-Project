@@ -3247,6 +3247,17 @@ export class World {
           if (c < t1) t1 = c;
           if (t0 > t1) { ok = false; break; }
         }
+        // Ayak izi çokgenli yapı (meydan binaları): kutu içindeki aralıkta çokgen testi (≈2 m adım);
+        // eğik binanın kutusundaki boşluk isabet sayılmaz
+        if (ok && b.test) {
+          const L = Math.hypot(dx, dz) * (t1 - t0), n = Math.max(1, Math.ceil(L / 2));
+          let hit = -1;
+          for (let k = 0; k <= n; k++) {
+            const t = t0 + (t1 - t0) * k / n;
+            if (b.test(p0.x + dx * t, p0.z + dz * t, 0.5)) { hit = t; break; }
+          }
+          if (hit < 0) ok = false; else t0 = hit;
+        }
         if (ok && (best < 0 || t0 < best)) best = t0;
       }
     }

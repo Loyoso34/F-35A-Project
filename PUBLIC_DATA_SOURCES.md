@@ -177,7 +177,7 @@ underside. Lift-off happens when the net vertical force turns upward.
 - Real aerodynamic tables, real inertia tensor, real CG envelope.
 - Store carriage, asymmetric loading, weapons.
 
-## 7. Real-world region: Bodrum, Muğla, Türkiye (v3.8.0)
+## 7. Real-world region: Bodrum, Muğla, Türkiye (v3.8.0, extended in v3.9.0)
 
 Everything below is open data that may be redistributed with attribution. The files are baked by
 `tools/geodata/bake.py` into `geo/bodrum/` and served from the same origin as the app (no API key,
@@ -190,7 +190,9 @@ hangar.
 |---|---|---|---|
 | Elevation | AWS Open Data **Terrain Tiles** (Mapzen/Tilezen, Terrarium encoding); here EU-DEM (Copernicus, ~25 m), SRTM, ETOPO1 | Free; "Produced using Copernicus data and information funded by the European Union - EU-DEM layers"; SRTM: U.S. Geological Survey; ETOPO1: NOAA | 30 m (z12) core, 195 m (z9) outer ring |
 | Imagery | **Copernicus Sentinel-2 L2A** surface reflectance, bands B04/B03/B02 (10 m), AWS Open Data `sentinel-cogs` | Copernicus free, full and open licence; "Contains modified Copernicus Sentinel data 2024" | Albedo texture, z13 (15 m) core, z10 (120 m) outer ring |
-| Water mask | Sentinel-2 B03/B08 (NDWI ≥ 0.1) | as above | Physics `water` surface, sea shading |
+| Water mask | Sentinel-2 B03/B08 (NDWI ≥ 0.1) on land; **OSM coastline** at sea (v3.9) | as above / ODbL | Physics `water` surface, sea shading |
+| Buildings, roads, aeroways, coastline | **Overture Maps Foundation** release 2026-10-21.0 (AWS Open Data, anonymous S3): OpenStreetMap + Microsoft ML Building Footprints | ODbL — "© OpenStreetMap contributors"; Microsoft Building Footprints (ODbL); Overture Maps Foundation | 3D buildings, roads, LTFE taxiways/aprons/stopways/buildings, land polygons (coastline) |
+| Land cover | **ESA WorldCover** 10 m 2021 v200 | CC BY 4.0 — "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium" | Tree / shrub / grass fractions for vegetation placement |
 | Aerodrome reference point, runway lengths/widths/threshold elevations | **OurAirports** `airports.csv`, `runways.csv` | Public domain | LTFE |
 | Geoid undulation | EGM96 (npm `egm96-universal` 1.1.1, MIT) | — | Ellipsoidal height = MSL + N |
 | Magnetic declination | NOAA **WMM-2025** (npm `geomagnetism` 0.2.0, Apache-2.0) | — | Magnetic heading on the HUD |
@@ -207,7 +209,10 @@ and shadows agree with the shadows that are part of the imagery.
 | Reflectance scale | **[V]/[E]** | ρ = DN × 10⁻⁴. The STAC metadata lists an additional −0.1 offset, but the 1st percentile of blue DN is 1, which the offset would turn into impossible negative reflectance; these COGs are already harmonised. |
 | Texture encoding | **[E]** | Stored as sRGB(ρ × 1.6) (WebP, q 74–78), the shader multiplies by 1/1.6: the texture is physical albedo, consistent with the PBR lighting. The stock "TCI" product clips at ρ ≈ 0.2 and saturates concrete and white houses, so it is not used. |
 | Sea harmonisation | **[E]** | Sen2Cor's atmospheric correction over water differs between scenes (deep-water blue ρ from 0.0004 to 0.02 here). Each scene's water (selected by distance > 500 m from the DEM coastline, not by reflectance) is offset additively to the primary scene's deep-water median (0.0006, 0.0035, 0.0110), fading to the original within 60 m of the coast. |
-| Water mask | **[E]** | NDWI ≥ 0.1 on B03/B08, majority per DEM cell. The scene classification (SCL class 6) is *not* used: it labels the dark asphalt of LTFE's runway as water. NDWI false positives on fresh asphalt inside the aerodrome are cleared. |
+| Water mask | **[E]** | v3.9: **sea = outside the OSM land polygons** (Overture `base/land`, subtype `land`, rasterised with 4×4 supersampling per DEM cell), except where the DEM is ≥ 15 m (a coastline offset at a cliff stays land: 7 213 cells). **Inland water** (lakes, reservoirs) = NDWI ≥ 0.1 on B03/B08, majority per cell, on OSM land. Before v3.9 NDWI alone decided: sun glint on the 2024-10-03 scenes pushed NDWI below 0.1 over most of the Gulf of Gökova, which was baked as 0.5 m land (≈ 2.4 M z12 cells). The scene classification (SCL class 6) is not used: it labels LTFE's dark runway asphalt as water. NDWI false positives inside the aerodrome are cleared. |
+| Sea no-data | **[E]** | Terrarium z12 has no bathymetry (the sea is exactly 0 m). Where the z9 grid has seabed or there is no Sentinel-2 coverage, the z12 cell takes the bilinear z9 value. This also restores the relief of the part of Kalymnos (≈ 37.03 N 26.98 E) whose z12 Terrarium tile is empty. |
+| DEM spikes | **[E]** | Terrarium z9 contains isolated bad cells (4952 m on Leros, real summit ≈ 320 m; 3546 m near Arki; 1202 m on Symi; two cells of 779/528 m among 6–60 m terrain at 36.92 N 28.14 E). A cell > 400 m above the median of its 5×5 neighbourhood is replaced by that median (iterated): 12 cells. z12 has no such spikes (largest excess over the 5×5 median: 39 m, real terrain). |
+| Imagery registration | **[E]** measured | 2D correlation of rasterised OSM features against Sentinel-2 reflectance at three sites: the imagery is shifted +6 m E, +12 m N onto OSM before mosaicking (DEM water mask uses the same transform). |
 | DEM quantisation | **[E]** | Terrarium tiles re-quantised to 0.25 m (still decodable by any Terrarium decoder; half the size). Blue bit 0 = water flag. Sea clamped to 0 m MSL (the water surface). |
 | Vertical datum | **[V]** | DEM and OurAirports elevations are orthometric (≈ MSL, EGM96 geoid). Physics `y = h_MSL − 4` (`WATER_LEVEL`), so the HUD's MSL altitude is unchanged. |
 
@@ -216,13 +221,42 @@ and shadows agree with the shadows that are part of the imagery.
 | Quantity | Value | Tag | Source / derivation |
 |---|---|---|---|
 | Runways | 10L/28R, 10R/28L (parallel) | **[V]** | OurAirports `runways.csv` (records 239233, 336567). The official Turkish AIP (DHMİ) was not reachable from the build environment. |
-| Length × width | 3000 × 45 m, 2940 × 45 m | **[V]** | OurAirports (9843 / 9646 ft × 148 ft) |
+| Length × width | 3000 × 45 m (10L/28R), **2496 × 45 m (10R/28L)** | **[V]/[E]** | 10L/28R: OurAirports 9843 ft, OSM ends 3000.6 m apart. 10R/28L: v3.8 used OurAirports' 9646 ft (2940 m), but the OSM runway way (ends 2495.5 m apart) and OurAirports' own 10R/28L coordinates agree on ≈ 2496 m; the imagery shows the pavement ending there. v3.9 uses the OSM ends. |
 | Axis | 106.6° true (106.2° UTM grid) | **[E]** measured | Best-fit axis of the pavement in the 10 m Sentinel-2 bands (sharpest cross-track profile); identical to the bearing between OurAirports' 10L and 28R coordinates (106.21°). OurAirports' text field "104°T" is inconsistent with its own coordinates and is not used. |
 | Centrelines | 10L/28R 185 m north of 10R/28L | **[E]** measured | Cross-track reflectance profile (10 m pixels, ±5 m). |
-| Thresholds | 10L, 28R, 10R from OurAirports; 28L = 10R + 2940 m | **[V]/[E]** | OurAirports' 28L coordinate lies 500 m short of the pavement end visible in the imagery and is not used. Ends were re-fitted to the published *true* length about the measured centre (a UTM-grid measurement is 0.036 % short at this longitude). |
+| Thresholds / ends | OSM runway ways (v3.9) | **[V]** OSM | Stopway pads from OSM `aeroway=stopway` (10L 60 m, 28R 62 m, 10R 61 m). The v3.8 statement that OurAirports' 28L coordinate is "500 m short" was wrong: the runway is 2496 m long. |
 | Threshold elevations | 10L 9 ft, 28R 21 ft, 10R/28L 14 ft | **[V]** | OurAirports; the DEM independently gives 2.9 m and 5.6 m at 10L/28R (±1 m). |
 | Designators | 10L/28R, 10R/28L | **[V]** | Published; consistent with 106.6° true − 5.41° E (WMM-2025) = 101.2° magnetic. |
-| Lighting | edge, threshold/end lights only | **[V]**/omitted | Runways are lit (OurAirports). The approach-lighting system, PAPI side/angles and taxiway geometry could not be verified and are **not** built; taxiways and aprons appear from the imagery only. |
+| Lighting | edge, threshold/end lights only | **[V]**/omitted | Runways are lit (OurAirports). The approach-lighting system, PAPI (side/angles), taxiway lights, signs and the control tower position could not be verified and are **not** built. |
+| Taxiways, aprons, stopways | OSM `aeroway=*` geometry | **[V]** OSM | Centrelines and apron polygons from OSM. Taxiway **width 23 m is approximate** (ICAO code E practice; OSM has no width tag here). Yellow centreline 0.3 m. |
+| Runway-holding positions | 90 m from the nearest runway centreline segment | **[E]** approximate | Pattern A lines where an OSM taxiway crosses 90 m (typical ICAO distance for code 4 instrument runways). The real positions were **not** surveyed. |
+| Aerodrome buildings | 129 OSM footprints (terminals, hangars, others) | **[V]** footprint / **[E]** height | Heights are approximate unless OSM tags them: terminals 16 m, hangars 14 m, industrial 8 m, others by area (4.5–10 m). Collision uses the footprint polygon. |
+
+### Buildings, roads and vegetation (v3.9)
+
+| Item | Tag | Detail |
+|---|---|---|
+| Building footprints | **[V]** | 306 068 footprints in the core box (OSM 26 193; the rest Microsoft ML footprints via Overture). Excluded: inside the OSM aerodrome polygon, underground, < 12 m² or > 60 000 m². Stored as oriented boxes (`tools/geodata/vectors.py`), so complex footprints are simplified. |
+| Building heights | **[E]** mostly approximate | OSM `height` (41 buildings), else `building:levels` × 3.0 m + 1.0 m (653), else an **approximation** from footprint area and type (Aegean 1–2 storey housing, 2–4 storey blocks; sheds 3 m, greenhouses 4 m, industrial 7–9 m, mosques 9 m): **99.8 % of heights are approximate.** Roof shape: pitched (hipped) or flat by type/hash, not from data. No landmark is modelled individually. |
+| Roads | **[V]** geometry / **[E]** width | OSM road classes motorway … track; tunnels and footways skipped; widths by class (22 m motorway … 3.5 m track) are approximations. Draped on the terrain with 20 m resampling; bridges linearised. |
+| Vegetation | **[E]** | ESA WorldCover fractions per ≈ 30 m cell: trees ≤ 5 (× quality factor) and shrubs ≤ 4 per cell at full cover. This is a **sparse visual representation**, not a tree inventory; species and heights are not from data (generic pine and shrub models). |
+
+## 8. Instruments (v3.9.0)
+
+| Indication | Definition in the simulator | Tag |
+|---|---|---|
+| IAS | **Calibrated airspeed** from pitot impact pressure: subsonic isentropic `qc = p((1 + 0.2M²)^3.5 − 1)`, supersonic Rayleigh pitot `qc = p(166.92 M⁷ / (7M² − 1)^2.5 − 1)`, then `CAS = a0 √(5((qc/p0 + 1)^(2/7) − 1))`. No position/instrument error. Before v3.9 the IAS shown was EAS (`V√σ`), which reads 16 kt low at FL300 M0.80 (288 vs 304 kt). | **[V]** standard relations |
+| EAS, TAS, Mach | `V√σ`, airspeed, `V/a` (ISA) | **[V]** |
+| GS, track | Horizontal ground-relative velocity (before v3.9: the 3D speed, which over-read in climbs and dives) | **[V]** |
+| Altitude MSL, RA | MSL above the sea surface datum; radar altitude from the main-gear bottom to the terrain/sea below (buildings are not included) | **[V]**/**[E]** |
+| Heading | Grid → true (meridian convergence) → magnetic (WMM-2025) on the HUD in the real-world region | **[V]** |
+| G, AoA | Body-axis load factor and angle of attack from the flight model | model output |
+
+Tests: `tools/flighttest/instruments.mjs` (CAS at sea level = TAS; M1.0 at the tropopause = 341.7 KCAS by hand calculation; continuity at M = 1; GS = TAS·cos γ in a climb; 30 kt headwind; RA on a plateau).
+
+## 9. Time of day (v3.9.0)
+
+Sun position from the Astronomical Almanac low-precision formulas (`js/sun.js`, ≈ 0.01° 1950–2050, no refraction) at the region reference point on the imagery date (2024-10-03), local time UTC+3. Check: at the imagery time it gives azimuth 162.19°, elevation 47.04° against the Sentinel-2 metadata 162.2° / 46.83° (the metadata refers to the scene centre). Presets: 12:10 (imagery time, default), 08:30, 16:30, 18:25 (sun 4° high). Sky and light colours warm with low sun by an artistic blend, not a scattering model. Limitation: the imagery keeps the shadows of its own acquisition time; at other times only the real-time relief lighting follows the new sun. No night. Not available in the fictional training world (its building shadows are baked for a fixed sun).
 
 ---
 

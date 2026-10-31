@@ -240,6 +240,17 @@ export class CameraRig {
     cam.quaternion.slerpQuaternions(C.fromQuat, tq, s);
   }
 
+  /**
+   * Yay kolu: uçaktan kameraya doğru parça bir yapıya (meydan binası, şehir binası) çarpıyorsa
+   * kamera çarpma noktasının önüne çekilir; alçak uçuşta kamera bina içinde kalmaz.
+   * eye yerinde değişir. target: uçak konumu.
+   */
+  avoidBuildings(target, eye) {
+    if (!this.world || !this.world.segmentHit) return;
+    const t = this.world.segmentHit(target, eye);
+    if (t >= 0 && t < 1) eye.lerpVectors(target, eye, Math.max(0.12, t - 0.08));
+  }
+
   update(dt, fm) {
     this._lastPose = fm;
     if (this.crash) this._updateCrash(dt, fm);
@@ -342,6 +353,7 @@ export class CameraRig {
       if (this.world) {
         const g = this.world.heightAt(cam.position.x, cam.position.z);
         if (cam.position.y < g + 2) cam.position.y = g + 2;
+        this.avoidBuildings(pos, cam.position);
       }
       cam.up.set(0, 1, 0);
       cam.lookAt(pos.x, pos.y + C.orbit.lookUp, pos.z);
@@ -353,7 +365,7 @@ export class CameraRig {
       // hiç kaymaz. Araziye gömülmez.
       this._eye.set(0, 2.9, 21.5).applyQuaternion(quat).add(pos);
       this._look.set(0, 1.1, -40).applyQuaternion(quat).add(pos);
-      if (this.world) { const g = this.world.heightAt(this._eye.x, this._eye.z); if (this._eye.y < g + 1.5) this._eye.y = g + 1.5; }
+      if (this.world) { const g = this.world.heightAt(this._eye.x, this._eye.z); if (this._eye.y < g + 1.5) this._eye.y = g + 1.5; this.avoidBuildings(pos, this._eye); }
       cam.position.copy(this._eye);
       cam.up.copy(up);
       cam.lookAt(this._look);
@@ -423,6 +435,7 @@ export class CameraRig {
     if (this.world) {
       const g = this.world.heightAt(this.pos.x, this.pos.z);
       if (this.pos.y < g + 1.8) this.pos.y = g + 1.8;
+      this.avoidBuildings(pos, this.pos);
     }
     cam.position.copy(this.pos);
     if (buffet > 0.01) cam.position.addScaledVector(up, Math.sin(t * 57) * Math.sin(t * 19) * 0.08 * buffet * shake).addScaledVector(this._right.set(1, 0, 0).applyQuaternion(quat), Math.sin(t * 47 + 2) * 0.06 * buffet * shake);

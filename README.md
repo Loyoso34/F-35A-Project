@@ -1001,11 +1001,12 @@ sahnenin çekim anındaki konumundadır (azimut 162°, yükseklik 47°), bu yüz
 ve gölgeler görüntüdeki gölgelerle uyumludur. Kabartma ışığı yumuşatılmıştır (görüntü gölgelemeyi
 zaten içerir). Su: Fresnel gök yansıması ve güneş parıltısı; dalga ayrıntısı yalnızca alçakta.
 
-**Havaalanı (LTFE).** İki paralel pist (10L/28R 3000 m, 10R/28L 2940 m, 45 m) yayımlanmış veri ve
-uydu görüntüsü ölçümüyle konumlandı; ICAO işaretleri (eşik, tanımlayıcı L/R, eksen, TDZ, nişan
+**Havaalanı (LTFE).** İki paralel pist (10L/28R 3000 m, 10R/28L 2940 m — *v3.9'da düzeltildi: OSM
+ve görüntüye göre 2496 m*, 45 m) yayımlanmış veri ve uydu görüntüsü ölçümüyle konumlandı; ICAO işaretleri (eşik, tanımlayıcı L/R, eksen, TDZ, nişan
 noktası, kenar), kenar ve eşik/son ışıkları. Pistler eşik kotları arasında eğimlidir (10L 9 ft,
 28R 21 ft); meydan zemini pist profillerine oturtulur. Yaklaşma ışık sistemi, PAPI ve taksi yolu
-çizgileri doğrulanamadığı için kurulmadı; taksi yolları ve apron görüntüden görünür. Ayrıntı ve
+çizgileri doğrulanamadığı için kurulmadı; taksi yolları ve apron görüntüden görünür (v3.9: taksi
+yolları ve apronlar artık OSM geometrisinden 3B kaplama olarak kurulur, aşağıya bakın). Ayrıntı ve
 kaynaklar: `js/georegion.js`, `PUBLIC_DATA_SOURCES.md` §7.
 
 **Veriyi yeniden üretme.**
@@ -1020,6 +1021,79 @@ cd tools/geodata && npm install && node meta.mjs ../../geo/bodrum/manifest.json
 **Çevrimdışı.** Bölge verisi alınamazsa (ör. ilk açılış çevrimdışı) uygulama kurgusal eğitim
 bölgesine geçer ve bunu bildirir.
 
+## Gerçek dünya v3.9.0: 3B Bodrum, OSM meydanı, kıyı ve göstergeler
+
+**Kaynaklar.** Overture Maps 2026-10-21.0 (OpenStreetMap + Microsoft ML bina ayak izleri, ODbL) ve
+ESA WorldCover 2021 (CC BY 4.0). Ayrıntı, etiketler ([V] doğrulanmış / [E] yaklaşık) ve atıflar:
+`PUBLIC_DATA_SOURCES.md` §7–9. Uygulama içi atıf: Ayarlar ve hangar.
+
+**Doğrulanmış olanlar ve yaklaşıklar.**
+
+| Öğe | Durum |
+|---|---|
+| Pist uçları, taksi yolu eksenleri, apron/stopway çokgenleri, meydan binası ayak izleri | OSM geometrisi |
+| Taksi yolu genişliği (23 m), bekleme çizgileri (pist ekseninden 90 m) | **yaklaşık** (ICAO tipik değerleri; gerçek konumlar ölçülmedi) |
+| Kule, PAPI, yaklaşma/taksi yolu ışıkları, tabelalar, yer araçları | **kurulmadı** (doğrulanmış veri yok) |
+| 306 068 şehir binasının ayak izi | OSM + Microsoft ML |
+| Bina yükseklikleri | **%99,8'i yaklaşık** (OSM'de yükseklik 41, kat sayısı 653 binada); tek tek yapılar (kale, anıtlar) modellenmedi |
+| Yollar | OSM geometrisi; genişlikler sınıfa göre yaklaşık |
+| Ağaç/çalı yerleri | WorldCover oranlarından seyrek temsil; tür ve boy veri değil |
+| Kıyı çizgisi | OSM kara çokgenleri (görüntü OSM'ye çakıştırıldı: +6 m D, +12 m K) |
+
+**Şehir.** Binalar z14 karolarında (12 bayt/bina) akar; kutu + kırma çatı örneklenmiş çizimle
+(karo başına 2 çizim çağrısı), alana göre sıralı örnekler sayesinde `mesh.count` uzaklık LOD'u
+olarak çalışır (uzakta küçük binalar çizilmez). Çarpışma yönlü kutularla (64 m ızgara); meydan
+binaları ayak izi çokgeniyle. Füze ve kamera parça testleri de çokgeni kullanır. Yollar araziye
+oturtulur, köprüler doğrusal; ağaçlar bina, kaplama ve deniz üstüne konmaz. Karo dizinleri sayesinde
+var olmayan karo (deniz) istenmez: konsolda 404 yok.
+
+**Arazi ve deniz düzeltmeleri.** (1) Terrarium z9'daki hatalı tepeler temizlendi (Leros'ta 4952 m,
+Arki yakınında 3546 m, Sömbeki (Symi) adasında 1202 m …). (2) z12 Terrarium'da denizde batimetri yok (tam 0 m):
+bu hücreler z9 batimetrisinden doldurulur. (3) Deniz/kara ayrımı OSM kıyı çizgisinden: 3 Ekim
+görüntüsündeki güneş parıltısı NDWI'yi bozduğu için Gökova Körfezi'nin büyük kısmı 0,5 m kara olarak
+pişiyordu (fizikte `grass`); çekirdek su payı %20,6 → %46,3. (4) Batı kenarındaki 2 km'lik kara
+şeridi (9000 m'den görülen koyu çizgi) giderildi. (5) Yakın arazi ayrıntı oktavları yeniden
+ölçeklendi (önceki ~1 m desen mip ile kayboluyordu); ortalamayı koruyan ton çarpanıdır, gerçek
+ayrıntı üretmez. (6) Su yansıması köşe normaliyle ağırlıklı: kısmi su bayraklı eğimli karada gök
+yansıması çizilmez.
+
+**Göstergeler.** IAS artık **kalibre hava hızıdır** (pitot darbe basıncı; ses altı izantropik, ses
+üstü Rayleigh); önceden EAS gösteriliyordu (FL300 M0,80'de 16 kt düşük). Yer hızı yataydır (önceden
+3B hız). Shift+D panelinde TAS, IAS(CAS), EAS, GS, iz, Mach, RA.
+
+**Performans katmanı.** Ayarlar › FPS counter › **Debug** ya da **`** tuşu: HUD'dan ayrı panel. Kare
+aralığı (ortalama/p95/en kötü), CPU kare işi (dünya güncellemesi + çizim gönderimi; GPU süresi
+değildir, iOS Safari GPU zamanını vermez), çizim çağrısı/üçgen/program, arazi düğümleri, DEM ve
+görüntü karoları, görüntü doku belleği (tahmin), öğe karoları (bina/ağaç/yol), geometri belleği
+(tahmin), JS yığını (yalnızca tarayıcı bildirirse).
+
+**Gün saati.** Ayarlar › Time of day: 12:10 (görüntü anı, varsayılan), 08:30, 16:30, 18:25. Güneş
+konumu gerçek (Astronomical Almanac formülleri; görüntünün Sentinel-2 meta verisiyle 0,2° içinde).
+Sınır: görüntü kendi çekim anının gölgelerini taşır; gece yok; kurgusal eğitim haritasında
+desteklenmez (yapı gölgeleri sabit güneşe pişirilmiştir).
+
+**Ses.** İniş takımı hidroliği (takım yalnızca fizikte hareket ederken) ve kilitlenme sesi; teker
+koymada lastik cıyaklaması + darbe (son batış hızıyla). Hepsi Web Audio ile prosedürel (dosya yok).
+
+**Kamera.** Takip, arka ve yörünge kameraları binaların içine girmez (uçaktan kameraya parça bir
+yapıya çarparsa kamera önüne çekilir).
+
+**Veriyi yeniden üretme (v3.9).**
+
+```bash
+pip install rasterio numpy pillow scipy pyarrow shapely
+python3 -I tools/geodata/overture_extract.py --cache <önbellek>          # Overture: bina, yol, meydan, kara
+python3 -I tools/geodata/bake.py --cache <önbellek> --out geo/bodrum      # DEM + görüntü (--skip-imagery)
+python3 -I tools/geodata/vectors.py --cache <önbellek> --out geo/bodrum   # meydan, bina, yol, bitki karoları
+```
+
+**iPhone'da test.** 1) Safari ile yayın adresini açın, Paylaş › Ana Ekrana Ekle. 2) Ayarlar ›
+Quality: Performance / Balanced / Ultra; FPS counter › Debug. 3) LTFE 10L'den kalkıp Bodrum
+üzerinde 300–1000 ft'te uçun; paneldeki kare aralığı p95 ve "adaptive tier" değerini not edin.
+4) Meydanda taksi, 28R'ye iniş. 5) Time of day ve bölge değişimi (eğitim ↔ Bodrum).
+**60 fps cihazda ölçülmedi**; geliştirme ortamındaki değerler yazılımsal (SwiftShader) çizimdir ve
+cihaz performansını göstermez.
+
 ## Yerel test
 
 Herhangi bir statik sunucu yeterlidir, örneğin:
@@ -1031,6 +1105,8 @@ python3 -m http.server 8080
 Ardından `http://localhost:8080/` adresini açın. (Service worker `localhost` üzerinde de çalışır.)
 
 Başsız testler (`tools/flighttest`, `npm run test:all`): uçuş fiziği, çarpma, kurgusal dünya,
-jeodezi (`geo.mjs`: TM ↔ PROJ, karo matematiği, datumlar) ve gerçek dünya (`geoworld.mjs`: LTFE
-verisi, yüzeyler, arazi sürekliliği, ışınlanma önlemi, 10L'den kalkış ve 28R'ye iniş — gerçek
-fizik, gerçek DEM).
+jeodezi (`geo.mjs`: TM ↔ PROJ, karo matematiği, datumlar, güneş konumu), gerçek dünya
+(`geoworld.mjs`: LTFE verisi, yüzeyler, OSM taksi yolu/apron, bekleme çizgileri, meydan ve şehir
+binası çarpışması, karo biçimleri ve dizinleri, parıltılı denizde su, arazi sürekliliği, ışınlanma
+önlemi, 10L'den kalkış ve 28R'ye iniş — gerçek fizik, gerçek DEM) ve göstergeler
+(`instruments.mjs`: CAS/EAS/TAS, GS, VS, RA).
