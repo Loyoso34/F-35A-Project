@@ -30,6 +30,9 @@ const GND_CREEP = 0.25;
 export const KT = 1.943844;
 export const FT = 3.28084;
 export { atmosphere };
+// Simülatörün varsayılan rüzgârı (yön: geldiği yer, ızgara kuzeyine göre; kt). Canlı hava değildir;
+// görev hazırlığı ekranı da bunu gösterir.
+export const DEFAULT_WIND = Object.freeze({ dirDeg: 110, kt: 9, gustKt: 4, shear: 0.22 });
 
 export class FlightModel {
   constructor(world, cfg) {
@@ -80,7 +83,7 @@ export class FlightModel {
     this.debug = {};
     this.telemetry = {};
 
-    this.wind = { dirDeg: 110, kt: 9, gustKt: 4, shear: 0.22 };
+    this.wind = Object.assign({}, DEFAULT_WIND);
     this.groundY = 0;
     this._nz = 1;
     this.reset();

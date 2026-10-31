@@ -11,6 +11,7 @@
   <meta name="description" content="FFS Flight Simulator: fly the F-35A Lightning II. Installable web app for phones and desktop.">
   <title>FFS — Flight Simulator</title>
   <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="preload" as="image" href="assets/loading-bodrum.webp">
   <link rel="apple-touch-icon" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
   <!-- Görüntü alanı ölçümü: sayfa çizilmeden önce çalışır (bkz. js/viewport.js) -->
@@ -242,88 +243,86 @@
     #btn-fire.busy { border-color: rgba(255,190,80,0.95); color: #ffe2b0; }
     #btn-fire.queued { box-shadow: 0 0 0 2px rgba(255,190,80,0.6) inset; }
     #btn-fire.empty, #btn-fire.inhibit { opacity: 0.55; border-color: rgba(255,255,255,0.25); background: rgba(10,16,24,0.55); color: #c9d2dc; }
-    /* ---- Uçak seçim ekranı ---- */
-    #select { background: linear-gradient(160deg, rgba(6,10,16,0.82), rgba(6,10,16,0.94)); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: 24; }
-    .sel-wrap { width: min(1100px, 100%); max-height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 10px; }
-    .sel-title { margin: 0; font-size: clamp(17px, calc(2.6 * var(--vh)), 26px); letter-spacing: 2.5px; text-transform: uppercase; color: #dbe6f2; font-weight: 800; text-align: center; }
-    .sel-title small { display: block; font-size: 11px; letter-spacing: 1.4px; font-weight: 600; color: rgba(190,205,222,0.62); margin-top: 3px; text-transform: none; }
-    /* auto-fit: kart sayısı arttıkça sütunlar kendiliğinden ayarlanır. Sabit
-       repeat(2, 1fr) üç uçakla iki satır yapıyor ve kısa yatay ekranlarda alttaki
-       livery satırlarını ekran dışına itiyordu. */
-    .sel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
-    .ac-card {
-      position: relative; display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden;
-      border-radius: 16px; border: 1.5px solid rgba(255,255,255,0.14); background: linear-gradient(170deg, #16202c 0%, #0c131c 60%, #090e15 100%);
-      color: #eaf1f8; text-align: left; cursor: pointer; pointer-events: auto; min-height: 44px;
-      box-shadow: 0 10px 34px rgba(0,0,0,0.5); transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .ac-card::after { content: ""; position: absolute; inset: 0; border-radius: 16px; pointer-events: none; box-shadow: inset 0 0 0 0 var(--ac); transition: box-shadow 0.18s ease; }
-    .ac-card:hover, .ac-card.sel-active { transform: translateY(-2px); border-color: var(--ac); box-shadow: 0 14px 40px rgba(0,0,0,0.55); }
-    .ac-card:hover::after, .ac-card.sel-active::after { box-shadow: inset 0 0 26px -6px var(--ac); }
-    .ac-thumb { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: radial-gradient(120% 90% at 50% 18%, rgba(120,160,210,0.20), rgba(10,16,24,0) 70%); }
-    .ac-info { padding: 9px 13px 12px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(6,10,15,0.55); }
-    .ac-name { display: block; font-size: clamp(14px, calc(2.1 * var(--vh)), 19px); font-weight: 800; letter-spacing: 0.5px; }
-    .ac-sub { display: block; font-size: 11.5px; color: rgba(200,214,228,0.7); margin-top: 2px; }
-    .ac-specs { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-    .ac-specs span { font-size: 10px; letter-spacing: 0.4px; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); color: #cfdcea; }
-    .ac-go { position: absolute; right: 11px; top: 11px; font-size: 10px; font-weight: 800; letter-spacing: 1.2px; padding: 4px 9px; border-radius: 999px; background: var(--ac); color: #06202a; opacity: 0; transform: translateY(-4px); transition: opacity 0.18s, transform 0.18s; }
-    .ac-card:hover .ac-go, .ac-card.sel-active .ac-go { opacity: 1; transform: none; }
-    .sel-hint { margin: 0; text-align: center; font-size: 11.5px; color: rgba(190,205,222,0.6); }
-    /* Kalkış havalimanı seçici: kartların altında tek satır, büyük dokunma hedefleri */
-    .sel-ap { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
-    .sel-ap-lbl { font-size: 10.5px; letter-spacing: 1.6px; text-transform: uppercase; color: rgba(190,205,222,0.55); font-weight: 700; }
-    .sel-ap-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-    .sel-credits { margin: 0; text-align: center; font-size: 9.5px; line-height: 1.3; color: rgba(190,205,222,0.48); }
-    .credits { font-size: 10.5px; line-height: 1.35; opacity: 0.8; }
-    .ap-chip { min-height: 44px; padding: 6px 14px; border-radius: 9px; cursor: pointer; text-align: left;
-      background: rgba(16,24,34,0.72); border: 1px solid rgba(255,255,255,0.16); color: #cfdcea;
-      display: flex; flex-direction: column; justify-content: center; gap: 1px; font: inherit;
-      transition: background-color var(--t-fast) ease, border-color var(--t-fast) ease, transform 90ms ease; }
-    .ap-chip:active, .lv-chip:active, .seg button:active, .ac-card:active { transform: scale(0.97); }
-    .ap-chip b { font-size: 12.5px; font-weight: 700; color: #e8f0f8; }
-    .ap-chip span { font-size: 10px; color: rgba(185,200,216,0.62); }
-    .ap-chip.on { border-color: rgba(120,190,255,0.85); background: rgba(38,74,112,0.6); }
-    /* Livery seçimi: bir satır çip. Kalkış çipleriyle aynı görsel dil. */
-    .sel-lv-host { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
-    .sel-lv { display: flex; align-items: center; gap: 10px; justify-content: center; flex-wrap: wrap; }
-    .sel-lv-lbl { font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: rgba(185,200,216,0.55); white-space: nowrap; }
-    .sel-lv-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-    .lv-chip { min-height: 40px; padding: 5px 12px; border-radius: 9px; cursor: pointer; text-align: left;
-      display: flex; flex-direction: column; justify-content: center; gap: 1px;
-      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14); color: inherit; font: inherit;
-      transition: background-color var(--t-fast) ease, border-color var(--t-fast) ease, transform 90ms ease; }
-    .lv-chip b { font-size: 12px; font-weight: 700; color: #e8f0f8; }
-    .lv-chip span { font-size: 9.5px; color: rgba(185,200,216,0.58); }
-    .lv-chip.on { border-color: rgba(120,190,255,0.85); background: rgba(38,74,112,0.6); }
-    /* Alçak ekranlarda (telefon yatay) kartlar kısalır: kalkış seçici ve ipucu taşmasın */
+    /* ---- v4.0 Görev hazırlığı (tek uçak: F-35A, tek meydan: LTFE) ----
+       Ortada CANLI 3B sahne: seçili pistin eşiğinde park hâlinde F-35A, kamera yavaşça döner ve
+       arkada gerçek meydan ile Bodrum arazisi görünür. Kenarlarda koyu cam paneller; beyaz
+       tipografi, soğuk mavi-gri vurgular. Sahne karartılmaz/bulanıklaştırılmaz, yalnızca kenarlar. */
+    #select { z-index: 24; padding: 0; align-items: stretch; justify-content: stretch;
+      background: linear-gradient(90deg, rgba(4,7,12,0.62) 0%, rgba(4,7,12,0) 30%, rgba(4,7,12,0) 70%, rgba(4,7,12,0.62) 100%),
+                  linear-gradient(0deg, rgba(4,7,12,0.55) 0%, rgba(4,7,12,0) 26%), linear-gradient(180deg, rgba(4,7,12,0.45) 0%, rgba(4,7,12,0) 22%); }
+    .mp-wrap { position: absolute; inset: 0; display: grid; gap: 12px 16px;
+      grid-template-columns: minmax(230px, 300px) 1fr minmax(250px, 330px); grid-template-rows: auto minmax(0, 1fr) auto;
+      grid-template-areas: "head head head" "left . right" "foot foot foot";
+      padding: calc(var(--sat) + 14px) calc(var(--sar) + 18px) calc(var(--sab) + 12px) calc(var(--sal) + 18px); color: #f5f7fa; }
+    .mp-head { grid-area: head; display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
+    .mp-kicker { display: block; font-size: 10.5px; letter-spacing: 0.34em; text-transform: uppercase; font-weight: 600; color: #9cb4ce; }
+    .mp-title h1 { margin: 4px 0 0; font-size: clamp(22px, 4.6vh, 34px); font-weight: 250; letter-spacing: 0.05em; line-height: 1; color: #f5f7fa; }
+    .mp-title h1 b { font-weight: 600; font-size: 0.42em; letter-spacing: 0.42em; margin-left: 0.6em; color: #cbd3dd; vertical-align: 0.35em; text-transform: uppercase; }
+    .mp-ap { text-align: right; }
+    .mp-icao { display: block; font-size: clamp(18px, 3.6vh, 26px); font-weight: 300; letter-spacing: 0.24em; color: #f5f7fa; }
+    .mp-apn { display: block; margin-top: 3px; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: #cbd3dd; }
+    .mp-panel { min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; align-self: center; max-height: 100%;
+      padding: 14px 16px 12px; border-radius: 16px; background: linear-gradient(180deg, rgba(14,20,29,0.62), rgba(8,12,18,0.72));
+      border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 24px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+      backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%); }
+    .mp-left { grid-area: left; } .mp-right { grid-area: right; }
+    .mp-panel h2 { margin: 0 0 8px; font-size: 10.5px; letter-spacing: 0.3em; text-transform: uppercase; font-weight: 600; color: #9cb4ce; }
+    .mp-panel h2.mp-h2b { margin-top: 12px; }
+    .mp-desc { margin: 0 0 10px; font-size: 12px; line-height: 1.35; color: #cbd3dd; }
+    .mp-specs { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 12px; }
+    .mp-specs dt { color: rgba(203,211,221,0.72); letter-spacing: 0.02em; }
+    .mp-specs dd { margin: 0; color: #f5f7fa; text-align: right; font-variant-numeric: tabular-nums; }
+    .mp-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 9px 0 7px; }
+    .mp-lbl { font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(203,211,221,0.72); }
+    .mp-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+    .mp-left .mp-chips { justify-content: flex-start; }
+    .mp-chip, .ap-chip, .lv-chip { position: relative; min-height: 34px; padding: 5px 11px; border-radius: 9px; cursor: pointer; font-family: inherit;
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14); color: #f5f7fa; font-size: 12px; letter-spacing: 0.03em;
+      transition: background-color var(--t-fast) ease, border-color var(--t-fast) ease, transform 90ms ease; display: inline-flex; flex-direction: column; align-items: flex-start; justify-content: center; }
+    /* Görünür 34 px, dokunma alanı ≥ 44 px (görünmez genişletme) */
+    .mp-chip::after, .ap-chip::after, .lv-chip::after { content: ""; position: absolute; inset: -5px -3px; }
+    .mp-chip.on, .ap-chip.on, .lv-chip.on { background: rgba(156,195,232,0.20); border-color: rgba(203,224,245,0.75); }
+    .mp-chip:active, .ap-chip:active, .lv-chip:active, .mp-fly:active { transform: scale(0.97); }
+    .ap-chip b, .lv-chip b { font-weight: 600; font-size: 12px; color: #f5f7fa; }
+    .ap-chip span, .lv-chip span { font-size: 9.5px; color: rgba(203,211,221,0.7); }
+    .mp-map { display: block; width: 100%; height: auto; margin: 2px 0 2px; }
+    .mp-src { margin: 8px 0 0; font-size: 9px; color: rgba(203,211,221,0.5); }
+    .mp-foot { grid-area: foot; display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
+    .mp-foot .sel-hint { margin: 0 auto 0 0; font-size: 10.5px; color: rgba(203,211,221,0.62); max-width: 46%; }
+    .mp-fly { position: relative; min-height: 46px; min-width: 180px; padding: 6px 26px; border-radius: 999px; cursor: pointer; font-family: inherit;
+      display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+      background: linear-gradient(180deg, rgba(156,195,232,0.30), rgba(120,160,205,0.18)); border: 1px solid rgba(220,232,245,0.6);
+      color: #f5f7fa; font-size: 15px; font-weight: 600; letter-spacing: 0.32em; text-transform: uppercase;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.18); transition: background-color var(--t-fast) ease, transform 90ms ease; }
+    .mp-fly span { font-size: 9.5px; font-weight: 500; letter-spacing: 0.18em; color: #cbd3dd; margin-top: 2px; }
+    .mp-fly:hover { background: linear-gradient(180deg, rgba(156,195,232,0.42), rgba(120,160,205,0.26)); }
+    .sel-credits { position: absolute; left: calc(var(--sal) + 18px); bottom: calc(var(--sab) + 2px); margin: 0; max-width: 60%;
+      font-size: 8.5px; line-height: 1.3; color: rgba(203,211,221,0.42); pointer-events: none; }
     @media (max-height: 460px) {
-      .sel-wrap { gap: 6px; }
-      /* Telefon yatay: üç uçak tek satırda (kaydırmadan) görünsün */
-      .sel-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-      .sel-title { font-size: 15px; letter-spacing: 1.8px; }
-      .sel-title small { font-size: 9.5px; margin-top: 1px; }
-      .sel-grid { gap: 9px; }
-      .ac-thumb { aspect-ratio: auto; height: calc(26 * var(--vh)); object-fit: cover; }
-      .ac-info { padding: 5px 10px 7px; }
-      .ac-sub { display: none; }
-      .ac-name { font-size: 14px; }
-      .ac-specs { margin-top: 3px; gap: 4px; }
-      .ac-specs span { font-size: 9px; padding: 1px 6px; }
-      .ap-chip { min-height: 40px; padding: 4px 11px; }
-      .lv-chip { min-height: 36px; padding: 3px 9px; }
-      .lv-chip b { font-size: 11px; }
-      .lv-chip span { display: none; }
-      .ap-chip b { font-size: 11.5px; }
-      .sel-hint { font-size: 10px; }
+      .mp-wrap { gap: 8px 12px; padding-top: calc(var(--sat) + 9px); grid-template-columns: minmax(210px, 252px) 1fr minmax(232px, 282px); }
+      .mp-panel { padding: 10px 12px 9px; border-radius: 13px; }
+      .mp-desc { display: none; }
+      .mp-specs { gap: 3px 10px; font-size: 11px; }
+      .mp-panel h2 { margin-bottom: 6px; font-size: 9.5px; }
+      .mp-panel h2.mp-h2b { margin-top: 8px; }
+      .mp-row { margin: 6px 0 5px; }
+      .mp-chip, .ap-chip, .lv-chip { min-height: 30px; padding: 3px 9px; font-size: 11px; }
+      .ap-chip span, .lv-chip span { display: none; }
+      .mp-fly { min-height: 40px; min-width: 150px; font-size: 13px; }
+      .mp-foot .sel-hint { display: none; }
+      .mp-src { display: none; }
+      .mp-map { max-height: 58px; }
+      .mp-row { flex-wrap: nowrap; }
+      .mp-chips { gap: 4px; }
+      .mp-right .mp-chips { flex-wrap: nowrap; }
+      #mp-tod .mp-chip { padding: 3px 7px; font-size: 10.5px; }
+      .sel-credits { font-size: 7.5px; max-width: 68%; bottom: calc(var(--sab) + 1px); }
     }
-    @media (max-height: 380px) {
-      .ac-specs { display: none; } .sel-hint { display: none; } .ac-thumb { height: calc(24 * var(--vh)); }
-      .sel-wrap { gap: 5px; } .sel-lv-host { gap: 3px; margin-top: 0; } .sel-lv { gap: 8px; } .sel-lv-row { gap: 6px; }
+    @media (max-height: 380px) { .mp-map { max-height: 70px; } .mp-title h1 b { display: none; } }
+    /* Dikey (döndürme uyarısı açık): paneller alt alta kayar */
+    @media (max-width: 620px) and (min-height: 461px) {
+      .mp-wrap { grid-template-columns: 1fr; grid-template-rows: auto auto auto auto; grid-template-areas: "head" "left" "right" "foot"; overflow-y: auto; }
     }
-    /* Dar ve UZUN pencere (masaüstünde dar pencere): tek sütun. Alçak yatay telefon
-       ekranları yukarıdaki üç sütunlu düzeni korur. */
-    @media (max-width: 620px) and (min-height: 461px) { .sel-grid { grid-template-columns: 1fr; } .sel-wrap { overflow-y: auto; -webkit-overflow-scrolling: touch; } }
     .overlay {
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
       background: rgba(4, 8, 14, 0.78); z-index: 20; padding: calc(var(--sat) + 12px) calc(var(--sar) + 12px) calc(var(--sab) + 12px) calc(var(--sal) + 12px);
@@ -400,53 +399,74 @@
        güvenli alanların (çentik / Dynamic Island / ev çubuğu) içinde kalır.
        Çubuk ve yüzde AYNI değerden çizilir (ui.js), sürekli animasyon yalnızca
        transform ile yapılır: ana iş parçacığı meşgulken bile akıcı kalır. */
-    #loading { z-index: 35; background: radial-gradient(120% 95% at 50% 38%, #13233a 0%, #0b1420 48%, #060a10 100%); }
-    #loading .ld-sky { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-    /* Ufuk çizgisi: ortada parlayan, kenarlara doğru sönen ince bir hat */
-    #loading .ld-sky::before { content: ""; position: absolute; left: 0; right: 0; top: 64%; height: 1px;
-      background: linear-gradient(90deg, rgba(120,190,255,0) 0%, rgba(120,190,255,0.38) 50%, rgba(120,190,255,0) 100%); }
-    #loading .ld-sky::after { content: ""; position: absolute; left: 0; right: 0; top: 64%; bottom: 0;
-      background: linear-gradient(180deg, rgba(40,80,120,0.07), rgba(6,10,16,0) 55%); }
-    .ld-card {
-      position: relative; width: min(400px, 100%); padding: 26px 28px 18px; border-radius: 20px; text-align: center;
-      background: linear-gradient(180deg, rgba(22,33,47,0.78), rgba(10,16,24,0.86));
-      border: 1px solid rgba(160,200,240,0.13);
-      box-shadow: 0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
-      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    }
-    .ld-mark { display: block; width: 44px; height: 44px; margin: 0 auto 12px; }
-    /* Harf aralığı sağa da boşluk ekler; padding-left ile görsel olarak ortalanır */
-    .ld-title { margin: 0; font-size: 32px; line-height: 1; font-weight: 800; letter-spacing: 0.3em; padding-left: 0.3em; color: #f2f6fb; }
-    .ld-sub { margin: 9px 0 0; font-size: 11px; font-weight: 600; letter-spacing: 0.34em; padding-left: 0.34em; text-transform: uppercase; color: rgba(186,204,224,0.66); }
-    .ld-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 26px; }
-    .ld-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-size: 13.5px; color: #c9d6e3; }
-    .ld-pct { flex: none; font-size: 13.5px; font-weight: 700; color: #8de8b4; font-variant-numeric: tabular-nums; min-width: 3.2em; text-align: right; }
-    .ld-bar { position: relative; height: 4px; margin-top: 10px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; }
+    /* v4.0 yükleme ekranı: oyunun kendi motoruyla çizilmiş arka plan (Bodrum kıyısı üzerinde F-35A),
+       koyu cam kart, beyaz tipografi, soğuk mavi-gri vurgular. İlerleme GERÇEKTİR (aşama süreleri,
+       main.js LoadTracker). Sürekli hareket yalnızca transform/opacity ile bileştiricide çalışır:
+       ana iş parçacığı yüklemeyle meşgulken de akıcıdır. */
+    #loading { z-index: 35; background: #05080c; align-items: flex-end; justify-content: flex-start;
+      padding: calc(var(--sat) + 22px) calc(var(--sar) + 26px) calc(var(--sab) + 22px) calc(var(--sal) + 30px); }
+    .ld-bg { position: absolute; inset: -4%; pointer-events: none;
+      background: #0b1520 url(assets/loading-bodrum.webp) 58% 45% / cover no-repeat;
+      transform: scale(1.04); animation: ld-drift 34s ease-in-out infinite alternate, ld-bgin 1.4s ease-out both; will-change: transform; }
+    @keyframes ld-drift { from { transform: scale(1.04) translate3d(-1.2%, 0.4%, 0); } to { transform: scale(1.12) translate3d(1.4%, -0.8%, 0); } }
+    @keyframes ld-bgin { from { opacity: 0; } to { opacity: 1; } }
+    .ld-shade { position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(90deg, rgba(4,7,12,0.86) 0%, rgba(4,7,12,0.55) 34%, rgba(4,7,12,0) 64%),
+                  linear-gradient(0deg, rgba(4,7,12,0.75) 0%, rgba(4,7,12,0) 42%),
+                  linear-gradient(180deg, rgba(4,7,12,0.45) 0%, rgba(4,7,12,0) 22%); }
+    .ld-top { position: absolute; left: calc(var(--sal) + 30px); right: calc(var(--sar) + 26px); top: calc(var(--sat) + 18px);
+      display: flex; justify-content: space-between; gap: 16px; pointer-events: none;
+      font-size: 10.5px; letter-spacing: 0.32em; text-transform: uppercase; color: rgba(203,211,221,0.78); font-weight: 600;
+      animation: ld-rise 0.9s 0.2s var(--ease-out) both; }
+    .ld-top .ld-coord { letter-spacing: 0.18em; font-variant-numeric: tabular-nums; color: rgba(156,180,206,0.85); }
+    .ld-card { position: relative; width: min(430px, 100%); padding: 22px 24px 16px; border-radius: 18px; text-align: left;
+      background: linear-gradient(180deg, rgba(14,20,29,0.62), rgba(8,12,18,0.74));
+      border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: 0 30px 70px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.07);
+      backdrop-filter: blur(14px) saturate(120%); -webkit-backdrop-filter: blur(14px) saturate(120%);
+      animation: ld-rise 0.9s 0.1s var(--ease-out) both; }
+    @keyframes ld-rise { from { opacity: 0; transform: translate3d(0, 14px, 0); } to { opacity: 1; transform: none; } }
+    .ld-kicker { margin: 0 0 8px; font-size: 10.5px; letter-spacing: 0.34em; text-transform: uppercase; font-weight: 600; color: #9cb4ce; }
+    .ld-title { margin: 0; font-size: clamp(34px, 6.2vh, 50px); line-height: 0.98; font-weight: 250; letter-spacing: 0.06em; color: #f5f7fa; }
+    .ld-title span { display: block; margin-top: 8px; font-size: 13px; font-weight: 600; letter-spacing: 0.46em; color: #cbd3dd; }
+    .ld-sub { margin: 12px 0 0; font-size: 12.5px; letter-spacing: 0.04em; color: rgba(203,211,221,0.82); }
+    .ld-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 20px; }
+    .ld-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: #cbd3dd; letter-spacing: 0.02em; }
+    .ld-pct { flex: none; font-size: 13px; font-weight: 600; color: #f5f7fa; font-variant-numeric: tabular-nums; min-width: 3.2em; text-align: right; letter-spacing: 0.04em; }
+    .ld-bar { position: relative; height: 2px; margin-top: 9px; border-radius: 999px; background: rgba(255,255,255,0.12); overflow: hidden; }
     .ld-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; border-radius: inherit;
-      background: linear-gradient(90deg, #3fa3f0, #3fd492); box-shadow: 0 0 10px rgba(63,212,146,0.35); overflow: hidden; }
-    /* İnce parıltı: yalnızca transform, bileştiricide çalışır */
-    .ld-fill::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 60px;
-      background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.45), rgba(255,255,255,0));
-      transform: translateX(-60px); animation: ld-sheen 1.8s ease-in-out infinite; }
-    @keyframes ld-sheen { 0% { transform: translateX(-60px); } 70%, 100% { transform: translateX(420px); } }
-    .ld-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; min-height: 14px;
-      font-size: 10.5px; letter-spacing: 0.4px; color: rgba(170,188,208,0.5); }
-    .ld-hint { display: none; color: rgba(200,216,232,0.72); }
+      background: linear-gradient(90deg, rgba(156,195,232,0.65), #f5f7fa); box-shadow: 0 0 8px rgba(156,195,232,0.45); overflow: hidden; }
+    .ld-fill::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 70px;
+      background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.7), rgba(255,255,255,0));
+      transform: translateX(-70px); animation: ld-sheen 2.2s ease-in-out infinite; }
+    @keyframes ld-sheen { 0% { transform: translateX(-70px); } 70%, 100% { transform: translateX(440px); } }
+    .ld-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; min-height: 14px;
+      font-size: 10px; letter-spacing: 0.08em; color: rgba(203,211,221,0.55); }
+    .ld-hint { display: none; color: #cbd3dd; }
     .ld-hint::before { content: "⟲ "; }
     .is-portrait .ld-hint { display: inline; }
     .ld-ver { margin-left: auto; font-variant-numeric: tabular-nums; }
-    .ld-error { display: none; margin-top: 16px; }
+    .ld-credit { position: absolute; right: calc(var(--sar) + 26px); bottom: calc(var(--sab) + 12px); margin: 0; max-width: 46%;
+      text-align: right; font-size: 9px; line-height: 1.35; letter-spacing: 0.02em; color: rgba(203,211,221,0.5); pointer-events: none; }
+    .ld-error { display: none; margin-top: 14px; }
     #loading.failed .ld-error { display: block; }
     #loading.failed .ld-pct { color: #ff9b8a; }
     #loading.failed .ld-fill { background: #ff8a7a; box-shadow: none; }
     #loading.failed .ld-fill::after { display: none; }
     .ld-error .btn { width: 100%; min-height: 46px; font-size: 13px; }
-    /* Alçak yatay ekranlar (küçük iPhone'lar): kart sıkışır ama aynı düzeni korur */
-    @media (max-height: 360px) {
-      .ld-card { padding: 18px 22px 12px; }
-      .ld-mark { width: 34px; height: 34px; margin-bottom: 8px; }
-      .ld-title { font-size: 26px; }
-      .ld-row { margin-top: 18px; }
+    @media (prefers-reduced-motion: reduce) { .ld-bg, .ld-card, .ld-top { animation: none; } .ld-fill::after { animation: none; } }
+    /* Dikey ekran: kart altta tam genişlik, künye gizli */
+    .is-portrait #loading { justify-content: center; }
+    .is-portrait .ld-credit { display: none; }
+    /* Alçak yatay ekranlar (iPhone yatay ~390 px): kart sıkışır, düzen aynı */
+    @media (max-height: 420px) {
+      #loading { padding-bottom: calc(var(--sab) + 14px); }
+      .ld-card { padding: 15px 18px 11px; width: min(380px, 100%); }
+      .ld-title { font-size: 34px; }
+      .ld-title span { margin-top: 6px; font-size: 11.5px; }
+      .ld-sub { margin-top: 8px; font-size: 11.5px; }
+      .ld-row { margin-top: 13px; }
+      .ld-top { top: calc(var(--sat) + 12px); }
     }
     @media (prefers-reduced-motion: reduce) {
       .ld-fill::after, #orient-overlay .phone { animation: none; }
@@ -569,13 +589,32 @@
     </div>
   </div>
 
-  <div id="select" class="overlay" hidden>
-    <div class="sel-wrap">
-      <h1 class="sel-title">Hangar<small>Pick a departure airport and paint scheme, then tap the F-35A to fly</small></h1>
-      <div class="sel-grid" id="sel-grid"></div>
-      <div class="sel-ap" id="sel-ap"><span class="sel-ap-lbl">Departure</span><div class="sel-ap-row" id="sel-ap-row"></div></div>
-      <div class="sel-lv-host" id="sel-livery"></div>
-      <p class="sel-hint" id="sel-hint">You can come back here later from Pause → Hangar.</p>
+  <div id="select" class="overlay" hidden data-tin="420" data-tout="260">
+    <div class="mp-wrap">
+      <header class="mp-head">
+        <div class="mp-title"><span class="mp-kicker">Mission preparation</span><h1>F-35A<b>Lightning II</b></h1></div>
+        <div class="mp-ap"><span class="mp-icao">LTFE</span><span class="mp-apn">Milas–Bodrum Airport · BJV</span></div>
+      </header>
+      <section class="mp-panel mp-left" aria-label="Aircraft">
+        <h2>Aircraft</h2>
+        <p class="mp-desc">Single-seat, single-engine fifth-generation multirole fighter.</p>
+        <dl class="mp-specs" id="mp-specs"></dl>
+        <h2 class="mp-h2b">Paint scheme</h2>
+        <div class="mp-chips" id="sel-livery"></div>
+      </section>
+      <section class="mp-panel mp-right" aria-label="Airport briefing">
+        <h2>Airport briefing</h2>
+        <svg class="mp-map" id="mp-map" viewBox="0 0 300 96" role="img" aria-label="Milas–Bodrum runway and taxiway diagram"></svg>
+        <div class="mp-row"><span class="mp-lbl">Runway</span><div class="mp-chips" id="sel-ap-row"></div></div>
+        <dl class="mp-specs" id="mp-rwy"></dl>
+        <div class="mp-row"><span class="mp-lbl">Time</span><div class="mp-chips" id="mp-tod"></div></div>
+        <dl class="mp-specs" id="mp-wx"></dl>
+        <p class="mp-src">Runway and taxiway geometry: OpenStreetMap / OurAirports. Wind is the simulator setting, not live weather.</p>
+      </section>
+      <footer class="mp-foot">
+        <p class="sel-hint" id="sel-hint">Pause → Hangar returns here.</p>
+        <button class="mp-fly" id="btn-fly" type="button">Fly<span id="fly-sub">Runway 10L</span></button>
+      </footer>
       <p class="sel-credits" id="sel-credits">Bodrum region: contains modified Copernicus Sentinel data 2024 · elevation EU-DEM (Copernicus) / SRTM via AWS Terrain Tiles · buildings, roads, aeroways, coastline © OpenStreetMap contributors (ODbL), Microsoft Building Footprints, Overture Maps · land cover © ESA WorldCover 2021 (CC BY 4.0) · aerodrome data OurAirports</p>
     </div>
   </div>
@@ -594,35 +633,25 @@
         <li><b>Takeoff:</b> you start with the brakes released and flaps up &mdash; open the throttle and rotate at about 140 kt</li>
         <li><b>☰ Menu:</b> Pause, <b>Camera</b> (free &rarr; cockpit &rarr; chase &rarr; flyby &rarr; left wing &rarr; right wing &rarr; landing gear), Sound and Lights</li>
         <li><b>Keyboard:</b> WASD/arrows pitch and roll, Q/E rudder, Shift/Ctrl throttle, G gear, F flaps, B brakes, L lights, C camera, Space fire, P pause</li>
-        <li><b>Two airports:</b> Anadolu Air Base and Yesilova Airport. Choose your departure airport in the hangar</li>
+        <li><b>Airport:</b> Milas–Bodrum (LTFE). Choose runway 10L or 28R and the time of day in the mission preparation screen</li>
       </ul>
     </div>
   </div>
 
-  <div class="overlay" id="loading" role="status" aria-live="polite" aria-busy="true">
-    <div class="ld-sky" aria-hidden="true"></div>
+  <div class="overlay" id="loading" role="status" aria-live="polite" aria-busy="true" data-tout="520">
+    <div class="ld-bg" aria-hidden="true"></div>
+    <div class="ld-shade" aria-hidden="true"></div>
+    <div class="ld-top" aria-hidden="true"><span>LTFE · Milas–Bodrum</span><span class="ld-coord">N37°14.96′ E027°39.84′</span></div>
     <div class="ld-card">
-      <!-- Yapay ufuk: gökyüzü, yer, ufuk çizgisi ve uçak sembolü -->
-      <svg class="ld-mark" viewBox="0 0 48 48" aria-hidden="true">
-        <defs><clipPath id="ld-clip"><circle cx="24" cy="24" r="17.5"/></clipPath></defs>
-        <g clip-path="url(#ld-clip)">
-          <rect x="0" y="0" width="48" height="26" fill="#2a6fb0" opacity="0.55"/>
-          <rect x="0" y="26" width="48" height="22" fill="#6b4f33" opacity="0.45"/>
-          <line x1="0" y1="26" x2="48" y2="26" stroke="#e8f0f8" stroke-width="1.1" opacity="0.85"/>
-          <line x1="19" y1="19.5" x2="29" y2="19.5" stroke="#e8f0f8" stroke-width="0.9" opacity="0.5"/>
-          <line x1="20.5" y1="32.5" x2="27.5" y2="32.5" stroke="#e8f0f8" stroke-width="0.9" opacity="0.5"/>
-        </g>
-        <circle cx="24" cy="24" r="21" fill="none" stroke="#8de8b4" stroke-opacity="0.55" stroke-width="1.4"/>
-        <path d="M10 25h8.5l2 2.6M38 25h-8.5l-2 2.6" fill="none" stroke="#8de8b4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="24" cy="25" r="1.9" fill="#8de8b4"/>
-      </svg>
-      <h1 class="ld-title">FFS</h1>
-      <p class="ld-sub">Flight Simulator</p>
+      <p class="ld-kicker">Flight Simulator</p>
+      <h1 class="ld-title">F-35A<span>Lightning II</span></h1>
+      <p class="ld-sub">Bodrum peninsula · Aegean coast · Türkiye</p>
       <div class="ld-row"><span class="ld-status" id="loading-text">Loading…</span><span class="ld-pct" id="loading-pct">0%</span></div>
       <div class="ld-bar" id="loading-progress" role="progressbar" aria-label="Loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="ld-fill" id="loading-bar"></div></div>
       <div class="ld-foot"><span class="ld-hint">Rotate to landscape to fly</span><span class="ld-ver" id="loading-ver"></span></div>
       <div class="ld-error"><button class="btn" id="btn-load-retry">Reload</button></div>
     </div>
+    <p class="ld-credit">Rendered in this simulator · terrain imagery contains modified Copernicus Sentinel data 2024 · © OpenStreetMap contributors</p>
   </div>
 
   <div class="overlay" id="start-screen" hidden>

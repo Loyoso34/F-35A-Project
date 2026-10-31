@@ -1,12 +1,14 @@
 // F-35A Simülatör – uygulama giriş noktası.
 import * as THREE from 'three';
 import { APP_VERSION } from './version.js';
-import { World, LAYER_TREES, QUALITY_PRESETS, SPAWNS, WATER_LEVEL } from './world.js';
+import { World, LAYER_TREES, QUALITY_PRESETS, WATER_LEVEL } from './world.js';
 import { GeoWorld, bodrumSpawnInfo } from './geoworld.js';
+import { LTFE } from './georegion.js';
+import { F35 } from './aircraft.js';
 import { fmtDMS } from './geo.js';
 import { HAZE_UNIFORMS } from './worldshade.js';
 import { fmtCrashData } from './crash.js';
-import { FlightModel, FIXED_DT } from './physics.js';
+import { FlightModel, FIXED_DT, DEFAULT_WIND } from './physics.js';
 import { FLEET, FLEET_ORDER, getAircraftConfig } from './fleet.js';
 import { Controls, STICK_SMOOTH } from './controls.js';
 import { HUD } from './hud.js';
@@ -120,11 +122,13 @@ const REGIONS = {
   bodrum: { World: GeoWorld, stages: GeoWorld.STAGES, label: 'Loading Bodrum region…' },
   training: { World, stages: WORLD_STAGES, label: 'Loading the training area…' },
 };
-const ALL_SPAWNS = [
-  ...bodrumSpawnInfo(),
-  ...SPAWNS.map((s) => ({ id: s.id, region: 'training', airport: s.airport, name: s.name, runway: s.runway, sub: s.sub.replace(s.kindLabel, s.kindLabel + ' (training area)') })),
-];
+// v4.0: simülatörde YALNIZCA Milas–Bodrum (LTFE) vardır. Kurgusal eğitim bölgesi (World) GeoWorld'ün
+// temel sınıfı ve başsız testleri için kodda kalır, arayüzden seçilemez; bölge verisi
+// alınamazsa (ör. ilk açılış çevrimdışı) yükleme ekranı yeniden denemeyi önerir.
+const ALL_SPAWNS = bodrumSpawnInfo();
 const spawnDesc = (id) => ALL_SPAWNS.find((s) => s.id === id) || ALL_SPAWNS[0];
+const PREVIEW_COMP = 0.07;                 // önizleme: park hâlinde amortisör sıkışması (fizik reset ile aynı)
+const _prevEuler = new THREE.Euler();
 
 class App {
   constructor() {
@@ -242,7 +246,7 @@ class App {
 
     prog.step('previews');
     await this.breathe();
-    await this.buildThumbnails(null, (k, n) => prog.step('previews', k / n));
+    this.buildPreview();
     prog.end('previews');
 
     prog.step('shaders');
@@ -263,7 +267,6 @@ class App {
     this.buildSelectGrid();
     this.showSelect();
     if (isIOS() && !isStandalone()) ui.el.selHint.textContent = 'On iPhone, tap Share → Add to Home Screen to play full screen.';
-    if (this._regionFallback) ui.message('Bodrum terrain data could not be loaded (offline?) — the training area is shown instead', 6000);
     this.registerSW();
     this.checkOrientation();
     this.lastTime = performance.now();
@@ -292,13 +295,10 @@ class App {
     try {
       await world.build((id, frac) => prog.step(id, frac), () => this.breathe());
     } catch (e) {
-      // Gerçek dünya verisi alınamadı (çevrimdışı, önbellekte yok): kurgusal bölgeye geri dön
-      if (region === 'training') throw e;
-      console.warn('Region could not be loaded, falling back to the training area', e);
+      // Bölge verisi alınamadı (çevrimdışı, önbellekte yok). Kurgusal bir meydana geçilmez:
+      // yükleme ekranı nedeni ve yeniden deneme düğmesini gösterir.
       world.dispose();
-      this.settings.spawn = SPAWNS[0].id;
-      this._regionFallback = true;
-      return this.createWorld(quality, prog, 'training');
+      throw new Error('Bodrum terrain data could not be loaded. Check the connection and tap Reload. (' + (e && e.message ? e.message : e) + ')');
     }
     this.applyTimeOfDay(world);
     // Uzak düzlem bölgeye göre (gerçek dünyada ufuk yüzlerce km)
@@ -426,8 +426,9 @@ class App {
     if (el.fovSeg) ui.bindSeg(el.fovSeg, 'v', (v) => { this.settings.fov = v; saveSettings(this.settings); this.applyFov(); });
     if (el.todSeg) ui.bindSeg(el.todSeg, 'd', (v) => {
       this.settings.tod = v; saveSettings(this.settings);
-      if (this.world && !this.world.supportsTimeOfDay) this.ui.message('Time of day applies to the Bodrum region', 1800);
       this.applyTimeOfDay();
+      this.syncTodChips();
+      this.updateBriefing();
     });
     el.btnCalibrate.addEventListener('click', () => { this.controls.calibrate(); ui.message('Tilt calibrated'); });
   }
@@ -534,42 +535,121 @@ class App {
 
   // ---- Oyun durumu ----
   // ---- Uçak seçimi ----
+  /**
+   * Görev hazırlığı ekranı (v4.0): tek uçak (F-35A) ve tek meydan (LTFE) için brifing panelleri.
+   * Tüm sayılar yayımlanmış/kaynaklı değerlerdir ya da simülatörün kendi ayarıdır (ör. rüzgâr).
+   */
   buildSelectGrid() {
-    const grid = this.ui.el.selGrid;
-    if (!grid || grid.childElementCount) return;
-    for (const id of FLEET_ORDER) {
-      const cfg = FLEET[id];
-      const card = document.createElement('button');
-      card.className = 'ac-card';
-      card.id = 'card-' + id;
-      card.type = 'button';
-      card.style.setProperty('--ac', cfg.accent);
-      card.setAttribute('aria-label', cfg.name);
-      const cv = document.createElement('canvas');
-      cv.className = 'ac-thumb'; cv.id = 'thumb-' + id; cv.width = 512; cv.height = 288;
-      const info = document.createElement('div');
-      info.className = 'ac-info';
-      info.innerHTML = '<span class="ac-name"></span><span class="ac-sub"></span><div class="ac-specs"></div>';
-      info.querySelector('.ac-name').textContent = cfg.name;
-      info.querySelector('.ac-sub').textContent = cfg.sub;
-      for (const t of cfg.specs) { const sp = document.createElement('span'); sp.textContent = t; info.querySelector('.ac-specs').appendChild(sp); }
-      const go = document.createElement('span');
-      go.className = 'ac-go'; go.textContent = 'FLY →';
-      card.append(cv, info, go);
-      card.addEventListener('click', () => this.pickAircraft(id));
-      grid.appendChild(card);
-      if (this.thumbData && this.thumbData[id]) cv.getContext('2d').putImageData(this.thumbData[id], 0, 0);
+    const el = this.ui.el;
+    if (!el.mpSpecs || el.mpSpecs.childElementCount) return;
+    const dl = (host, rows) => {
+      host.textContent = '';
+      for (const [k, v] of rows) {
+        const dt = document.createElement('dt'); dt.textContent = k;
+        const dd = document.createElement('dd'); dd.textContent = v;
+        host.append(dt, dd);
+      }
+    };
+    // Uçak: USAF F-35A bilgi sayfası / Lockheed Martin yayımlanmış değerleri (PUBLIC_DATA_SOURCES.md)
+    const n = this.weapons ? this.weapons.stations.length : 0;
+    dl(el.mpSpecs, [
+      ['Engine', 'P&W F135-PW-100'],
+      ['Thrust class', '43,000 lbf (AB)'],
+      ['Length · span', `${F35.length.toFixed(2)} · ${F35.span.toFixed(2)} m`],
+      ['Height', `${F35.height.toFixed(2)} m`],
+      ['Internal fuel', '8,278 kg'],
+      ['Max speed', 'Mach 1.6'],
+      ['Loadout (sim)', n ? `AIM-120 ×${n}` : 'AIM-120'],
+    ]);
+    this._mpDl = dl;
+    // Gün saati: Ayarlar'daki seçimle aynı ayar
+    if (el.mpTod && !el.mpTod.childElementCount) {
+      for (const [k, lbl] of [['default', '12:10'], ['morning', '08:30'], ['afternoon', '16:30'], ['evening', '18:25']]) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'mp-chip'; b.dataset.d = k; b.textContent = lbl;
+        b.addEventListener('click', () => this.setTimeOfDayKey(k));
+        el.mpTod.appendChild(b);
+      }
     }
+    const w = DEFAULT_WIND;
+    dl(el.mpWx, [['Wind (sim)', `${String(w.dirDeg).padStart(3, '0')}° / ${w.kt} kt, gusts ${w.kt + w.gustKt} kt`]]);
+    this.syncTodChips();
+    if (el.btnFly && !el.btnFly._bound) { el.btnFly._bound = true; el.btnFly.addEventListener('click', () => this.pickAircraft(FLEET_ORDER[0])); }
     this.buildSpawnRow();
     this.buildLiveryRows();
+    this.updateBriefing();
   }
 
-  // -------------------------------------------------------------------------
-  // Livery seçimi. Tamamen görsel: yalnızca seçilen boya şeması kaydedilir ve
-  // uçak kurulurken build() çağrısına geçirilir. Fizik, sistemler, kameralar ve
-  // arayüz davranışı bu yoldan etkilenmez.
-  // -------------------------------------------------------------------------
-  /** Bir uçak için seçili livery kimliği (kayıtlı değer geçersizse varsayılan). */
+  /** Gün saati ayarı (görev hazırlığı ve Ayarlar aynı değeri paylaşır). */
+  setTimeOfDayKey(k) {
+    this.settings.tod = k; saveSettings(this.settings);
+    if (this.ui.el.todSeg) this.ui.setSeg(this.ui.el.todSeg, 'd', k);
+    this.applyTimeOfDay();
+    this.syncTodChips();
+    this.updateBriefing();
+  }
+  syncTodChips() {
+    const host = this.ui.el.mpTod, k = this.settings.tod || 'default';
+    if (host) for (const b of host.children) b.classList.toggle('on', b.dataset.d === k);
+  }
+
+  /** Pist brifingi ve meydan şeması: seçili kalkış ucuna göre (OSM/OurAirports geometrisi). */
+  updateBriefing() {
+    const el = this.ui.el;
+    const sp = spawnDesc(this.settings.spawn);
+    const id = this.settings.spawn;
+    const w = this.world;
+    const geo = w && w.spawnPose && w.ltfe ? w : null;
+    const rw = LTFE.runways[0];
+    const end0 = id === 'ltfe-28r' ? rw.ends[1] : rw.ends[0];
+    const magVar = w && w.magVar !== undefined ? w.magVar : 0;
+    const mag = (h) => String(Math.round((((h - magVar) % 360) + 360) % 360) || 360).padStart(3, '0');
+    const hdg = id === 'ltfe-28r' ? (rw.hdg + 180) % 360 : rw.hdg;
+    if (el.mpRwy && this._mpDl) {
+      this._mpDl(el.mpRwy, [
+        ['Runway', `${sp.runway} · ${rw.lengthM} × ${rw.width} m`],
+        ['Heading', `${mag(hdg)}° M`],
+        ['Threshold elev.', `${end0.elevFt} ft`],
+        ['Start', 'Lined up, 100 m in'],
+      ]);
+    }
+    const tod = { default: '12:10', morning: '08:30', afternoon: '16:30', evening: '18:25' }[this.settings.tod || 'default'];
+    if (el.flySub) el.flySub.textContent = `Runway ${sp.runway} · ${tod}`;
+    if (el.mpMap && geo) this.drawAirportMap(el.mpMap, geo, id);
+  }
+
+  /** Meydan şeması (SVG, kuzey yukarı): apronlar, taksi yolları, pistler, kalkış noktası. */
+  drawAirportMap(svg, w, spawnId) {
+    const A = w.ltfe, rws = LTFE.runways;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const r of rws) for (const p of [r.A, r.B]) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+    for (const poly of A.aprons) for (const p of poly) { z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+    const W = 300, H = 96, pad = 10;
+    const sc = Math.min((W - 2 * pad) / (x1 - x0), (H - 2 * pad) / (z1 - z0));
+    const ox = (W - (x1 - x0) * sc) / 2, oz = (H - (z1 - z0) * sc) / 2;
+    const X = (x) => (ox + (x - x0) * sc).toFixed(1), Y = (z) => (oz + (z - z0) * sc).toFixed(1);
+    const parts = [];
+    for (const poly of A.aprons) parts.push(`<polygon points="${poly.map((p) => X(p.x) + ',' + Y(p.z)).join(' ')}" fill="rgba(203,211,221,0.16)" stroke="rgba(203,211,221,0.28)" stroke-width="0.5"/>`);
+    let d = '';
+    for (const g of A.segs) d += `M${X(g.ax)} ${Y(g.az)}L${X(g.bx)} ${Y(g.bz)}`;
+    parts.push(`<path d="${d}" stroke="rgba(203,211,221,0.42)" stroke-width="1.4" fill="none" stroke-linecap="round"/>`);
+    for (const b of A.buildings) if ((b.area || 0) > 1500) parts.push(`<polygon points="${b.pts.map((p) => X(p.x) + ',' + Y(p.z)).join(' ')}" fill="rgba(156,180,206,0.35)"/>`);
+    for (const r of rws) {
+      const hw = r.width / 2, nx = -r.uz * hw, nz = r.ux * hw;
+      const q = [[r.A.x + nx, r.A.z + nz], [r.B.x + nx, r.B.z + nz], [r.B.x - nx, r.B.z - nz], [r.A.x - nx, r.A.z - nz]];
+      parts.push(`<polygon points="${q.map(([x, z]) => X(x) + ',' + Y(z)).join(' ')}" fill="rgba(245,247,250,0.88)" stroke="rgba(245,247,250,0.9)" stroke-width="1.6"/>`);
+      const lbl = (p, e, dir) => parts.push(`<text x="${(+X(p.x) - dir * 11).toFixed(1)}" y="${(+Y(p.z) + 3).toFixed(1)}" font-size="7" fill="#cbd3dd" text-anchor="middle" font-family="-apple-system,Segoe UI,sans-serif">${e.num}${e.suffix}</text>`);
+      lbl(r.A, r.ends[0], 1); lbl(r.B, r.ends[1], -1);
+    }
+    // Kalkış noktası: pist ekseninde, kalkış yönünü gösteren üçgen
+    const sp = w.spawnPose(spawnId), h = sp.hdg * Math.PI / 180, fx = Math.sin(h), fz = -Math.cos(h);
+    const cx = +X(sp.x), cz = +Y(sp.z);
+    const tri = [[cx + fx * 7, cz + fz * 7], [cx - fx * 4 - fz * 4, cz - fz * 4 + fx * 4], [cx - fx * 4 + fz * 4, cz - fz * 4 - fx * 4]];
+    parts.push(`<polygon points="${tri.map(([a, b]) => a.toFixed(1) + ',' + b.toFixed(1)).join(' ')}" fill="#9cc3e8" stroke="#05080c" stroke-width="0.6"/>`);
+    parts.push(`<text x="${W - 6}" y="12" font-size="7" fill="#9cb4ce" text-anchor="end" font-family="-apple-system,Segoe UI,sans-serif">N ↑</text>`);
+    svg.innerHTML = parts.join('');
+  }
+
   liveryId(aircraftId) {
     const list = liveriesFor(aircraftId);
     if (!list.length) return null;
@@ -581,30 +661,17 @@ class App {
   buildLiveryRows() {
     const host = this.ui.el.selLivery;
     if (!host || host.childElementCount) return;
-    for (const acId of FLEET_ORDER) {
-      const list = liveriesFor(acId);
-      if (list.length < 2) continue;                 // tek şema varsa satır gösterme
-      const row = document.createElement('div');
-      row.className = 'sel-lv';
-      const lbl = document.createElement('span');
-      lbl.className = 'sel-lv-lbl';
-      lbl.textContent = FLEET[acId].name;
-      const chips = document.createElement('div');
-      chips.className = 'sel-lv-row';
-      chips.id = 'lv-row-' + acId;
-      for (const lv of list) {
-        const b = document.createElement('button');
-        b.className = 'lv-chip'; b.type = 'button'; b.id = 'lv-' + acId + '-' + lv.id;
-        b.innerHTML = '<b></b><span></span>';
-        b.querySelector('b').textContent = lv.name;
-        b.querySelector('span').textContent = lv.sub || '';
-        b.addEventListener('click', () => this.setLivery(acId, lv.id));
-        chips.appendChild(b);
-      }
-      row.append(lbl, chips);
-      host.appendChild(row);
-      this.setLivery(acId, this.liveryId(acId), true);
+    const acId = FLEET_ORDER[0];
+    for (const lv of liveriesFor(acId)) {
+      const b = document.createElement('button');
+      b.className = 'lv-chip'; b.type = 'button'; b.id = 'lv-' + acId + '-' + lv.id;
+      b.innerHTML = '<b></b><span></span>';
+      b.querySelector('b').textContent = lv.name;
+      b.querySelector('span').textContent = lv.sub || '';
+      b.addEventListener('click', () => this.setLivery(acId, lv.id));
+      host.appendChild(b);
     }
+    this.setLivery(acId, this.liveryId(acId), true);
   }
 
   /**
@@ -623,13 +690,13 @@ class App {
       if (b) b.classList.toggle('on', lv.id === liveryId);
     }
     if (quiet) return;
-    // Seçim ekranındaki önizlemeyi tazele
-    this.refreshThumb(aircraftId);
+    // Görev hazırlığındaki 3B önizlemeyi yeni boyayla yeniden kur
+    if (this.state === 'select') this.buildPreview();
     // Halihazırda uçulan uçak buysa modeli yeni boyayla yeniden kur
     if (this.aircraft && this.aircraftId === aircraftId) this.reskinAircraft();
   }
 
-  // Kalkış havalimanı seçici: uçak kartlarının altında tek satır
+  // Kalkış pisti seçici (yalnızca LTFE: 10L ve 28R kalkış uçları)
   buildSpawnRow() {
     const row = this.ui.el.selApRow;
     if (!row || row.childElementCount) return;
@@ -637,8 +704,9 @@ class App {
       const b = document.createElement('button');
       b.className = 'ap-chip'; b.type = 'button'; b.id = 'ap-' + sp.id;
       b.innerHTML = '<b></b><span></span>';
-      b.querySelector('b').textContent = sp.name + (sp.region === 'bodrum' ? ' · ' + sp.runway : '');
-      b.querySelector('span').textContent = sp.sub;
+      b.querySelector('b').textContent = sp.runway;
+      b.querySelector('span').textContent = sp.id === 'ltfe-28r' ? 'Westbound' : 'Eastbound';
+      b.setAttribute('aria-label', 'Runway ' + sp.runway);
       b.addEventListener('click', () => this.setSpawn(sp.id));
       row.appendChild(b);
     }
@@ -653,71 +721,39 @@ class App {
       const b = document.getElementById('ap-' + sp.id);
       if (b) b.classList.toggle('on', sp.id === id);
     }
+    this.updateBriefing();
+    this.placePreview();
   }
 
-  // Kart önizlemeleri: gerçek modeller bir kez render hedefine çizilir (dış görsel bağımlılığı yok)
-  async buildThumbnails(only = null, onProgress = null) {
-    const W = 512, H = 288;
-    const rt = new THREE.WebGLRenderTarget(W, H);
-    const scene = new THREE.Scene();
-    const key = new THREE.DirectionalLight(0xfff2e0, 3.4); key.position.set(-9, 11, -7); scene.add(key);
-    const fill = new THREE.DirectionalLight(0xbcd4ff, 1.3); fill.position.set(10, 3, 9); scene.add(fill);
-    scene.add(new THREE.HemisphereLight(0x9ec3ee, 0x2a3038, 1.5));
-    if (this.envMap) scene.environment = this.envMap;
-    const cam = new THREE.PerspectiveCamera(26, W / H, 0.5, 4000);
-    const buf = new Uint8Array(W * H * 4);
-    const prevAlpha = this.renderer.getClearAlpha();
-    this.renderer.setClearAlpha(0);
-    if (!only) this.thumbData = {};
-    const list = only ? [only] : FLEET_ORDER;
-    for (let k = 0; k < list.length; k++) {
-      const id = list[k];
-      if (onProgress) onProgress(k, list.length);
-      const cfg = FLEET[id];
-      let ac = null;
-      try {
-        ac = cfg.build({ quality: this.settings.quality, livery: this.liveryId(id) });
-        if (this.envMap && ac.setEnvironment) ac.setEnvironment(this.envMap);
-        ac.update({ gear: 1, flaps: 0, throttle: 0.2, engine: 0.2, time: 0.35, dt: 0.016 });
-        scene.add(ac.group);
-        // Model kurulumu ile ilk çizim (gölgelendirici derlemesi) ayrı dilimlerde:
-        // arada tarayıcı bir kare çizer, döndürmeye tepki verir
-        if (onProgress) { onProgress(k + 0.5, list.length); await this.breathe(); }
-        cam.fov = cfg.thumb.fov;
-        cam.position.fromArray(cfg.thumb.pos);
-        cam.lookAt(cfg.thumb.look[0], cfg.thumb.look[1], cfg.thumb.look[2]);
-        cam.updateProjectionMatrix();
-        this.renderer.setRenderTarget(rt);
-        this.renderer.clear();
-        this.renderer.render(scene, cam);
-        this.renderer.readRenderTargetPixels(rt, 0, 0, W, H, buf);
-        this.renderer.setRenderTarget(null);
-        // WebGL alttan yukarı okur: satırları ters çevirerek 2B tuvale aktar
-        const img = new ImageData(W, H);
-        for (let y = 0; y < H; y++) {
-          const src = (H - 1 - y) * W * 4, dst = y * W * 4;
-          img.data.set(buf.subarray(src, src + W * 4), dst);
-        }
-        this.thumbData[id] = img;
-        const cv = document.getElementById('thumb-' + id);
-        if (cv) cv.getContext('2d').putImageData(img, 0, 0);
-      } catch (e) {
-        console.warn('preview could not be generated', id, e);
-      } finally {
-        if (ac) { scene.remove(ac.group); ac.dispose(); }
-      }
-      await this.breathe();
-    }
-    this.renderer.setClearAlpha(prevAlpha);
-    this.renderer.setRenderTarget(null);
-    rt.dispose();
-    key.dispose(); fill.dispose();
+  /**
+   * Görev hazırlığının 3B önizlemesi: seçili pist ucunda park hâlinde F-35A (takım açık, seyir
+   * ışıkları yanar). Uçuşta kullanılan modelden ayrı bir örnektir; uçuşta gizlenir.
+   */
+  buildPreview() {
+    if (!this.scene || !this.world) return;
+    const id = FLEET_ORDER[0], cfg = FLEET[id];
+    if (this.previewAc) { this.scene.remove(this.previewAc.group); this.previewAc.dispose(); this.previewAc = null; }
+    let ac;
+    try { ac = cfg.build({ quality: this.settings.quality, livery: this.liveryId(id) }); } catch (e) { console.warn('preview could not be built', e); return; }
+    if (this.envMap && ac.setEnvironment) ac.setEnvironment(this.envMap);
+    ac.group.name = 'F-35A-preview';
+    ac.group.visible = this.state !== 'running';
+    this.scene.add(ac.group);
+    this.previewAc = ac;
+    this.placePreview();
+    if (this.renderer && this.state === 'select') this.precompile(ac.group);
   }
-
-  /** Tek uçağın kart önizlemesini yeni liveryle yeniden çizer. */
-  refreshThumb(aircraftId) {
-    if (!this.renderer || !this.ui.el.selGrid || !this.ui.el.selGrid.childElementCount) return;
-    this.buildThumbnails(aircraftId).catch((e) => console.warn('preview could not be generated', e));
+  placePreview() {
+    const ac = this.previewAc, w = this.world;
+    if (!ac || !w || !w.spawnPose) return;
+    const sp = w.spawnPose(this.settings.spawn);
+    const gy = w.heightAt(sp.x, sp.z);
+    ac.group.position.set(sp.x, gy - F35.wheelBottomY - PREVIEW_COMP, sp.z);
+    ac.group.quaternion.setFromEuler(_prevEuler.set(0, -sp.hdg * Math.PI / 180, 0));
+    ac.group.updateMatrixWorld(true);
+    this.selTarget = (this.selTarget || new THREE.Vector3()).copy(ac.group.position);
+    this.selHdg = sp.hdg;
+    this.needsRender = true;
   }
 
   /**
@@ -758,10 +794,12 @@ class App {
     this.ui.setMenu(false);
     this.ui.hide('touch'); this.ui.hide('pause'); this.ui.hide('settings'); this.ui.hide('crash'); this.ui.hide('guide');
     this.buildSelectGrid();
-    for (const id of FLEET_ORDER) {
-      const c = document.getElementById('card-' + id);
-      if (c) c.classList.toggle('sel-active', id === this.aircraftId);
-    }
+    // Önizleme uçağı seçili pist ucunda görünür; uçuştaki model (varsa) gizlenir
+    if (this.aircraft) this.aircraft.group.visible = false;
+    if (!this.previewAc) this.buildPreview();
+    if (this.previewAc) { this.previewAc.group.visible = true; this.placePreview(); }
+    this.updateBriefing();
+    this.syncTodChips();
     this.ui.show('select');
     this.hud.clear();
     this.needsRender = true;
@@ -845,19 +883,40 @@ class App {
 
   // Seçim ekranı arka planı: üs üzerinde yavaş sinematik kamera
   updateSelectCamera(dt) {
-    this.selT = (this.selT || 0.8) + dt * 0.05;
-    // Kamera seçili kalkış havalimanının üzerinde döner: hangi üsten kalkacağı görünür
-    const aps = this.world.airportById;
-    const ap = aps[spawnDesc(this.settings.spawn).airport] || aps[Object.keys(aps)[0]];
-    const V = this.world.selectView || { r: 360, h: 110, dx: -120, dz: 470 };
-    const c = this.camera, r = V.r, cx = ap.x + V.dx, cz = ap.z + V.dz, cy = ap.elev + V.h;
-    c.position.set(cx + Math.cos(this.selT) * r, cy + Math.sin(this.selT * 0.6) * 22, cz + Math.sin(this.selT) * r);
+    this.selT = (this.selT === undefined ? 2.2 : this.selT) + dt * 0.055;
+    const c = this.camera, tgt = this.selTarget;
+    if (!tgt) {
+      // Önizleme yoksa (eski yol): meydan üzerinde sinematik daire
+      const aps = this.world.airportById, ap = aps[spawnDesc(this.settings.spawn).airport] || aps[Object.keys(aps)[0]];
+      const V = this.world.selectView || { r: 360, h: 110, dx: -120, dz: 470 };
+      c.position.set(ap.x + V.dx + Math.cos(this.selT) * V.r, ap.elev + V.h, ap.z + V.dz + Math.sin(this.selT) * V.r);
+      c.lookAt(ap.x + V.dx, ap.elev + 8, ap.z + V.dz);
+      return;
+    }
+    // Yumuşak kamera geçişi: odak seçili pist ucuna üstel olarak kayar; yoldayken kamera yükselip
+    // açılır (pist değişiminde meydanın üzerinden süzülür, arazinin içinden geçmez)
+    const f = this.selFocus || (this.selFocus = tgt.clone());
+    if (dt > 0) f.lerp(tgt, 1 - Math.exp(-dt * 1.4)); else f.copy(tgt);
+    const travel = f.distanceTo(tgt);
+    const r = 19.5 + Math.min(260, travel * 0.12), up = 3.4 + Math.min(320, travel * 0.16);
+    // Yörünge açısı uçağın burnuna göre: önden-yandan başlar, yavaşça çevresinde döner
+    const a = this.selT - (this.selHdg || 0) * Math.PI / 180;
+    c.position.set(f.x + Math.cos(a) * r, f.y + up + Math.sin(this.selT * 0.6) * 0.6, f.z + Math.sin(a) * r);
+    const gy = this.world.heightAt(c.position.x, c.position.z);
+    if (c.position.y < gy + 2.5) c.position.y = gy + 2.5;
     c.up.set(0, 1, 0);
-    c.lookAt(cx, ap.elev + 8, cz);
-    if (c.fov !== 46) { c.fov = 46; c.updateProjectionMatrix(); }
+    c.lookAt(f.x, f.y + 0.4, f.z);
+    const fov = this.vp && this.vp.w / Math.max(1, this.vp.h) < 1.6 ? 44 : 38;
+    if (c.fov !== fov) { c.fov = fov; c.updateProjectionMatrix(); }
+    if (this.previewAc && this.previewAc.group.visible) {
+      this.selClock = (this.selClock || 0) + dt;
+      this.previewAc.update({ gear: 1, gearComp: PREVIEW_COMP, throttle: 0, time: this.selClock, dt, camDist: r, groundSpeed: 0 });
+    }
   }
 
   start() {
+    if (this.previewAc) this.previewAc.group.visible = false;
+    if (this.aircraft) this.aircraft.group.visible = true;
     this.audio.unlock();
     this.audio.setProfile(getAircraftConfig(this.aircraftId).audio);
     this.ui.hide('select');

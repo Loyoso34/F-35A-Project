@@ -36,6 +36,7 @@ export class UI {
       btnGear: $('btn-gear'), btnBrake: $('btn-brake'), btnSound: $('btn-sound'), btnLights: $('btn-lights'),
       btnMenu: $('btn-menu'), drawer: $('drawer'),
       select: $('select'), selGrid: $('sel-grid'), selHint: $('sel-hint'), btnAircraft: $('btn-aircraft'), selApRow: $('sel-ap-row'), selLivery: $('sel-livery'),
+      btnFly: $('btn-fly'), flySub: $('fly-sub'), mpSpecs: $('mp-specs'), mpRwy: $('mp-rwy'), mpTod: $('mp-tod'), mpWx: $('mp-wx'), mpMap: $('mp-map'),
     };
     this.el.guideClose.addEventListener('click', () => this.hide('guide'));
     // Güvenlik ağı: Esc de kapatır (masaüstü). Mobilde ✕ düğmesi 44x44 px,
@@ -72,7 +73,7 @@ export class UI {
   _parts(el) {
     const kind = el.dataset.anim || (el.classList.contains('overlay') ? 'overlay' : 'fade');
     let inner = null;
-    if (kind === 'overlay') inner = el.querySelector(':scope > .panel, :scope > .sel-wrap, :scope > .ld-card');
+    if (kind === 'overlay') inner = el.querySelector(':scope > .panel, :scope > .sel-wrap, :scope > .ld-card, :scope > .mp-wrap');
     return { kind, inner, from: ENTER_FROM[kind] };
   }
   _stop(st) { for (const a of st.anims) { try { a.cancel(); } catch (e) { /* yok */ } } st.anims = []; }
@@ -89,7 +90,8 @@ export class UI {
     st.phase = 'showing';
     if (!this._animated()) { st.phase = 'shown'; return; }
     const { kind, inner, from } = this._parts(el);
-    const dur = Math.max(60, T_IN * (1 - p0));
+    // data-tin / data-tout: katmana özgü süre (ör. yükleme ekranı oyuna daha yavaş, sinematik geçer)
+    const dur = Math.max(60, (+el.dataset.tin || T_IN) * (1 - p0));
     st.anims.push(el.animate([{ opacity: p0 }, { opacity: 1 }], { duration: dur, easing: EASE_OUT }));
     const tEl = kind === 'overlay' ? inner : (from ? el : null);
     if (tEl && from) st.anims.push(tEl.animate([{ transform: from }, { transform: 'none' }], { duration: dur, easing: EASE_OUT }));
@@ -125,7 +127,7 @@ export class UI {
     };
     if (!this._animated() || p0 <= 0.01) { finish(); return; }
     const { kind, inner, from } = this._parts(el);
-    const dur = Math.max(50, T_OUT * p0);
+    const dur = Math.max(50, (+el.dataset.tout || T_OUT) * p0);
     st.anims.push(el.animate([{ opacity: p0 }, { opacity: 0 }], { duration: dur, easing: EASE_IN, fill: 'forwards' }));
     const tEl = kind === 'overlay' ? inner : (from ? el : null);
     if (tEl && from) st.anims.push(tEl.animate([{ transform: 'none' }, { transform: from }], { duration: dur, easing: EASE_IN, fill: 'forwards' }));
