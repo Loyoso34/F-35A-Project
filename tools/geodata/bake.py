@@ -383,16 +383,30 @@ def bake_dem(cache, out_dir):
     noise = water & (h >= 0.5) & (h9 < -2.0)
     print(f'  z12 water cells raised above coarse seabed, clamped to sea: {int(noise.sum())}', flush=True)
     sea = water & ((h < 0.5) | noise | osm_sea)
-    h = np.where(sea, 0.0, h)                       # the sea surface is 0 m MSL
+    # v4.0: sea cells store the SEABED (negative, at least 1 m deep) instead of 0 m. The client
+    # decodes water cells with h < 0 as surface 0 m MSL + a depth channel (water colour by depth;
+    # physics still sees the 0 m sea surface). Bathymetry: z12 where present, else bilinear z9.
+    depth = np.where(sea, np.maximum(-h, 1.0), 0.0)
+    # Renk için kaba derinlik yeter (karo boyutu): 20 m'ye dek 0,5 m, 100 m'ye dek 2 m, sonra 10 m adım
+    depth = np.where(depth < 20, np.round(depth * 2) / 2, np.where(depth < 100, np.round(depth / 2) * 2, np.round(depth / 10) * 10))
+    depth = np.where(sea, np.maximum(depth, 1.0), 0.0)
+    h = np.where(sea, -depth, h)
     h = np.where(~water & (h < 0.5), 0.5, h)
-    stats = {'core_min': float(h.min()), 'core_max': float(h.max()), 'water_frac': float(water.mean())}
+    surf = np.where(sea, 0.0, h)
+    stats = {'core_min': float(surf.min()), 'core_max': float(surf.max()), 'water_frac': float(water.mean()),
+             'sea_depth_median': float(np.median(depth[sea])) if sea.any() else 0.0}
     size = write_dem_tiles(h, water, DEM_CORE_Z, rc, out_dir)
-    # Outer ring at z9 (Terrarium z9; seabed -> 0 m sea surface). Inside the core it is replaced by
-    # the processed z12 data box-filtered 8x so that both levels agree.
+    # Outer ring at z9 (Terrarium z9; seabed kept as negative depth, see above). Inside the core it
+    # is replaced by the processed z12 data box-filtered 8x so that both levels agree: land cells
+    # average the SURFACE (sea = 0), water cells store the mean depth of their water sub-cells.
     wo = ho < 0.0
-    ho = np.where(wo, 0.0, ho)
-    hc = h.reshape(h.shape[0] // k, k, h.shape[1] // k, k).mean(axis=(1, 3))
-    wc = water.reshape(water.shape[0] // k, k, water.shape[1] // k, k).mean(axis=(1, 3)) >= 0.5
+    ho = np.where(wo, np.minimum(np.round(ho / 10) * 10, -1.0), ho)
+    box = lambda a: a.reshape(a.shape[0] // k, k, a.shape[1] // k, k).mean(axis=(1, 3))
+    wfrac = box(water.astype(np.float64))
+    wc = wfrac >= 0.5
+    dmean = box(depth) / np.maximum(wfrac, 1e-6)
+    dmean = np.where(dmean < 20, np.round(dmean * 2) / 2, np.where(dmean < 100, np.round(dmean / 2) * 2, np.round(dmean / 10) * 10))
+    hc = np.where(wc, -np.maximum(dmean, 1.0), box(surf))
     ox, oy = rc[0] * 256 // k - ro[0] * 256, rc[2] * 256 // k - ro[2] * 256
     ho[oy:oy + hc.shape[0], ox:ox + hc.shape[1]] = hc
     wo[oy:oy + hc.shape[0], ox:ox + hc.shape[1]] = wc

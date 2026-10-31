@@ -66,6 +66,10 @@ const L = R.LTFE;
   const seas = [[36.90, 27.60, 'Gulf of Gökova'], [36.80, 27.45, 'south of Gökova'], [36.95, 27.40, 'Bodrum–Kos strait']];
   const bad = seas.filter(([la, lo]) => { const p = W.frame.toLocal(la, lo); return W.surfaceTypeAt(p.x, p.z) !== 'water' || Math.abs(W.heightAt(p.x, p.z) - G.MSL_Y) > 0.01; });
   check(bad.length === 0, `open sea in sun-glint areas is water at 0 m MSL: ${seas.map((s) => s[2]).join(', ')}${bad.length ? ' — NOT: ' + bad.map((s) => s[2]).join(', ') : ''}`);
+  // v4.0 batimetri kanalı: açık deniz derin, kıyı sığ, kara 0 (su rengi bundan hesaplanır)
+  const dAt = (la, lo) => { const p = W.frame.toLocal(la, lo); return W.terrain.depthAt(p.x, p.z); };
+  const dG = dAt(36.90, 27.60), dK = dAt(36.95, 27.40), dL = dAt(37.31, 27.78);
+  check(dG > 60 && dK > 20 && dL === 0, `bathymetry: Gulf of Gökova ${fmt(dG, 0)} m, Bodrum–Kos strait ${fmt(dK, 0)} m, Milas (land) ${fmt(dL, 0)} m`);
   const land = W.frame.toLocal(37.31, 27.78);
   check(W.surfaceTypeAt(land.x, land.z) === 'grass', 'Milas town area is land');
 }

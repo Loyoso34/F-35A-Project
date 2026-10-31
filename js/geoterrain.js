@@ -30,6 +30,10 @@ export const EARTH_R = 6371000;
 export const CURVE_K = 0.5 / EARTH_R;
 const BLEND_S = 1.2;
 const TILE = 256;
+// Derinlik kodu (0..255): sqrt(m / 1000) ölçeği — sığlıkta çözünürlük yüksek (1 m ≈ 8, 10 m ≈ 26),
+// 1000 m'de doyar. Köşe özniteliği de aynı kodu taşır; gölgelendirici d = (a·a)·1000 m çözer.
+export const depthCode = (m) => Math.min(255, Math.round(Math.sqrt(Math.max(0, m) / 1000) * 255));
+const LAKE_DEPTH_CODE = depthCode(6);
 
 // ---------------------------------------------------------------------------------------------
 // Karo çözümleme (tarayıcı). Testler Node'da kendi PNG çözücüsünü verir (decodeRGBA seçeneği).
@@ -123,13 +127,17 @@ class DemStore {
   async load(t) {
     const url = this.base + this.url.replace('{z}', t.z).replace('{x}', t.x).replace('{y}', t.y);
     const rgba = await this.decode(await this.fetch(url));
-    const n = TILE * TILE, h = new Float32Array(n), w = new Uint8Array(n);
+    // v4.0: deniz hücreleri DENİZ TABANINI (negatif) taşır. Yüzey 0 m MSL'dir (fizik), derinlik ayrı
+    // kanalda (su rengi). Su bayraklı ve h >= 0 hücre göldür (derinlik verisi yok: sığ varsayılır).
+    const n = TILE * TILE, h = new Float32Array(n), w = new Uint8Array(n), dp = new Uint8Array(n);
     for (let i = 0, p = 0; i < n; i++, p += 4) {
       const b = rgba[p + 2];
-      h[i] = rgba[p] * 256 + rgba[p + 1] + (b & 0xfe) / 256 - 32768;
-      w[i] = b & 1;
+      let v = rgba[p] * 256 + rgba[p + 1] + (b & 0xfe) / 256 - 32768;
+      const wb = b & 1;
+      if (wb) { if (v < 0) { dp[i] = depthCode(-v); v = 0; } else dp[i] = LAKE_DEPTH_CODE; }
+      h[i] = v; w[i] = wb;
     }
-    t.h = h; t.w = w; t.ready = true; t.t0 = this.clock();
+    t.h = h; t.w = w; t.dp = dp; t.ready = true; t.t0 = this.clock();
     this._lastK = -1;
     t.resolve(t);
     if (this.onTile) this.onTile(t);
@@ -244,21 +252,42 @@ export const TERRAIN_UNIFORMS = {
   uDetail: { value: null },
   uWaterN: { value: null },
   uTime: { value: 0 },
+  // Derin Ege suyunun su-çıkış yansıtırlığı (doğrusal RGB albedo eşdeğeri). Oligotrofik açık deniz
+  // Rrs(443) ≈ 0,010–0,015 sr⁻¹ -> ρw = π·Rrs ≈ 0,03–0,05 mavide; yeşil ve kırmızıda çok düşük.
+  // Görüntünün derin su değeri (0,0006, 0,0035, 0,011) Sen2Cor'un su üstünde aşırı düzeltmesidir
+  // (yukarıdan neredeyse siyah görünüyordu) ve sahneden sahneye değişir (dikişler).
+  uDeepWater: { value: new THREE.Color(0.0045, 0.020, 0.058) },
 };
 
 function terrainCompile(sh) {
   Object.assign(sh.uniforms, HAZE_UNIFORMS, TERRAIN_UNIFORMS);
-  sh.vertexShader = `attribute float water;
-    varying float vWater; varying vec3 vWP; varying float vNy;
+  sh.vertexShader = `attribute float water; attribute float depth;
+    varying float vWater; varying vec3 vWP; varying float vNy; varying float vDepth;
     ` + HAZE_PARS_VS + '\n' + sh.vertexShader
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWater = water; vWP = (modelMatrix * vec4(position, 1.0)).xyz; vNy = objectNormal.y;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWater = water; vDepth = depth; vWP = (modelMatrix * vec4(position, 1.0)).xyz; vNy = objectNormal.y;')
     .replace('#include <project_vertex>', CURVE_PROJECT + `
   vHaze = hazeAt(transpose(mat3(viewMatrix)) * mvPosition.xyz + cameraPosition);`);
   sh.fragmentShader = `uniform float uRelief; uniform float uAlbedo; uniform float uExposure; uniform sampler2D uDetail; uniform sampler2D uWaterN; uniform float uTime;
-    varying float vWater; varying vec3 vWP; varying vec4 vHaze; varying float vNy;
+    uniform vec3 uDeepWater;
+    varying float vWater; varying vec3 vWP; varying vec4 vHaze; varying float vNy; varying float vDepth;
     ` + HAZE_PARS_FS.replace('varying vec4 vHaze;', '') + '\n' + sh.fragmentShader
     .replace('#include <map_fragment>', `#include <map_fragment>
     diffuseColor.rgb *= uAlbedo * uExposure;
+    if (vWater > 0.01) {
+      // Su kütlesi rengi (v4.0): açık denizde DERİNLİKTEN (batimetri), görüntü yalnızca dibin
+      // gerçekten seçildiği sığlıkta. Görüntünün açık deniz değeri sahneye, parıltıya ve atmosfer
+      // düzeltmesine göre değişir: sahne/şerit sınırlarında dikiş, parıltıda yamalar, karaya yakın
+      // siyah halelere yol açıyordu. Sığlık: batimetriden görünürlük (~7 m ölçek) ya da görüntünün
+      // derin su referansından belirgin parlaklığı (kum, kaya; yalnızca 40 m'den sığ yerlerde).
+      float dep = vDepth * vDepth * 1000.0;
+      vec3 img = diffuseColor.rgb;
+      float lumI = dot(img, vec3(0.2126, 0.7152, 0.0722));
+      float sh = clamp(max(exp(-dep / 7.0), smoothstep(0.010, 0.035, lumI) * (1.0 - smoothstep(10.0, 40.0, dep))), 0.0, 1.0);
+      // derinliğe göre hafif ton: 20-200 m arası biraz daha açık, kobalt
+      vec3 deepC = uDeepWater * mix(1.25, 1.0, smoothstep(20.0, 200.0, dep));
+      vec3 body = mix(deepC, max(img, deepC * 0.7), sh);
+      diffuseColor.rgb = mix(diffuseColor.rgb, body, vWater);
+    }
     {
       // Yakın ayrıntı (yalnızca yakında; ORTALAMAYI KORUYAN ton çarpanı: uzaktan görüntü rengi aynen
       // kalır). Görüntü 10 m çözünürlüklüdür; bu katman gerçek ayrıntı ÜRETMEZ, yalnızca pikselin
@@ -340,10 +369,10 @@ const LAMBERT_RELIEF = THREE.ShaderChunk.lights_lambert_pars_fragment.replace(
 if (LAMBERT_RELIEF === THREE.ShaderChunk.lights_lambert_pars_fragment) console.warn('geoterrain: Lambert chunk changed; relief lighting disabled');
 
 /** Düğüm malzemesi: hepsi aynı programı paylaşır (aynı önbellek anahtarı), yalnızca map farklıdır. */
-function makeTerrainMaterial(map) {
+export function makeTerrainMaterial(map) {
   const m = new THREE.MeshLambertMaterial({ map });
   m.onBeforeCompile = terrainCompile;
-  m.customProgramCacheKey = () => 'geoterrain4';
+  m.customProgramCacheKey = () => 'geoterrain5';
   m.userData.hazed = true;
   return m;
 }
@@ -503,39 +532,44 @@ export class GeoTerrain {
     }
     return s * 0.25;
   }
-  cornerW(d, ix, iy) {
+  /** Köşe değeri, su payı (key 'w') ya da derinlik kodu (key 'dp'). */
+  cornerW(d, ix, iy, key = 'w') {
     let s = 0;
     for (let k = 0; k < 4; k++) {
       const p = this.dem.pixelTile(d, ix - 1 + (k & 1), iy - 1 + (k >> 1));
-      if (!p) return 0;
-      s += p.t.w[p.i];
+      if (!p) return key === 'dp' ? 255 : 0;
+      s += p.t[key][p.i];
     }
     return s * 0.25;
   }
-  /** Köşe değeri: yükseklik ve su payı birlikte (_cw'ye yazılır). Veri yoksa NaN. */
+  /** Köşe değeri: yükseklik, su payı ve derinlik kodu birlikte (_cw, _cd'ye yazılır). Veri yoksa NaN. */
   cornerHW(d, ix, iy) {
-    let s = 0, w = 0;
+    let s = 0, w = 0, dp = 0;
     for (let k = 0; k < 4; k++) {
       const p = this.dem.pixelTile(d, ix - 1 + (k & 1), iy - 1 + (k >> 1));
-      if (!p) { this._cw = 1; return NaN; }
-      s += p.t.h[p.i]; w += p.t.w[p.i];
+      if (!p) { this._cw = 1; this._cd = 255; return NaN; }
+      s += p.t.h[p.i]; w += p.t.w[p.i]; dp += p.t.dp[p.i];
     }
-    this._cw = w * 0.25;
+    this._cw = w * 0.25; this._cd = dp * 0.25;
     return s * 0.25;
   }
-  /** Kanonik yüzey (MSL, m): seviye d köşe ızgarasında üçgen ara değer. gx, gy: global köşe koordinatı. */
-  surfaceAtLevel(d, gx, gy, wantWater = false) {
+  /**
+   * Kanonik yüzey (MSL, m): seviye d köşe ızgarasında üçgen ara değer. gx, gy: global köşe koordinatı.
+   * want: false yükseklik, true su payı (0..1), 'dp' derinlik kodu (0..255).
+   */
+  surfaceAtLevel(d, gx, gy, want = false) {
     const i = Math.floor(gx), j = Math.floor(gy), u = gx - i, v = gy - j;
+    const key = want === 'dp' ? 'dp' : 'w';
     // Köşenin tam üstü (düğüm köşeleri çoğunlukla buraya düşer): tek köşe değeri
-    if (u === 0 && v === 0) { const h = this.cornerHW(d, i, j); return wantWater ? this._cw : h; }
+    if (u === 0 && v === 0) { const h = this.cornerHW(d, i, j); return want === 'dp' ? this._cd : want ? this._cw : h; }
     // köşegen (i, j+1)–(i+1, j): u + v <= 1 -> (a, b, dd) üçgeni
     if (u + v <= 1) {
+      if (want) return this.cornerW(d, i, j, key) * (1 - u - v) + this.cornerW(d, i + 1, j, key) * u + this.cornerW(d, i, j + 1, key) * v;
       const a = this.cornerH(d, i, j), b = this.cornerH(d, i, j + 1), c = this.cornerH(d, i + 1, j);
-      if (wantWater) return this.cornerW(d, i, j) * (1 - u - v) + this.cornerW(d, i + 1, j) * u + this.cornerW(d, i, j + 1) * v;
       return a + u * (c - a) + v * (b - a);
     }
+    if (want) return this.cornerW(d, i + 1, j + 1, key) * (u + v - 1) + this.cornerW(d, i, j + 1, key) * (1 - u) + this.cornerW(d, i + 1, j, key) * (1 - v);
     const b = this.cornerH(d, i, j + 1), c = this.cornerH(d, i + 1, j), e = this.cornerH(d, i + 1, j + 1);
-    if (wantWater) return this.cornerW(d, i + 1, j + 1) * (u + v - 1) + this.cornerW(d, i, j + 1) * (1 - u) + this.cornerW(d, i + 1, j) * (1 - v);
     return e + (1 - u) * (b - e) + (1 - v) * (c - e);
   }
   /** Ham arazi MSL yüksekliği (havaalanı düzleştirmesi hariç), enlem/boylamdan. */
@@ -591,6 +625,19 @@ export class GeoTerrain {
     return ok;
   }
 
+  /** Su derinliği (m, deniz tabanına; karada 0), en ince yüklü seviye. Su rengi ve testler için. */
+  depthAt(x, z) {
+    const g = this.frame.toGeo(x, z, this._g);
+    for (const d of this.dem.levels) {
+      const gx = lonToTileX(g.lon, d) * TILE, gy = latToTileY(g.lat, d) * TILE;
+      const r = this.dem.range[d];
+      if (gx < r.x0 * TILE || gx >= (r.x1 + 1) * TILE || gy < r.y0 * TILE || gy >= (r.y1 + 1) * TILE) continue;
+      if (!this.dem.pixelTile(d, Math.floor(gx), Math.floor(gy))) continue;
+      const a = this.surfaceAtLevel(d, gx, gy, 'dp') / 255;
+      return a * a * 1000;
+    }
+    return 1000;
+  }
   /** Su payı 0..1 (en ince yüklü seviye). */
   waterAt(x, z) {
     const g = this.frame.toGeo(x, z, this._g);
@@ -647,6 +694,7 @@ export class GeoTerrain {
     // Ara diziler (her inşada yeniden kullanılır)
     const E = N + 3;
     this._ex = new Float64Array(E * E); this._ez = new Float64Array(E * E); this._eh = new Float64Array(E * E); this._ew = new Float32Array(E * E);
+    this._ed = new Float32Array(E * E);
     this._sub = 8;
     this._sx = new Float64Array((this._sub + 1) ** 2); this._sz = new Float64Array((this._sub + 1) ** 2);
   }
@@ -685,7 +733,7 @@ export class GeoTerrain {
       f.toLocal(tileYToLat(n.y + b / S, z), tileXToLon(n.x + a / S, z), l);
       sx[b * (S + 1) + a] = l.x; sz[b * (S + 1) + a] = l.z;
     }
-    const ex = this._ex, ez = this._ez, eh = this._eh, ew = this._ew;
+    const ex = this._ex, ez = this._ez, eh = this._eh, ew = this._ew, ed = this._ed;
     const sc = TILE * Math.pow(2, d - z) / N, rd = this.dem.range[d];
     const gxMin = rd.x0 * TILE, gxMax = (rd.x1 + 1) * TILE, gyMin = rd.y0 * TILE, gyMax = (rd.y1 + 1) * TILE;
     const gx0 = n.x * TILE * Math.pow(2, d - z), gy0 = n.y * TILE * Math.pow(2, d - z);
@@ -709,22 +757,23 @@ export class GeoTerrain {
         // 2) Yükseklik: kanonik yüzey (seviye d), ince seviye eksikse kaba
         const gx = gx0 + i * sc, gy = gy0 + j * sc;
         const cov = gx >= gxMin && gx <= gxMax && gy >= gyMin && gy <= gyMax;
-        let h = NaN, w = 1;
+        let h = NaN, w = 1, dp = 255;
         if (cov) {
-          if (gx === Math.floor(gx) && gy === Math.floor(gy)) { h = this.cornerHW(d, gx, gy); w = this._cw; }
-          else { h = this.surfaceAtLevel(d, gx, gy); w = this.surfaceAtLevel(d, gx, gy, true); }
+          if (gx === Math.floor(gx) && gy === Math.floor(gy)) { h = this.cornerHW(d, gx, gy); w = this._cw; dp = this._cd; }
+          else { h = this.surfaceAtLevel(d, gx, gy); w = this.surfaceAtLevel(d, gx, gy, true); dp = this.surfaceAtLevel(d, gx, gy, 'dp'); }
         }
         if (Number.isNaN(h) && d !== this.demCoarse) {
           fallback++;
           const s2 = Math.pow(2, this.demCoarse - d);
           h = this.surfaceAtLevel(this.demCoarse, gx * s2, gy * s2); w = this.surfaceAtLevel(this.demCoarse, gx * s2, gy * s2, true);
+          dp = this.surfaceAtLevel(this.demCoarse, gx * s2, gy * s2, 'dp');
         }
-        if (Number.isNaN(h)) { h = 0; w = 1; }
+        if (Number.isNaN(h)) { h = 0; w = 1; dp = 255; }
         // Bölge dışı: denize batar (dış halka deniz yüzeyi örter)
         const lon = this._lonCol[ii], lat = latRow;
-        if (lon < B[0] || lon > B[2] || lat < B[1] || lat > B[3]) { h = -40; w = 1; }
+        if (lon < B[0] || lon > B[2] || lat < B[1] || lat > B[3]) { h = -40; w = 1; dp = 255; }
         else if (conform) h = conform(X, Z, h);
-        eh[e] = h + MSL_Y; ew[e] = w;
+        eh[e] = h + MSL_Y; ew[e] = w; ed[e] = dp;
         if (i >= 0 && i <= N && j >= 0 && j <= N) { if (eh[e] < minY) minY = eh[e]; if (eh[e] > maxY) maxY = eh[e]; }
       }
     }
@@ -740,7 +789,7 @@ export class GeoTerrain {
       this.group.add(mesh);
     }
     const geo = n.mesh.geometry;
-    const pos = geo.attributes.position.array, nor = geo.attributes.normal.array, wat = geo.attributes.water.array;
+    const pos = geo.attributes.position.array, nor = geo.attributes.normal.array, wat = geo.attributes.water.array, dep = geo.attributes.depth.array;
     for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
       const e = (j + 1) * E + (i + 1), o = j * n1 + i;
       pos[o * 3] = ex[e] - ox; pos[o * 3 + 1] = eh[e] - oy; pos[o * 3 + 2] = ez[e] - oz;
@@ -752,6 +801,7 @@ export class GeoTerrain {
       const L = Math.hypot(nx, ny, nz) || 1;
       nor[o * 3] = nx / L; nor[o * 3 + 1] = ny / L; nor[o * 3 + 2] = nz / L;
       wat[o] = Math.round(Math.min(1, Math.max(0, ew[e])) * 255);
+      dep[o] = Math.round(ed[e]);
     }
     // Etek: çevre köşeleri düğüm boyutu VE yerel kabartmayla orantılı aşağı. Dik sırtlarda kaba
     // komşunun kenarı ince yüzeyden onlarca metre sapar; sığ etek orada gök görünen çatlak bırakırdı.
@@ -760,9 +810,10 @@ export class GeoTerrain {
       const [i, j] = this.ring[r], s = j * n1 + i, o = n1 * n1 + r;
       pos[o * 3] = pos[s * 3]; pos[o * 3 + 1] = pos[s * 3 + 1] - skirt; pos[o * 3 + 2] = pos[s * 3 + 2];
       nor[o * 3] = nor[s * 3]; nor[o * 3 + 1] = nor[s * 3 + 1]; nor[o * 3 + 2] = nor[s * 3 + 2];
-      wat[o] = wat[s];
+      wat[o] = wat[s]; dep[o] = dep[s];
     }
     geo.attributes.position.needsUpdate = true; geo.attributes.normal.needsUpdate = true; geo.attributes.water.needsUpdate = true;
+    geo.attributes.depth.needsUpdate = true;
     n.mesh.position.set(ox, oy, oz); n.mesh.updateMatrix();
     geo.boundingSphere = null;
     n.minY = minY - skirt; n.maxY = maxY;
@@ -780,6 +831,7 @@ export class GeoTerrain {
     geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(vc * 3), 3));
     geo.setAttribute('uv', this.uv);
     geo.setAttribute('water', new THREE.BufferAttribute(new Uint8Array(vc), 1, true));
+    geo.setAttribute('depth', new THREE.BufferAttribute(new Uint8Array(vc), 1, true));
     const mesh = new THREE.Mesh(geo, makeTerrainMaterial(this.blank));
     mesh.frustumCulled = false; mesh.receiveShadow = true; mesh.castShadow = false;
     mesh.matrixAutoUpdate = false; mesh.visible = false;

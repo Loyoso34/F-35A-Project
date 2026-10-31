@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { World, QUALITY_PRESETS } from './world.js';
 import { LocalFrame, GeoidGrid, MSL_Y } from './geo.js';
-import { GeoTerrain, CURVE_K, TERRAIN_UNIFORMS } from './geoterrain.js';
+import { GeoTerrain, CURVE_K, TERRAIN_UNIFORMS, makeTerrainMaterial } from './geoterrain.js';
 import { BODRUM, LTFE } from './georegion.js';
 import { Ltfe3D } from './ltfe3d.js';
 import { GeoFeatures } from './geofeatures.js';
@@ -392,8 +392,14 @@ export class GeoWorld extends World {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setIndex(idx);
     g.computeVertexNormals();
-    // Derin deniz yansıtırlığı (bake.py SEA_REF), görüntü albedosuyla aynı ölçek
-    const m = new THREE.MeshLambertMaterial({ color: new THREE.Color(0.0006, 0.0035, 0.011) });
+    // v4.0: halka ARAZİ SUYUYLA AYNI gölgelendiriciyi kullanır (derin su rengi, Fresnel gök
+    // yansıması, güneş parıltısı, pus, eğrilik): eskiden düz Lambert koyu renkti ve veri sınırında
+    // farklı tonda bir dikiş oluşturuyordu. Köşeler: tam su, derin (kod 255), görüntü yok.
+    const nv = pos.length / 3;
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(nv * 2), 2));
+    g.setAttribute('water', new THREE.BufferAttribute(new Uint8Array(nv).fill(255), 1, true));
+    g.setAttribute('depth', new THREE.BufferAttribute(new Uint8Array(nv).fill(255), 1, true));
+    const m = makeTerrainMaterial(this.terrain.blank || null);
     const mesh = new THREE.Mesh(g, m);
     mesh.frustumCulled = false; mesh.receiveShadow = false; mesh.name = 'ocean-ring';
     this.track(g); this.track(m);
