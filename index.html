@@ -45,12 +45,15 @@
          Üç denetimin konumu TEK bir ölçü setinden türetilir; hiçbiri elle yazılmış
          koordinat kullanmaz. Bu yüzden ekran daraldıkça clamp() ölçüleri küçültür
          ve denetimler üst üste binmek yerine orantılı olarak sıkışır. */
-      --ctl-gap: clamp(9px, calc(1.5 * var(--vw)), 18px);
-      --rud-w: clamp(130px, calc(22 * var(--vw)), 200px);
-      --rud-h: 42px;
-      --stk-d: clamp(82px, calc(13 * var(--vw)), 108px);
-      --stk-d-raw: clamp(82px, calc(13 * var(--vw)), 108px);
-      --flp-w: clamp(52px, calc(7.6 * var(--vw)), 64px);
+      /* v4.0: uçuş kumandalarının GÖRÜNÜR ölçüleri önceki sürümün tam %80'i (--ui). Dokunma alanları
+         görünmez uzantılarla ≥ 44 px kalır; konumlar (kenar boşlukları) korunur. */
+      --ui: 0.8;
+      --ctl-gap: clamp(7.2px, calc(1.2 * var(--vw)), 14.4px);
+      --rud-w: clamp(104px, calc(17.6 * var(--vw)), 160px);
+      --rud-h: 33.6px;
+      --stk-d: clamp(65.6px, calc(10.4 * var(--vw)), 86.4px);
+      --stk-d-raw: clamp(65.6px, calc(10.4 * var(--vw)), 86.4px);
+      --flp-w: clamp(41.6px, calc(6.08 * var(--vw)), 51.2px);
       --ctl-l: calc(var(--sal) + 10px);
       --flp-l: var(--ctl-l);
       --stk-l: calc(var(--flp-l) + var(--flp-w) + var(--ctl-gap));
@@ -63,10 +66,10 @@
       --rud-l: clamp(var(--rud-min-l), calc(50% - var(--rud-w) / 2), calc(100% - var(--sar) - 150px - var(--rud-w)));
       --ctl-r: calc(var(--rud-l) + var(--rud-w));
       --ctl-b: calc(var(--sab) + 10px);
-      --hud: #39ff6a;
+      --hud: #f5f7fa;
       --panel: rgba(10, 16, 24, 0.86);
       --btn: rgba(255, 255, 255, 0.10);
-      --btn-on: rgba(57, 255, 106, 0.28);
+      --btn-on: rgba(245, 247, 250, 0.20);
       --accent: #4fc3f7;
     }
     /* Joystick halkası çift tamsayı piksel çapa yuvarlanır: merkez her cihaz piksel oranında
@@ -118,9 +121,9 @@
       pointer-events: none; box-shadow: inset 0 0 18px rgba(0,0,0,0.35);
     }
     #stick-base::before { content: ""; position: absolute; left: 50%; top: 50%; width: 62%; height: 62%; transform: translate(-50%, -50%); border-radius: 50%; border: 1px dashed rgba(255,255,255,0.13); }
-    #stick-base::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(255,255,255,0.30); }
+    #stick-base::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4.8px; height: 4.8px; margin: -2.4px 0 0 -2.4px; border-radius: 50%; background: rgba(255,255,255,0.30); }
     #stick-knob {
-      --knob-d: 44px;
+      --knob-d: 35.2px;
       position: absolute; width: var(--knob-d); height: var(--knob-d); border-radius: 50%;
       left: 50%; top: 50%; margin: calc(var(--knob-d) / -2) 0 0 calc(var(--knob-d) / -2);
       background: radial-gradient(circle at 40% 34%, rgba(112,118,128,0.92), rgba(66,70,77,0.90) 58%, rgba(52,56,62,0.90));
@@ -128,22 +131,26 @@
       transform: translate3d(0, 0, 0); will-change: transform;
       transition: border-color 0.12s ease, box-shadow 0.12s ease;
     }
-    /* Etkin dokunuş: ölçülü yeşil vurgu (renk geçişi yalnızca görseldir, girdiye etki etmez) */
-    #stick-knob.active { border-color: rgba(57,255,106,0.70); box-shadow: 0 2px 10px rgba(0,0,0,0.5), 0 0 0 2px rgba(57,255,106,0.16); }
+    /* Etkin dokunuş: ölçülü beyaz-mavi vurgu (renk geçişi yalnızca görseldir, girdiye etki etmez) */
+    #stick-knob.active { border-color: rgba(245,247,250,0.85); box-shadow: 0 2px 10px rgba(0,0,0,0.5), 0 0 0 2px rgba(156,195,232,0.28); }
+    /* Gaz kolu: genişlik ve sütun boyu %80, alt kenar ve sağ boşluk aynı. Dokunma alanı ::before ile genişler. */
     #throttle {
-      position: absolute; right: calc(var(--sar) + 8px); top: calc(var(--sat) + 58px); bottom: calc(var(--sab) + 14px);
-      width: 54px; pointer-events: auto;
+      position: absolute; right: calc(var(--sar) + 8px); bottom: calc(var(--sab) + 14px);
+      top: calc(var(--sat) + 58px + (var(--app-h) - var(--sat) - var(--sab) - 72px) * 0.2);
+      width: 43.2px; pointer-events: auto;
     }
+    /* Sol uzantı 4 px: düğme sütunuyla arada 8 px var, iki uzantı ortada buluşur ama örtüşmez */
+    #throttle::before { content: ""; position: absolute; inset: -6px -8px -6px -4px; }
     #throttle-track {
-      position: absolute; left: 9px; right: 9px; top: 0; bottom: 0; border-radius: 10px;
-      background: rgba(10,16,24,0.5); border: 1.5px solid rgba(255,255,255,0.26); overflow: hidden;
+      position: absolute; left: 7.2px; right: 7.2px; top: 0; bottom: 0; border-radius: 8px;
+      background: rgba(10,16,24,0.5); border: 1.2px solid rgba(255,255,255,0.26); overflow: hidden;
     }
-    #throttle-ab { position: absolute; left: 0; right: 0; top: 0; height: 15%; background: repeating-linear-gradient(135deg, rgba(255,140,40,0.35) 0 6px, rgba(255,140,40,0.15) 6px 12px); border-bottom: 1.5px dashed rgba(255,170,70,0.9); }
-    #throttle-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0%; background: linear-gradient(180deg, rgba(57,255,106,0.45), rgba(57,255,106,0.2)); }
+    #throttle-ab { position: absolute; left: 0; right: 0; top: 0; height: 15%; background: repeating-linear-gradient(135deg, rgba(245,247,250,0.22) 0 4.8px, rgba(245,247,250,0.07) 4.8px 9.6px); border-bottom: 1.2px dashed rgba(245,247,250,0.7); }
+    #throttle-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0%; background: linear-gradient(180deg, rgba(203,224,245,0.42), rgba(156,195,232,0.16)); }
     #throttle-knob {
-      position: absolute; left: 0; width: 54px; height: 44px; margin-top: -22px; border-radius: 9px;
-      background: rgba(14,20,28,0.92); border: 1.5px solid rgba(57,255,106,0.9); pointer-events: none;
-      display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--hud); font-weight: 700; letter-spacing: 0.3px;
+      position: absolute; left: 0; width: 43.2px; height: 35.2px; margin-top: -17.6px; border-radius: 7.2px;
+      background: rgba(14,20,28,0.92); border: 1.2px solid rgba(203,224,245,0.8); pointer-events: none;
+      display: flex; align-items: center; justify-content: center; font-size: 8.8px; color: #f5f7fa; font-weight: 700; letter-spacing: 0.24px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.5);
     }
     /* ---- Flap kolu (sol alt) ----
@@ -151,35 +158,37 @@
        çizilir, topuz kademe adını ve açısını taşır. Belirsiz bir düğme değildir. */
     #flaps {
       position: absolute; left: var(--flp-l); bottom: var(--ctl-b);
-      width: var(--flp-w); height: min(190px, calc(50 * var(--vh))); pointer-events: auto; touch-action: none;
+      width: var(--flp-w); height: min(152px, calc(40 * var(--vh))); pointer-events: auto; touch-action: none;
     }
+    /* Sağ uzantı 3 px: joystick bölgesi yarım aralık (≥ 3,6 px) sonra başlar */
+    #flaps::before { content: ""; position: absolute; inset: -6px -3px -8px -8px; }
     #flaps-cap {
-      position: absolute; left: 0; right: 0; top: 0; height: 14px; line-height: 14px; text-align: center;
-      font-size: 9px; font-weight: 800; letter-spacing: 1.6px; color: rgba(255,255,255,0.68);
+      position: absolute; left: 0; right: 0; top: 0; height: 11.2px; line-height: 11.2px; text-align: center;
+      font-size: 7.2px; font-weight: 700; letter-spacing: 1.28px; color: #cbd3dd;
       text-shadow: 0 1px 2px rgba(0,0,0,0.8); pointer-events: none;
     }
     #flaps-track {
-      position: absolute; left: 12px; right: 12px; top: 17px; bottom: 0; border-radius: 10px;
-      background: rgba(10,16,24,0.5); border: 1.5px solid rgba(255,255,255,0.26);
-      box-shadow: inset 0 0 14px rgba(0,0,0,0.35); overflow: hidden;
+      position: absolute; left: 9.6px; right: 9.6px; top: 13.6px; bottom: 0; border-radius: 8px;
+      background: rgba(10,16,24,0.5); border: 1.2px solid rgba(255,255,255,0.26);
+      box-shadow: inset 0 0 11px rgba(0,0,0,0.35); overflow: hidden;
     }
-    #flaps-fill { position: absolute; left: 0; right: 0; top: 0; height: 0%; background: linear-gradient(180deg, rgba(79,195,247,0.12), rgba(79,195,247,0.34)); }
-    .flap-det { position: absolute; left: 0; right: 0; height: 0; border-top: 1.5px dashed rgba(255,255,255,0.30); }
+    #flaps-fill { position: absolute; left: 0; right: 0; top: 0; height: 0%; background: linear-gradient(180deg, rgba(156,195,232,0.10), rgba(156,195,232,0.30)); }
+    .flap-det { position: absolute; left: 0; right: 0; height: 0; border-top: 1.2px dashed rgba(255,255,255,0.30); }
     .flap-det.first { border-top-style: solid; border-top-color: rgba(255,255,255,0.45); }
     #flaps-knob {
-      position: absolute; left: 0; width: var(--flp-w); height: 36px; margin-top: -18px; border-radius: 9px;
-      background: rgba(14,20,28,0.94); border: 1.5px solid rgba(79,195,247,0.9); pointer-events: none;
+      position: absolute; left: 0; width: var(--flp-w); height: 28.8px; margin-top: -14.4px; border-radius: 7.2px;
+      background: rgba(14,20,28,0.94); border: 1.2px solid rgba(203,224,245,0.8); pointer-events: none;
       display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
       box-shadow: 0 2px 8px rgba(0,0,0,0.55);
     }
-    #flaps-knob b { font-size: 13px; font-weight: 800; letter-spacing: 0.4px; color: #cfeeff; line-height: 1.05; }
-    #flaps-knob span { font-size: 9px; letter-spacing: 0.6px; color: rgba(190,225,245,0.8); line-height: 1.05; }
-    #flaps.moving #flaps-knob { border-color: rgba(255,200,90,0.95); }
+    #flaps-knob b { font-size: 10.4px; font-weight: 700; letter-spacing: 0.32px; color: #f5f7fa; line-height: 1.05; }
+    #flaps-knob span { font-size: 7.2px; letter-spacing: 0.48px; color: #cbd3dd; line-height: 1.05; }
+    #flaps.moving #flaps-knob { border-color: #f5f7fa; }
     /* Kısa ekranlarda kol kısalır; kademeler orantılı kaldığı için okunurluk bozulmaz */
     @media (max-height: 400px) {
-      #flaps { height: min(160px, calc(54 * var(--vh))); }
-      #flaps-knob { height: 32px; margin-top: -16px; }
-      #flaps-knob b { font-size: 12px; }
+      #flaps { height: min(128px, calc(43.2 * var(--vh))); }
+      #flaps-knob { height: 25.6px; margin-top: -12.8px; }
+      #flaps-knob b { font-size: 9.6px; }
     }
     .btn {
       pointer-events: auto; min-width: 44px; min-height: 44px; padding: 4px 9px; border-radius: 8px;
@@ -196,53 +205,66 @@
     .btn[hidden], #throttle-ab[hidden] { display: none !important; }
     .btn .i { font-size: 16px; line-height: 1; }
     .btn .l { font-size: 9.5px; opacity: 0.85; }
-    .btn.on { background: rgba(57,255,106,0.16); border-color: rgba(57,255,106,0.85); color: var(--hud); }
+    .btn.on { background: rgba(245,247,250,0.16); border-color: rgba(245,247,250,0.85); color: #f5f7fa; }
     .btn.warn.on { background: rgba(255,170,60,0.18); border-color: rgba(255,170,60,0.9); color: #ffc46a; }
-    .btn.pressed { background: rgba(255,255,255,0.28); }
+    .btn.pressed { background-color: rgba(255,255,255,0.28); }
+    /* Uçuş içi düğmeler %80 görünür boyutta. Görünmez ::before uzantısı her düğmenin dokunma alanını
+       ≥ 44 × 44 px yapar; aralıklar uzantıların komşu düğmeye ya da kumandaya taşmayacağı kadar seçildi
+       (örtüşen dokunma alanı = yanlış düğme). */
     #top-left { position: absolute; left: calc(var(--sal) + 8px); top: calc(var(--sat) + 8px); display: flex; align-items: flex-start; gap: 6px; z-index: 3; }
-    #top-left .btn { width: 48px; height: 44px; padding: 2px 3px; }
+    #top-left .btn, #right-col .btn { position: relative; min-width: 35.2px; min-height: 35.2px; border-radius: 6.4px; font-size: 8.8px; letter-spacing: 0.48px; }
+    /* inset, kenarlığın (1 px) içindeki dolgu kutusuna göredir: değerler görünür kenardan uzantı + 1 px */
+    #top-left .btn::before { content: ""; position: absolute; inset: -5.4px -4px; }
+    #right-col .btn::before { content: ""; position: absolute; inset: -4.6px -5px; }
+    #top-left .btn .i, #right-col .btn .i { font-size: 12.8px; }
+    #top-left .btn .l, #right-col .btn .l { font-size: 7.6px; }
+    #top-left .btn { width: 38.4px; height: 35.2px; padding: 1.6px 2.4px; }
     #btn-menu { position: relative; z-index: 2; }
     /* İkincil kontroller çekmecesi: menü düğmesinin sağında 2x2 ızgara; kapalıyken görünmez ve dokunulamaz */
     #drawer {
-      display: grid; grid-template-columns: repeat(2, 52px); gap: 6px; padding: 4px; margin: -4px; border-radius: 12px;
+      display: grid; grid-template-columns: repeat(2, 41.6px); gap: 8.8px 6px; padding: 4px; margin: -4px; border-radius: 9.6px;
       opacity: 0; transform: translateX(-10px) scale(0.94); transform-origin: left top; pointer-events: none; visibility: hidden;
       transition: opacity 0.18s ease, transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1), visibility 0s linear 0.24s;
     }
     #drawer.open { opacity: 1; transform: none; pointer-events: auto; visibility: visible; transition-delay: 0s, 0s, 0s; }
-    #drawer .btn { width: 52px; transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1), background-color var(--t-fast) ease, border-color var(--t-fast) ease, color var(--t-fast) ease; }
-    #drawer .btn .l { font-size: 8.5px; letter-spacing: 0.2px; }
+    #drawer .btn { width: 41.6px; transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1), background-color var(--t-fast) ease, border-color var(--t-fast) ease, color var(--t-fast) ease; }
+    #drawer .btn .l { font-size: 6.8px; letter-spacing: 0.16px; }
     #drawer:not(.open) .btn { pointer-events: none; }
     #drawer .btn:nth-child(2) { transition-delay: 0.03s; } #drawer .btn:nth-child(3) { transition-delay: 0.06s; } #drawer .btn:nth-child(4) { transition-delay: 0.09s; }
     #drawer:not(.open) .btn { transform: translateX(-8px); }
     /* Soldan sağa sıra: FLAPS -> JOYSTICK -> RUDDER. Dümen ekranın ortasında
        durur; dar ekranlarda ortaya sığmazsa joystickin hemen sağına çekilir. */
     #rudder { position: absolute; left: var(--rud-l); bottom: var(--ctl-b); width: var(--rud-w); height: var(--rud-h); pointer-events: auto; touch-action: none; }
+    #rudder::before { content: ""; position: absolute; inset: -6px -3px -10px; }
     #rudder-track {
-      position: absolute; inset: 0; border-radius: 22px; background: rgba(10,16,24,0.5); border: 1.5px solid rgba(255,255,255,0.26);
-      box-shadow: inset 0 0 14px rgba(0,0,0,0.35);
+      position: absolute; inset: 0; border-radius: 17.6px; background: rgba(10,16,24,0.5); border: 1.2px solid rgba(255,255,255,0.26);
+      box-shadow: inset 0 0 11px rgba(0,0,0,0.35);
     }
-    #rudder-track::before { content: ""; position: absolute; left: 50%; top: 8px; bottom: 8px; width: 2px; margin-left: -1px; background: rgba(255,255,255,0.35); }
+    #rudder-track::before { content: ""; position: absolute; left: 50%; top: 6.4px; bottom: 6.4px; width: 1.6px; margin-left: -0.8px; background: rgba(255,255,255,0.35); }
     /* Etiket izin ÜSTÜNDE durur. Önceden bottom:-14px ile izin altına konuyordu; iz
        zaten ekranın en altındaydı (bottom: sab+10px), dolayısıyla yazı ekran dışına
        taşıyor ve alt yarısı kırpılıyordu. */
-    #rudder-track::after { content: "RUDDER"; position: absolute; left: 0; right: 0; top: -13px; text-align: center; font-size: 9px; line-height: 11px; letter-spacing: 1.5px; white-space: nowrap; color: rgba(255,255,255,0.62); text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+    #rudder-track::after { content: "RUDDER"; position: absolute; left: 0; right: 0; top: -10.4px; text-align: center; font-size: 7.2px; line-height: 8.8px; letter-spacing: 1.2px; white-space: nowrap; color: #cbd3dd; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
     #rudder-knob {
-      position: absolute; left: 50%; top: 50%; width: 38px; height: 38px; margin: -19px 0 0 -19px; border-radius: 50%;
+      position: absolute; left: 50%; top: 50%; width: 30.4px; height: 30.4px; margin: -15.2px 0 0 -15.2px; border-radius: 50%;
       background: radial-gradient(circle at 40% 34%, rgba(112,118,128,0.92), rgba(66,70,77,0.90) 58%, rgba(52,56,62,0.90));
       border: 1.5px solid rgba(200,208,218,0.38); pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.10);
       transition: border-color 0.12s ease;
     }
-    #rudder-knob.active { border-color: rgba(57,255,106,0.70); }
-    #right-col { position: absolute; right: calc(var(--sar) + 70px); bottom: var(--ctl-b); display: flex; flex-direction: column; gap: 6px; }
-    #right-col .btn { width: 72px; min-height: 46px; }
+    #rudder-knob.active { border-color: rgba(245,247,250,0.85); }
+    /* Düğme sütunu gaz kolunun 8 px solunda (gaz kolu 43,2 px genişliğinde) */
+    #right-col { position: absolute; right: calc(var(--sar) + 59.2px); bottom: var(--ctl-b); display: flex; flex-direction: column; gap: 7.2px; }
+    #right-col .btn { width: 57.6px; min-height: 36.8px; padding: 3.2px 7.2px; gap: 0.8px; }
     #right-col .btn .l { line-height: 1.05; }
     /* FIRE: kırmızı, sağ başparmağın altında; soğuma süresi alttan dolan çubukla gösterilir */
-    #btn-fire { position: relative; overflow: hidden; border-color: rgba(255,92,72,0.9); background: rgba(120,20,14,0.45); color: #ffd7cf; }
-    #btn-fire .i { font-size: 13px; font-weight: 900; letter-spacing: 1.6px; }
-    #btn-fire::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--cd, 0) * 100%); background: rgba(255,255,255,0.16); pointer-events: none; }
+    /* Soğuma çubuğu arka plan degradesidir (köşe yuvarlaması kendiliğinden uyar). Eskiden ::after +
+       overflow:hidden idi; overflow dokunma uzantısını da kırpacağı için kaldırıldı. */
+    #btn-fire { position: relative; border-color: rgba(255,92,72,0.9); background-color: rgba(120,20,14,0.45); color: #ffd7cf;
+      background-image: linear-gradient(to top, rgba(255,255,255,0.16) calc(var(--cd, 0) * 100%), transparent calc(var(--cd, 0) * 100%)); }
+    #btn-fire .i { font-size: 10.4px; font-weight: 900; letter-spacing: 1.28px; }
     #btn-fire.busy { border-color: rgba(255,190,80,0.95); color: #ffe2b0; }
     #btn-fire.queued { box-shadow: 0 0 0 2px rgba(255,190,80,0.6) inset; }
-    #btn-fire.empty, #btn-fire.inhibit { opacity: 0.55; border-color: rgba(255,255,255,0.25); background: rgba(10,16,24,0.55); color: #c9d2dc; }
+    #btn-fire.empty, #btn-fire.inhibit { opacity: 0.55; border-color: rgba(255,255,255,0.25); background-color: rgba(10,16,24,0.55); color: #c9d2dc; }
     /* ---- v4.0 Görev hazırlığı (tek uçak: F-35A, tek meydan: LTFE) ----
        Ortada CANLI 3B sahne: seçili pistin eşiğinde park hâlinde F-35A, kamera yavaşça döner ve
        arkada gerçek meydan ile Bodrum arazisi görünür. Kenarlarda koyu cam paneller; beyaz

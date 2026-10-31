@@ -115,9 +115,9 @@ export class Controls {
       const r = z.getBoundingClientRect();
       this.stickOrigin = { x: e.clientX - r.left, y: e.clientY - r.top };
       // Halka dokunuş noktasına ortalanır. Yarıçap ölçülür: halka çapı ekrana göre
-      // 82–108 px'tir (eskiden sabit 60 px varsayılıyordu ve halka parmağın altında
+      // 66–86 px'tir (v4.0: önceki 82–108 px'in %80'i; girdi duyarlılığı STICK_RADIUS ile aynı kaldı) (eskiden sabit 60 px varsayılıyordu ve halka parmağın altında
       // değil yanında açılıyordu).
-      const half = this.els.stickBase.offsetWidth / 2 || 54;
+      const half = this.els.stickBase.offsetWidth / 2 || 43;
       const b = this.els.stickBase.style;
       b.left = (this.stickOrigin.x - half) + 'px';
       b.top = (this.stickOrigin.y - half) + 'px';
@@ -198,7 +198,9 @@ export class Controls {
     this.els.throttleFill.style.height = (f * 100) + '%';
     const ab = this.lever > AB_DETENT + 0.01;
     this.els.throttleKnob.textContent = ab ? 'AB' : Math.round(Math.min(this.lever, 1) * 100) + '%';
-    this.els.throttleKnob.style.borderColor = ab ? '#ff9a3a' : '';
+    // AB: parlak beyaz kenar (renk uyarıya ayrılmıştır; art yakıcı normal bir durumdur)
+    this.els.throttleKnob.style.borderColor = ab ? '#ffffff' : '';
+    this.els.throttleKnob.style.boxShadow = ab ? '0 0 0 2px rgba(203,224,245,0.35), 0 2px 8px rgba(0,0,0,0.5)' : '';
   }
 
   // ---- Yaylı analog rudder kaydırıcısı ----
@@ -207,7 +209,8 @@ export class Controls {
     if (!r) return;
     const setFrom = (e) => {
       const rect = r.getBoundingClientRect();
-      const half = rect.width / 2 - 22;
+      // Topuz yarıçapı + 3 px: topuz izin içinde kalır (v4.0 %80 ölçekte de parmağı birebir izler)
+      const half = rect.width / 2 - ((this.els.rudderKnob && this.els.rudderKnob.offsetWidth) || 38) / 2 - 3;
       this.rudder = clamp((e.clientX - (rect.left + rect.width / 2)) / half, -1, 1);
       this.updateRudderUI();
     };
@@ -230,7 +233,7 @@ export class Controls {
   updateRudderUI() {
     const r = this.els.rudder;
     if (!r) return;
-    const half = r.clientWidth / 2 - 22;
+    const half = r.clientWidth / 2 - ((this.els.rudderKnob && this.els.rudderKnob.offsetWidth) || 38) / 2 - 3;
     this.els.rudderKnob.style.transform = `translateX(${this.rudder * half}px)`;
   }
 

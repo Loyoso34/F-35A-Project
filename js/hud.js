@@ -1,12 +1,17 @@
-// Yeşil HUD: hız, irtifa, baş, dikey hız, AoA, G, gaz, takım/flap, yunuslama merdiveni, uçuş yolu işareti.
+// HUD: hız, irtifa, baş, dikey hız, AoA, G, gaz, takım/flap, yunuslama merdiveni, uçuş yolu işareti.
+// v4.0: beyaz tipografi (birincil #F5F7FA, ikincil #CBD3DD), kırmızı/kehribar yalnızca uyarılarda;
+// tüm boyutlar önceki sürümün TAM %80'i (HUD_SCALE). Yunuslama merdiveni ve uçuş yolu işareti
+// konformaldir: KONUMLARI görüş açısından gelir ve ölçeklenmez, yalnızca çizgi/yazı boyları küçülür.
 import * as THREE from 'three';
 // Gösterilen yön: gerçek dünya bölgesinde MANYETİK (pist numaralarıyla ve yayımlanmış usullerle
 // tutarlı; main.js telemetriye hdgMag yazar), kurgusal bölgede harita yönü.
 const hdgOf = (T) => (T.hdgMag !== undefined ? T.hdgMag : T.heading);
 
-// Havacılık yeşili: neon yerine hafif yumuşatılmış ton; koyu kenar gölgesiyle açık gökyüzünde de okunur
-const GREEN = '#4cff7c';
-const DIM = 'rgba(76,255,124,0.55)';
+export const HUD_SCALE = 0.8;
+const U = HUD_SCALE;
+const PRIMARY = '#f5f7fa', SECONDARY = '#cbd3dd';
+const DIM = 'rgba(245,247,250,0.5)';
+const GREEN = PRIMARY;   // (eski ad: normal göstergeler artık beyaz)
 const AMBER = '#ffc46a', RED = '#ff6a5e';
 const MONO = '"SF Mono", Menlo, Consolas, "Roboto Mono", monospace';
 const SANS = '-apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif';
@@ -78,31 +83,31 @@ export class HUD {
     if (agl < RA_MAX) items.push(['RA', thousands(agl > 100 ? Math.round(agl / 10) * 10 : Math.round(agl)), 'FT', '0,000']);
     items.push(['VS', (vs > 0 ? '+' : vs < 0 ? '−' : '') + thousands(Math.abs(vs)), 'FPM', '+0,000']);
     items.push(['HDG', String(Math.round(hdgOf(T)) % 360 || 360).padStart(3, '0'), T.hdgMag !== undefined ? '°M' : '°', '000']);
-    const fL = `600 9px ${SANS}`, fV = `700 14px ${MONO}`, fU = `600 8px ${SANS}`;
-    const gap = 16, padX = 12, hgt = 26;
-    const widths = items.map(([l, , u, tpl]) => { ctx.font = fL; let x = ctx.measureText(l).width + 5; ctx.font = fV; x += ctx.measureText(tpl).width; if (u) { ctx.font = fU; x += 3 + ctx.measureText(u).width; } return x; });
+    const fL = `600 ${9 * U}px ${SANS}`, fV = `600 ${14 * U}px ${MONO}`, fU = `600 ${8 * U}px ${SANS}`;
+    const gap = 16 * U, padX = 12 * U, hgt = 26 * U;
+    const widths = items.map(([l, , u, tpl]) => { ctx.font = fL; let x = ctx.measureText(l).width + 5 * U; ctx.font = fV; x += ctx.measureText(tpl).width; if (u) { ctx.font = fU; x += 3 * U + ctx.measureText(u).width; } return x; });
     // Dar ekranda sığmayan alanlar sondan atılır (okunaklılık korunur)
     let n = items.length;
     const totalOf = (k) => widths.slice(0, k).reduce((a, b) => a + b, 0) + gap * (k - 1) + padX * 2;
     while (n > 2 && totalOf(n) > w - 2 * (opts.safe.left + opts.safe.right) - 120) n--;
     items.length = n; widths.length = n;
     const total = totalOf(n);
-    const x0 = Math.round(w / 2 - total / 2), y0 = opts.safe.top + 8;
+    const x0 = Math.round(w / 2 - total / 2), y0 = opts.safe.top + 8 * U;
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0)';
-    ctx.fillStyle = 'rgba(14,17,21,0.66)'; ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(x0, y0, total, hgt, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(10,14,20,0.62)'; ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x0, y0, total, hgt, 7 * U); ctx.fill(); ctx.stroke();
     ctx.textBaseline = 'middle';
     let x = x0 + padX; const cy = y0 + hgt / 2 + 0.5;
     items.forEach(([l, v, u, tpl], i) => {
       ctx.textAlign = 'left';
-      ctx.font = fL; ctx.fillStyle = 'rgba(214,222,230,0.58)'; ctx.fillText(l, x, cy); const lw = ctx.measureText(l).width + 5;
+      ctx.font = fL; ctx.fillStyle = SECONDARY; ctx.fillText(l, x, cy); const lw = ctx.measureText(l).width + 5 * U;
       ctx.font = fV; const vw = ctx.measureText(tpl).width;
       // değer sağa hizalı (sabit alan): basamak sayısı değişince yazı kaymaz
-      ctx.textAlign = 'right'; ctx.fillStyle = GREEN; ctx.fillText(v, x + lw + vw, cy);
+      ctx.textAlign = 'right'; ctx.fillStyle = PRIMARY; ctx.fillText(v, x + lw + vw, cy);
       let xe = x + lw + vw;
-      if (u) { ctx.textAlign = 'left'; ctx.font = fU; ctx.fillStyle = 'rgba(214,222,230,0.45)'; ctx.fillText(u, xe + 3, cy + 1); xe += 3 + ctx.measureText(u).width; }
-      if (i < items.length - 1) { ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(Math.round(xe + gap / 2), y0 + 6, 1, hgt - 12); }
+      if (u) { ctx.textAlign = 'left'; ctx.font = fU; ctx.fillStyle = 'rgba(203,211,221,0.72)'; ctx.fillText(u, xe + 3 * U, cy + 1); xe += 3 * U + ctx.measureText(u).width; }
+      if (i < items.length - 1) { ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(Math.round(xe + gap / 2), y0 + 6 * U, 1, hgt - 12 * U); }
       x = xe + gap;
     });
     ctx.restore();
@@ -114,13 +119,13 @@ export class HUD {
   drawExternalWarnings(T, opts, on) {
     const ctx = this.ctx; const { w } = this;
     ctx.save();
-    ctx.font = `700 12.5px ${SANS}`;
+    ctx.font = `700 ${12.5 * U}px ${SANS}`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 1;
-    const y = opts.safe.top + 50;
+    const y = opts.safe.top + 50 * U;
     if (T.stall && on) { ctx.fillStyle = RED; ctx.fillText('STALL', w / 2, y); }
     else if (T.stallWarn && on) { ctx.fillStyle = AMBER; ctx.fillText('STALL WARNING', w / 2, y); }
-    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = AMBER; ctx.fillText('LANDING GEAR', w / 2, y + 18); }
+    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = AMBER; ctx.fillText('LANDING GEAR', w / 2, y + 18 * U); }
     ctx.restore();
   }
 
@@ -169,8 +174,8 @@ export class HUD {
     const S = this.smooth(T, opts.dt);
     this.blink += opts.dt || 0.016;
     ctx.save();
-    ctx.font = `bold 14px ${MONO}`;
-    ctx.fillStyle = GREEN; ctx.strokeStyle = GREEN; ctx.lineWidth = 1.5;
+    ctx.font = `bold ${14 * U}px ${MONO}`;
+    ctx.fillStyle = GREEN; ctx.strokeStyle = GREEN; ctx.lineWidth = 1.5 * U;
     // Okunurluk için koyu gölge: bulanıklık (shadowBlur) her çizimde Gauss süzgeci
     // demektir ve HUD'da kare başına ~40 çizim var. 1 px kaydırılmış keskin gölge
     // aynı kontrastı çok daha ucuza verir.
@@ -190,36 +195,37 @@ export class HUD {
     const bx = nosePt.behind ? cx : Math.min(Math.max(nosePt.x, w * 0.25), w * 0.75);
     const by = nosePt.behind ? cy : Math.min(Math.max(nosePt.y, h * 0.2), h * 0.8);
     ctx.save();
-    // Kırpma: merdiven yalnızca orta bölgede
-    ctx.beginPath(); ctx.rect(cx - 150, insetT + 78, 300, h - insetT - insetB - 140); ctx.clip();
+    // Kırpma: merdiven yalnızca orta bölgede (baş bandının altında; bant %80 ölçekte merkeze göre)
+    const clipT = cy + (insetT + 86 - cy) * U, clipB = cy + (h - insetB - 62 - cy) * U;
+    ctx.beginPath(); ctx.rect(cx - 150 * U, clipT, 300 * U, clipB - clipT); ctx.clip();
     ctx.translate(bx, by);
     ctx.rotate(-rollRad);
-    const ladderW = compact ? 52 : 70;
+    const ladderW = (compact ? 52 : 70) * U, gapL = 26 * U;
     for (let deg = -90; deg <= 90; deg += 10) {
       if (deg === 0) continue;
       const y = (T.pitch - deg) * ppd;
       if (Math.abs(y) > h * 0.6) continue;
       ctx.beginPath();
       ctx.setLineDash(deg < 0 ? DASH : SOLID);
-      ctx.moveTo(-ladderW, y); ctx.lineTo(-26, y);
-      ctx.moveTo(26, y); ctx.lineTo(ladderW, y);
+      ctx.moveTo(-ladderW, y); ctx.lineTo(-gapL, y);
+      ctx.moveTo(gapL, y); ctx.lineTo(ladderW, y);
       // Uç işaretleri: pozitifte aşağı, negatifte yukarı
-      const tick = deg > 0 ? 8 : -8;
+      const tick = (deg > 0 ? 8 : -8) * U;
       ctx.moveTo(-ladderW, y); ctx.lineTo(-ladderW, y + tick);
       ctx.moveTo(ladderW, y); ctx.lineTo(ladderW, y + tick);
       ctx.stroke();
       ctx.setLineDash(SOLID);
-      ctx.textAlign = 'right'; ctx.fillText(String(Math.abs(deg)), -ladderW - 4, y);
-      ctx.textAlign = 'left'; ctx.fillText(String(Math.abs(deg)), ladderW + 4, y);
+      ctx.textAlign = 'right'; ctx.fillText(String(Math.abs(deg)), -ladderW - 4 * U, y);
+      ctx.textAlign = 'left'; ctx.fillText(String(Math.abs(deg)), ladderW + 4 * U, y);
     }
     // Ufuk çizgisi
     const yh = T.pitch * ppd;
-    ctx.beginPath(); ctx.moveTo(-ladderW * 2.2, yh); ctx.lineTo(-40, yh); ctx.moveTo(40, yh); ctx.lineTo(ladderW * 2.2, yh); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-ladderW * 2.2, yh); ctx.lineTo(-40 * U, yh); ctx.moveTo(40 * U, yh); ctx.lineTo(ladderW * 2.2, yh); ctx.stroke();
     ctx.restore();
 
     // Su hattı (burun) işareti
     ctx.beginPath();
-    ctx.moveTo(bx - 22, by); ctx.lineTo(bx - 8, by); ctx.lineTo(bx - 4, by + 6); ctx.lineTo(bx, by); ctx.lineTo(bx + 4, by + 6); ctx.lineTo(bx + 8, by); ctx.lineTo(bx + 22, by);
+    ctx.moveTo(bx - 22 * U, by); ctx.lineTo(bx - 8 * U, by); ctx.lineTo(bx - 4 * U, by + 6 * U); ctx.lineTo(bx, by); ctx.lineTo(bx + 4 * U, by + 6 * U); ctx.lineTo(bx + 8 * U, by); ctx.lineTo(bx + 22 * U, by);
     ctx.stroke();
 
     // ---- Uçuş yolu işareti (hız vektörü) ----
@@ -228,15 +234,19 @@ export class HUD {
       const p = this.project(this._v.copy(fm.pos).addScaledVector(dir, 400), camera);
       if (!p.behind) {
         const px = Math.min(Math.max(p.x, 30), w - 30), py = Math.min(Math.max(p.y, insetT + 30), h - insetB - 30);
-        ctx.beginPath(); ctx.arc(px, py, 7, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(px, py, 7 * U, 0, Math.PI * 2); ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(px - 7, py); ctx.lineTo(px - 18, py);
-        ctx.moveTo(px + 7, py); ctx.lineTo(px + 18, py);
-        ctx.moveTo(px, py - 7); ctx.lineTo(px, py - 14);
+        ctx.moveTo(px - 7 * U, py); ctx.lineTo(px - 18 * U, py);
+        ctx.moveTo(px + 7 * U, py); ctx.lineTo(px + 18 * U, py);
+        ctx.moveTo(px, py - 7 * U); ctx.lineTo(px, py - 14 * U);
         ctx.stroke();
       }
     }
 
+    // ---- Konformal olmayan bloklar: ekran merkezine göre TAM %80 ölçek (göreli yerleşim korunur) ----
+    ctx.save();
+    ctx.translate(cx, cy); ctx.scale(U, U); ctx.translate(-cx, -cy);
+    ctx.lineWidth = 1.5;   // ölçekle 1,2 px (dış blokla aynı)
     // ---- Hız kutusu (sol) ----
     const boxW = compact ? 74 : 86, boxH = 30;
     const lx = compact ? cx - 168 : cx - 210;
@@ -289,7 +299,7 @@ export class HUD {
     ctx.textAlign = 'left';
     const infoY = h - insetB - (compact ? 74 : 86);
     const thrTxt = T.ab > 0.05 ? 'THR AB' : 'THR ' + Math.round(T.throttle * 100) + '%';
-    ctx.fillStyle = T.ab > 0.05 ? '#ffa040' : GREEN;
+    ctx.fillStyle = GREEN;
     ctx.fillText(thrTxt, lx, infoY);
     ctx.fillStyle = GREEN;
     ctx.fillText('ENG ' + Math.round(T.engine * 100) + '%', lx, infoY + 16);
@@ -319,6 +329,7 @@ export class HUD {
     if (T.stall && on) { ctx.fillStyle = RED; ctx.fillText('STALL', cx, cy + 70); }
     else if (T.stallWarn) { ctx.fillStyle = AMBER; ctx.font = `bold 14px ${MONO}`; ctx.fillText('AoA ' + (on ? '▲' : '△') + ' STALL WARN', cx, cy + 70); }
     if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = AMBER; ctx.font = `bold 20px ${MONO}`; ctx.fillText('GEAR', cx, cy + 94); }
+    ctx.restore();   // %80 blok
     ctx.restore();
   }
 }
