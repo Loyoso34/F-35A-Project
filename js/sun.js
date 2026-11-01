@@ -35,10 +35,15 @@ export function solarPosition(date, latDeg, lonDeg) {
  */
 export const TIME_PRESETS = {
   default: null,
+  sunrise: { h: 7, m: 40 },        // gün doğumundan ~35 dk sonra: güneş ~5,6° (3 Ekim, Bodrum)
   morning: { h: 8, m: 30 },
   afternoon: { h: 16, m: 30 },
-  evening: { h: 18, m: 25 },
+  evening: { h: 18, m: 5 },        // altın saat: güneş ~8° (batıdan, sıcak ışık, uzun gölgeler)
+  dusk: { h: 18, m: 58 },          // sivil alacakaranlık: güneş ufkun ~2,5° altında, şehir ışıkları yanıyor
+  night: { h: 21, m: 30 },
 };
+/** Arayüz sırası ve etiketleri (yerel saat). */
+export const TIME_ORDER = [['sunrise', '07:40'], ['morning', '08:30'], ['default', '12:10'], ['afternoon', '16:30'], ['evening', '18:05'], ['dusk', '18:58'], ['night', '21:30']];
 
 /** Yerel saatten (UTC+3) UTC ms. date: 'YYYY-MM-DD'. */
 export function localTimeMs(date, h, m, utcOffsetH = 3) {

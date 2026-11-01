@@ -13,6 +13,8 @@ import { CoreTerrain, CORE, inCore } from './coreterrain.js';
 import { makeTerrainMaterial, makeDetailAtlas, TMAT_UNIFORMS } from './terrainmat.js';
 import { Ocean } from './ocean.js';
 import { BodrumCity } from './bodrum.js';
+import { buildLtfeExtras } from './ltfeplus.js';
+import { makeArchMaterial, ARCH_UNIFORMS } from './archmat.js';
 import { buildRunway, buildLightPoints, trueHeadingFromEnds, LIGHT_FX } from './runway.js';
 import { makePavementTexture, makeWaterNormalTexture, makeConcreteTexture, makeFacadeTexture, makeCladdingTexture, makeHangarWallTexture } from './textures.js';
 import { HAZE_UNIFORMS, hazeAll } from './worldshade.js';
@@ -21,8 +23,8 @@ import { solarPosition, sunVector, localTimeMs, TIME_PRESETS } from './sun.js';
 
 // Alçak güneşte hedef renkler (doğrusal); setTimeOfDay yüksekliğe göre bunlara doğru karıştırır
 const TOD_COLORS = {
-  sun: new THREE.Color(1.0, 0.58, 0.32), light: new THREE.Color(1.0, 0.66, 0.42),
-  horizon: new THREE.Color(0.86, 0.62, 0.46), zenith: new THREE.Color(0.10, 0.20, 0.42),
+  sun: new THREE.Color(1.0, 0.55, 0.26), light: new THREE.Color(1.0, 0.63, 0.36),
+  horizon: new THREE.Color(0.95, 0.66, 0.44), zenith: new THREE.Color(0.075, 0.15, 0.36),
 };
 
 const FT = 0.3048;
@@ -38,11 +40,11 @@ export const GEO_QUALITY = {
   // v5.0 çekirdek: coreLod (düğüm bölme çarpanı), coreTex (normal/makro doku), coreNodes (örgü bütçesi),
   // reflections (düzlemsel deniz yansıması), city (şehir ayrıntı mesafesi çarpanı), trees (ağaç sayısı çarpanı)
   low: { drawDistance: 70000, far: 300000, lodFactor: 1.9, textureBudget: 110, nodeBudget: 200, buildMs: 2.5, demBudget: 40,
-    coreLod: 1.7, coreTex: 1024, coreNodes: 120, reflections: false, city: 0.7, trees: 0.5 },
+    coreLod: 1.7, coreTex: 1024, coreNodes: 120, reflections: false, city: 0.7, trees: 0.5, shadowWide: 0 },
   medium: { drawDistance: 100000, far: 420000, lodFactor: 2.5, textureBudget: 160, nodeBudget: 280, buildMs: 3.5, demBudget: 64,
-    coreLod: 2.2, coreTex: 2048, coreNodes: 170, reflections: true, city: 1.0, trees: 1.0 },
+    coreLod: 2.2, coreTex: 2048, coreNodes: 170, reflections: true, city: 1.0, trees: 1.0, shadowMap: 2048, shadowWide: 650 },
   high: { drawDistance: 140000, far: 480000, lodFactor: 3.0, textureBudget: 260, nodeBudget: 400, buildMs: 5.0, demBudget: 96,
-    coreLod: 2.8, coreTex: 2048, coreNodes: 240, reflections: true, city: 1.3, trees: 1.4 },
+    coreLod: 2.8, coreTex: 2048, coreNodes: 240, reflections: true, city: 1.3, trees: 1.4, shadowMap: 4096, shadowWide: 1100 },
 };
 
 /** Bodrum kalkış noktalarının statik tanımı (hangar listesi dünya kurulmadan da gösterilir). */
@@ -310,9 +312,18 @@ export class GeoWorld extends World {
   }
 
   // ---- Havaalanı çizimi ----------------------------------------------------------------------
+  /** Yönlü kutu çarpışma hacmi (meydan ayrıntıları: kule, direkler, park hâlindeki uçaklar). */
+  addSolidOBB(x, z, hw, hd, a, y0, y1) {
+    const ca = Math.cos(a), sa = Math.sin(a), ex = Math.abs(hw * ca) + Math.abs(hd * sa), ez = Math.abs(hw * sa) + Math.abs(hd * ca);
+    this.buildingBoxes.push({ minX: x - ex, maxX: x + ex, minZ: z - ez, maxZ: z + ez, minY: y0, maxY: y1,
+      test: (px, pz, r) => { const dx = px - x, dz = pz - z; const u = dx * ca + dz * sa, v = -dx * sa + dz * ca; return Math.abs(u) < hw + r && Math.abs(v) < hd + r; } });
+  }
+  get ltfeRunways() { return LTFE.runways; }
+  get mslY() { return MSL_Y; }
+
   buildAirport() {
-    // başsız (test): çizim yok, yalnızca meydan binası çarpışma hacimleri
-    if (!this.renderer) { if (this.ltfe) this.addAirportSolids(); return; }
+    // başsız (test): çizim yok, yalnızca meydan binası ve ayrıntı çarpışma hacimleri
+    if (!this.renderer) { if (this.ltfe) { this.addAirportSolids(); this.ltfe.holds = this.ltfe.holdPositions(); buildLtfeExtras(this, null); } return; }
     const q = this.quality;
     const pave = this.track(makePavementTexture(512, { base: 92 }));
     pave.anisotropy = q.anisotropy;
@@ -321,8 +332,8 @@ export class GeoWorld extends World {
     for (const r of LTFE.runways) {
       const rw = buildRunway({
         length: r.len, width: r.width, standard: 'ICAO', tdzPattern: 'coded', centerlineW: 0.9,
-        // Yaklaşma ışık sistemi ve PAPI doğrulanmış veri olmadan kurulmaz (bkz. georegion.js)
-        ends: r.ends.map((e) => ({ text: e.num, suffix: e.suffix, pad: e.pad, approach: false, papi: false })),
+        // Işıklandırma yayımlanmış yapılandırmadan (georegion.js: CAT II ALS, PAPI 3,3° / 3,9°, TDZ, RCL)
+        ends: r.ends.map((e) => Object.assign({ text: e.num, suffix: e.suffix, pad: e.pad, approach: false, papi: false }, e.light || {})),
         pavementMap: pave, shadows: q.shadows,
       });
       const g = rw.group;
@@ -351,6 +362,9 @@ export class GeoWorld extends World {
         concreteMap: conc, glassMap: glass, cladMap: clad, hangarMap: hang, shadows: q.shadows, track: (o) => this.track(o),
       });
       this.addAirportSolids();
+      const am = this.track(makeArchMaterial());
+      this.ltfeExtras = buildLtfeExtras(this, this.group, { material: am });
+      if (this.ltfeExtras && this.ltfeExtras.mesh) { this.track(this.ltfeExtras.mesh.geometry); this.track(this.ltfeExtras.points.geometry); this.track(this.ltfeExtras.points.material); }
     }
   }
 
@@ -368,12 +382,47 @@ export class GeoWorld extends World {
 
   // ---- Gün saati -----------------------------------------------------------------------------
   get supportsTimeOfDay() { return true; }
+
+  /** Gök kubbesi: World'ün gökyüzü + yıldızlar ve ay (gece). */
+  buildSky() {
+    super.buildSky();
+    const U = this.skyUniforms;
+    U.uStars = { value: 0 };
+    U.uMoonDir = { value: new THREE.Vector3(0.45, 0.62, 0.64).normalize() };
+    U.uNightSky = { value: 0 };
+    const m = this.sky.material;
+    m.fragmentShader = m.fragmentShader
+      .replace('uniform vec3 sunColor;', 'uniform vec3 sunColor; uniform float uStars; uniform vec3 uMoonDir; uniform float uNightSky;')
+      .replace('gl_FragColor = vec4(col, 1.0);', `
+          vec3 d = normalize(vDir);
+          if (uStars > 0.0 && d.y > 0.0) {
+            // yıldızlar: yön ızgarasında seyrek, parlaklık dağılımlı; ufka doğru sönük (pus)
+            vec3 q = d * 420.0; vec3 cell = floor(q);
+            float h = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+            float h2 = fract(sin(dot(cell, vec3(39.346, 11.135, 83.155))) * 24634.6345);
+            vec3 f = fract(q) - 0.5;
+            float st = step(0.9965, h) * smoothstep(0.32, 0.0, length(f)) * (0.35 + 1.6 * h2 * h2);
+            col += vec3(0.85, 0.9, 1.0) * st * uStars * smoothstep(0.02, 0.25, d.y);
+            // Samanyolu: hafif bant
+            float mw = exp(-pow(dot(d, normalize(vec3(0.3, 0.55, -0.78))) / 0.16, 2.0));
+            col += vec3(0.010, 0.011, 0.016) * mw * uStars * smoothstep(0.0, 0.3, d.y);
+          }
+          // ay diski ve halesi
+          if (uNightSky > 0.0) {
+            float mc = dot(d, uMoonDir);
+            col += vec3(0.9, 0.92, 1.0) * smoothstep(0.99975, 0.99985, mc) * 3.0 * uNightSky;
+            col += vec3(0.05, 0.06, 0.09) * pow(max(mc, 0.0), 60.0) * uNightSky;
+          }
+          gl_FragColor = vec4(col, 1.0);`);
+    m.needsUpdate = true;
+  }
+
   /**
-   * Güneş konumu bölgenin referans noktasında ve görüntü tarihinde (sun.js, Sentinel-2 meta
-   * verisiyle doğrulanmış formül), yerel saat (UTC+3). 'default' = görüntünün çekim anı (12:10).
-   * Gök/ışık renkleri güneş yüksekliğiyle sanatsal olarak ısınır (fiziksel saçılma modeli değil).
-   * Sınır: görüntü kendi çekim anının gölgelerini taşır; başka saatlerde kabartma ışığının payı
-   * artırılır ama görüntüdeki gölgeler silinmez. Gece desteklenmez.
+   * Gün saati: güneş konumu bölgenin referans noktasında ve görüntü tarihinde (sun.js, Sentinel-2
+   * meta verisiyle doğrulanmış formül), yerel saat (UTC+3). 'default' = görüntünün çekim anı (12:10).
+   * Işık bütçesi güneş yüksekliğinden: gündüz → altın saat (sıcak, alçak güneş, uzun gölgeler) →
+   * alacakaranlık (güneş ufkun altında; gök parıltısı, şehir ışıkları yanar) → gece (ay ışığı,
+   * yıldızlar, pencereler, sokak/liman/pist ışıkları). Pozlama gece hafif yükselir (göz uyumu).
    * @returns {{azimuthDeg:number, elevationDeg:number}} uygulanan güneş konumu
    */
   setTimeOfDay(key) {
@@ -382,35 +431,78 @@ export class GeoWorld extends World {
     const B = this._todBase || (this._todBase = {
       dir: this.sunDir.clone(), zenith: U.zenith.value.clone(), horizon: U.horizon.value.clone(), ground: U.ground.value.clone(),
       sunColor: U.sunColor.value.clone(), light: this.sun.color.clone(), sunI: this.sun.intensity, hemiI: this.hemi.intensity,
-      relief: TERRAIN_UNIFORMS.uRelief.value,
+      hemiSky: this.hemi.color.clone(), hemiGround: this.hemi.groundColor.clone(),
     });
     const t = TIME_PRESETS[key];
     let pos;
+    const sunTrue = new THREE.Vector3();
     if (t) {
       pos = solarPosition(localTimeMs(this.man.sun.datetime.slice(0, 10), t.h, t.m), this.man.reference.lat, this.man.reference.lon);
-      sunVector(pos.azimuthDeg, pos.elevationDeg, this.sunDir);
+      sunVector(pos.azimuthDeg, pos.elevationDeg, sunTrue);
     } else {
-      this.sunDir.copy(B.dir);
+      sunTrue.copy(B.dir);
       pos = { azimuthDeg: this.man.sun.azimuthDeg, elevationDeg: this.man.sun.elevationDeg };
     }
-    const el = Math.asin(clamp(this.sunDir.y, -1, 1)) / DEG;
-    const low = smoothstep(24, 2, el);            // 0: yüksek güneş, 1: ufka yakın
+    const el = Math.asin(clamp(sunTrue.y, -1, 1)) / DEG;
+    // 0 gündüz .. 1 gece; alacakaranlık (−0,8°..−9°) arasında
+    const night = smoothstep(-0.8, -9, el), dusk = smoothstep(4, -3, el);
+    const low = smoothstep(26, 1, el);                 // altın saat ağırlığı
     const W = TOD_COLORS;
+    // Gök renkleri
+    const zen = B.zenith.clone().lerp(W.zenith, low * 0.7).lerp(new THREE.Color(0.012, 0.022, 0.06), dusk * 0.85).lerp(new THREE.Color(0.0016, 0.0028, 0.008), night);
+    const hor = B.horizon.clone().lerp(new THREE.Color(0.40, 0.38, 0.45), low * 0.75).lerp(new THREE.Color(0.30, 0.17, 0.12), dusk * 0.7).lerp(new THREE.Color(0.006, 0.009, 0.016), night);
+    const gnd = B.ground.clone().multiplyScalar(1 - 0.4 * low).lerp(new THREE.Color(0.003, 0.004, 0.006), Math.max(night, dusk * 0.6));
+    const sunC = B.sunColor.clone().lerp(W.sun, low).multiplyScalar(1 - night);
+    U.zenith.value.copy(zen); U.horizon.value.copy(hor); U.ground.value.copy(gnd); U.sunColor.value.copy(sunC);
+    U.uStars.value = night; U.uNightSky.value = night;
+    // gök ve pus güneşi: alacakaranlıkta ufkun hemen altındaki güneş (parıltı yönü)
+    this.sunDir.copy(sunTrue);
+    if (el < 0) { this.sunDir.y = Math.max(this.sunDir.y, -0.02); this.sunDir.normalize(); }
     U.sunDir.value.copy(this.sunDir);
-    U.sunColor.value.copy(B.sunColor).lerp(W.sun, low);
-    U.horizon.value.copy(B.horizon).lerp(W.horizon, low * 0.55);
-    U.zenith.value.copy(B.zenith).lerp(W.zenith, low * 0.45);
-    U.ground.value.copy(B.ground).multiplyScalar(1 - 0.35 * low);
     if (this.scene.fog) this.scene.fog.color.copy(U.horizon.value);
+    // Işıklar: güneş (gece: ay ışığı, aynı ışık; yön ayın yönü)
+    const moon = U.uMoonDir.value;
+    if (night > 0.5) this.sunDir.copy(moon);
+    const sunGain = smoothstep(-2.0, 3.5, el);
     this.sun.color.copy(B.light).lerp(W.light, low);
-    this.sun.intensity = B.sunI * (0.35 + 0.65 * smoothstep(0, 30, el));
-    this.hemi.intensity = B.hemiI * (0.55 + 0.45 * smoothstep(0, 35, el));
-    if (this.fill) this.fill.position.set(-this.sunDir.x, 0.35, -this.sunDir.z).normalize().multiplyScalar(500);
-    // Gölge kamerası tabanı güneş yönüne bağlı: yeniden kurulsun
+    this.sun.intensity = B.sunI * (0.92 + 0.08 * smoothstep(0, 30, el)) * sunGain;
+    if (night > 0.5) { this.sun.color.setRGB(0.55, 0.66, 0.95); this.sun.intensity = 0.22 * night; }
+    this.hemi.color.copy(B.hemiSky).lerp(new THREE.Color(0.8, 0.62, 0.5), low * 0.35).lerp(new THREE.Color(0.18, 0.22, 0.36), Math.max(dusk * 0.6, night));
+    this.hemi.groundColor.copy(B.hemiGround).multiplyScalar(1 - 0.85 * Math.max(dusk, night));
+    this.hemi.intensity = B.hemiI * (0.45 + 0.55 * smoothstep(0, 30, el)) * (1 - 0.25 * low) * (1 - 0.75 * dusk) * (1 - night) + 0.06 * night;
+    if (this.fill) { this.fill.intensity = 0.55 * (1 - Math.max(dusk, night)); this.fill.position.set(-this.sunDir.x, 0.35, -this.sunDir.z).normalize().multiplyScalar(500); }
     this._lightBasis = null; this._lightBasisInv = null;
-    TERRAIN_UNIFORMS.uRelief.value = t ? Math.max(B.relief, 0.78) : B.relief;
-    this.timeKey = key;
+    // Dünya malzemeleri: gece oranları
+    const cityNight = smoothstep(2, -5, el);
+    ARCH_UNIFORMS.uNight.value = cityNight; ARCH_UNIFORMS.uDusk.value = dusk;
+    LIGHT_FX.uLNight.value = cityNight;
+    TMAT_UNIFORMS.uNight.value = night; TMAT_UNIFORMS.uSunI.value = Math.max(0.05, sunGain);
+    if (this.ocean) this.ocean.setSun(this.sun, night);
+    if (this.ltfeSignMat) this.ltfeSignMat.emissiveIntensity = 0.55 * cityNight;
+    // bulutlar gök ışığıyla: altın saatte sıcak, gece karanlık
+    if (this.cloudTint) {
+      const cb = (0.08 + 0.92 * smoothstep(-8, 6, el));
+      this.cloudTint.setRGB(cb, cb * (1 - 0.18 * low), cb * (1 - 0.32 * low)).lerp(new THREE.Color(0.05, 0.06, 0.09), night);
+    }
+    // pozlama: gece göz uyumu (ACES), altın saatte hafif
+    if (this.renderer) this.renderer.toneMappingExposure = 1.0 + 0.12 * low * (1 - dusk) + 0.9 * dusk * (1 - night) + 1.6 * night;
+    this.timeKey = key; this.nightK = night; this.cityNight = cityNight;
+    if (this.onTimeOfDay) this.onTimeOfDay();
     return pos;
+  }
+
+  buildClouds() {
+    super.buildClouds();
+    // gün saati tonu: billboard malzemesine çarpan, düz bulut tabakasına renk
+    this.cloudTint = new THREE.Color(1, 1, 1);
+    const [bill, flat] = this.clouds || [];
+    if (bill) {
+      const m = bill.material;
+      m.uniforms.uTint = { value: this.cloudTint };
+      m.fragmentShader = m.fragmentShader.replace('uniform sampler2D map;', 'uniform sampler2D map; uniform vec3 uTint;').replace('gl_FragColor = vec4(c.rgb * shade, c.a * 0.92);', 'gl_FragColor = vec4(c.rgb * shade * uTint, c.a * 0.92);');
+      m.needsUpdate = true;
+    }
+    if (flat) flat.material.color = this.cloudTint;
   }
 
   /** Şehir 3B içeriği (bodrum.js): kale, liman, marina, gökdelenler, evler, yollar, ağaçlar. */
@@ -442,6 +534,47 @@ export class GeoWorld extends World {
     this.ocean.setSun(this.sun);
     this.group.add(this.ocean.mesh);
     this.track(this.ocean);
+  }
+
+  /**
+   * Gölge kamerası (v5.0): uçağın çevresinde dar (keskin uçak gölgesi) + şehir ölçeğinde geniş kip.
+   * Kamera alçakta ve çekirdek haritadaysa kapsam irtifa/kamera uzaklığıyla genişler (binaların uzun
+   * altın saat gölgeleri sokaklara düşer); sinematik kameralar shadowFocus ile odak/kapsam verir.
+   * Kapsam 8 m'lik basamaklarla değişir ve hedef doku ızgarasına oturtulur (titreme yok).
+   */
+  updateSun(camera, aircraftPos) {
+    this.sky.position.copy(camera.position);
+    const sun = this.sun;
+    if (!sun.castShadow) { sun.target.position.copy(aircraftPos); sun.position.copy(aircraftPos).addScaledVector(this.sunDir, 600); sun.target.updateMatrixWorld(); return; }
+    const F = this.shadowFocus;
+    const target = this._shadowTarget || (this._shadowTarget = new THREE.Vector3());
+    const wideMax = this.quality.shadowWide || 0;
+    let half;
+    if (F) { target.set(F.x, F.y !== undefined ? F.y : aircraftPos.y, F.z); half = Math.min(F.half, wideMax || 70); }
+    else {
+      target.copy(aircraftPos);
+      const camD = camera.position.distanceTo(aircraftPos);
+      half = clamp(22 + camD * 0.9, 32, 70);
+      if (wideMax && this.core && inCore(aircraftPos.x, aircraftPos.z, -500)) {
+        const agl = aircraftPos.y - this.heightAt(aircraftPos.x, aircraftPos.z);
+        half = Math.max(half, clamp(agl * 0.9 + camD * 0.4, 70, wideMax));
+      }
+    }
+    half = Math.ceil(half * (this.perf ? this.perf.shadow : 1) / 8) * 8;
+    const cam = sun.shadow.camera;
+    if (cam.right !== half) { cam.left = -half; cam.right = half; cam.top = half; cam.bottom = -half; cam.near = 10; cam.far = 6000; cam.updateProjectionMatrix(); }
+    const texel = 2 * half / sun.shadow.mapSize.width;
+    const m = this._lightBasis || (this._lightBasis = new THREE.Matrix4().lookAt(new THREE.Vector3(), this.sunDir.clone().negate(), new THREE.Vector3(0, 1, 0)));
+    const inv = this._lightBasisInv || (this._lightBasisInv = m.clone().invert());
+    target.applyMatrix4(inv);
+    target.x = Math.round(target.x / texel) * texel; target.y = Math.round(target.y / texel) * texel;
+    target.applyMatrix4(m);
+    sun.target.position.copy(target);
+    sun.position.copy(target).addScaledVector(this.sunDir, 3000);
+    sun.target.updateMatrixWorld();
+    // geniş kipte sapma ölçeklenir (gölge akne/peter-pan dengesi)
+    sun.shadow.bias = -0.0002 - half * 0.0000012;
+    sun.shadow.normalBias = 0.04 + half * 0.0006;
   }
 
   update(dt, camera, aircraftPos) {

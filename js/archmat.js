@@ -46,7 +46,7 @@ const ARCH_PARS_FS = /* glsl */`
     col *= 1.0 - 0.45 * clamp(h.z / depth, 0.0, 1.0);
     float blind = aHash(vec2(seed, 1.3));
     if (blind > 0.62) col = mix(col, vec3(0.70, 0.68, 0.62), step(1.0 - (blind - 0.62) * 1.6, f.y) * 0.85);
-    lit = step(0.5, aHash(vec2(seed, 5.9)) + uDusk * 0.15) ;
+    lit = step(0.66, aHash(vec2(seed, 5.9)) + uDusk * 0.12);
     // tavan armatürü parlaması
     float lamp = smoothstep(0.35, 0.0, length(h.xz - vec2(0.5, depth * 0.45))) * step(0.98, h.y);
     col += vec3(1.0, 0.9, 0.7) * lamp * 0.5;

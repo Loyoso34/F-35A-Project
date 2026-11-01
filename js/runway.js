@@ -422,7 +422,8 @@ const LIGHT_VS = `
       if (fm < 1.5) a *= step(fract(t / 4.0), 0.25);                  // Fl R 4s
       else if (fm < 2.5) a *= step(fract(t / 4.0 + 0.5), 0.25);       // Fl G 4s
       else if (fm < 3.5) a *= 0.25 + 0.75 * step(fract(t / 1.5), 0.45); // engel ışığı (ICAO orta yoğunluk B, 40/dk)
-      else { float ph = fract(t * 2.0) * 32.0; a *= step(abs(ph - aFx.w), 0.9) * 1.6; }  // ardışık flaşör (2/s, eşiğe doğru)
+      else if (fm < 4.5) { float ph = fract(t * 2.0) * 32.0; a *= step(abs(ph - aFx.w), 0.9) * 1.6; }  // ardışık flaşör (2/s, eşiğe doğru)
+      else a *= step(fract(t / 2.0), 0.5);                            // meydan feneri: dönüşümlü (beyaz/yeşil faz farkıyla)
     }
     if (aFx.y > 0.5) a *= smoothstep(0.15, 0.6, uLNight);
     vCol = col; vA = a;
@@ -487,12 +488,20 @@ export function buildLightPoints(lights, { far = 12000, minPx = 2.0 } = {}) {
 
 const WHITE = [1.0, 0.97, 0.88], YELLOW = [1.0, 0.78, 0.25], GREEN = [0.25, 1.0, 0.45], RED = [1.0, 0.16, 0.1];
 
-/** Pist ışık listesi (pist yereli): kenar, eşik/son, yaklaşma (CAT I), PAPI. */
+/**
+ * Pist ışık listesi (pist yereli; A ucuna inen pilot +X yönünde uçar). ICAO Annex 14 Vol I bölüm 5.3.
+ * Uç kaydı (spec.ends[i]):
+ *   approach: false | { cat: 'II', length: 900, flashLen: 600 }   yaklaşma ışık sistemi
+ *   papi: false | { angle: derece, side: 'L'|'R', dist?: m, meht?: m }   PAPI (dört birim)
+ *   tdz: bool  temas bölgesi ışıkları (CAT II'de gerekli), rcl: bool  pist eksen ışıkları (CAT II'de gerekli)
+ * Renkler ve yönlülük: eşik yaklaşana yeşil, pist sonu pistten bakana kırmızı; kenar ışıkları beyaz,
+ * pist sonuna kalan son 600 m sarı; RCL beyaz, sondan 900-300 m arası kırmızı/beyaz değişimli,
+ * son 300 m kırmızı; TDZ beyaz barret; yaklaşma ekseni beyaz barret, CAT II iç 270 m'de kırmızı
+ * yan barretler; ardışık flaşörler (saniyede iki kez eşiğe doğru akan beyaz parlama).
+ */
 export function runwayLightList(spec, layout) {
   const L = spec.length, W = spec.width, half = L / 2, out = [];
   const y = 0.35;
-  // Kenar ışıkları: 60 m aralık, kenarın 1,5 m dışında. Her iki yöne: pist sonuna kalan
-  // son 600 m (ya da pistin üçte biri) sarı.
   const caution = Math.min(600, L / 3);
   const nE = Math.round(L / 60);
   for (let k = 0; k <= nE; k++) {
@@ -502,25 +511,58 @@ export function runwayLightList(spec, layout) {
       out.push({ x, y, z: sg * (W / 2 + 1.5), kind: 1, dir: [-1, 0], colA: toB < caution ? YELLOW : WHITE, colB: toA < caution ? YELLOW : WHITE });
     }
   }
+  // Pist eksen ışıkları (RCL): 15 m aralık, eksenden 0,6 m kaydırılmış (eksen çizgisi üzerinde değil)
+  if (spec.ends.some((e) => e.rcl)) {
+    for (let x = -half + 7.5; x <= half - 7.5; x += 15) {
+      const toB = half - x, toA = x + half;
+      const code = (d, k) => (d < 300 ? RED : d < 900 ? (k % 2 ? RED : WHITE) : WHITE);
+      const k = Math.round((x + half) / 15);
+      out.push({ x, y: y - 0.3, z: 0.6, kind: 1, dir: [1, 0], colA: code(toB, k), colB: code(toA, k), inset: 1 });
+    }
+  }
   spec.ends.forEach((e, ei) => {
     const sgn = ei === 0 ? -1 : 1;                // uç x işareti
-    const xT = sgn * half + -sgn * (e.displaced || 0);
+    const inward = -sgn;                          // eşikten pist içine
+    const xT = sgn * half + inward * (e.displaced || 0);
     // Eşik (yaklaşana yeşil) / pist sonu (pistten bakana kırmızı): 3 m aralıklı sıra
     for (let z = -W / 2; z <= W / 2 + 0.01; z += 3) out.push({ x: xT, y, z, kind: 1, dir: [sgn, 0], colA: GREEN, colB: RED });
-    // Yaklaşma ışıkları (ICAO CAT I): 900 m eksen, 30 m aralıklı 3'lü barret, 300 m'de 30 m'lik çapraz çubuk.
-    // Gerçek bir havaalanında yalnızca DOĞRULANMIŞ veri varsa kurulur (uç kaydında approach: false).
-    if (e.approach !== false) for (let d = 30; d <= 900; d += 30) {
-      const x = xT + sgn * d;
-      for (const zz of [-1.5, 0, 1.5]) out.push({ x, y: y + 0.4, z: zz, kind: 1, dir: [sgn, 0], colA: WHITE, colB: [0, 0, 0] });
-      if (d === 300) for (let zz = -15; zz <= 15; zz += 2.5) if (Math.abs(zz) > 3) out.push({ x, y: y + 0.4, z: zz, kind: 1, dir: [sgn, 0], colA: WHITE, colB: [0, 0, 0] });
+    // Temas bölgesi ışıkları: eşikten 900 m, 30 m aralık, iki sıra barret (3 ışık, 1,5 m), sıralar arası 18 m
+    if (e.tdz) for (let d = 30; d <= 900; d += 30) for (const sd of [-1, 1]) for (const dz of [0, 1.5, 3]) {
+      out.push({ x: xT + inward * d, y: y - 0.3, z: sd * (9 + dz), kind: 1, dir: [sgn, 0], colA: WHITE, colB: [0, 0, 0], inset: 1 });
     }
-    // PAPI: yaklaşan pilotun SOLUNDA, nişan noktası hizasında; kenardan 15 m, 9 m aralık.
-    // Piste en yakın birim en yüksek ayar: 3°30', 3°10', 2°50', 2°30' (3° süzülüş: 2 beyaz 2 kırmızı)
-    const aimS = (layout && layout.ends[ei]) ? layout.ends[ei].aiming[0] : 400;
-    const xP = xT - sgn * aimS;
-    const left = ei === 0 ? -1 : 1;              // A ucuna inen (+X) pilotun solu −Z
-    const angles = [3.5, 3 + 10 / 60, 2 + 50 / 60, 2.5];
-    if (e.papi !== false) angles.forEach((deg, k) => out.push({ x: xP, y: y + 0.5, z: left * (W / 2 + 15 + k * 9), kind: 2, dir: [sgn, 0], papi: deg * Math.PI / 180, colA: WHITE }));
+    // Yaklaşma ışık sistemi (uç kaydında belirtilmemişse kurgusal meydanlar için ICAO CAT I varsayılanı)
+    const A = e.approach === undefined ? { cat: 'I', length: 900 } : e.approach;
+    if (A) {
+      const len = A.length || 900, cat2 = A.cat === 'II';
+      let seq = 0;
+      for (let d = 30; d <= len; d += 30) {
+        const x = xT + sgn * d;
+        // eksen barreti: 5 ışık, 4 m
+        for (const zz of [-2, -1, 0, 1, 2]) out.push({ x, y: y + 0.4, z: zz, kind: 1, dir: [sgn, 0], colA: WHITE, colB: [0, 0, 0] });
+        // CAT II iç 270 m: kırmızı yan barretler (eksenin iki yanında, 3 ışık)
+        if (cat2 && d <= 270) for (const sd of [-1, 1]) for (const dz of [0, 0.75, 1.5]) out.push({ x, y: y + 0.4, z: sd * (9 + dz), kind: 1, dir: [sgn, 0], colA: RED, colB: [0, 0, 0] });
+        // çapraz çubuklar: 150 m (CAT II) ve 300 m
+        if ((cat2 && d === 150) || d === 300) for (let zz = -15; zz <= 15; zz += 1.5) if (Math.abs(zz) > 3) out.push({ x, y: y + 0.4, z: zz, kind: 1, dir: [sgn, 0], colA: WHITE, colB: [0, 0, 0] });
+        // ardışık flaşörler: dış bölüm (eşikten uzak uçtan eşiğe doğru)
+        if (A.flashLen && d > len - A.flashLen) out.push({ x, y: y + 0.9, z: 0, kind: 1, dir: [sgn, 0], colA: [1.0, 1.0, 1.0], colB: [0, 0, 0], flash: 4, seq: Math.round((len - d) / 30) });
+        seq++;
+      }
+    }
+    // PAPI: yaklaşan pilotun solunda (side 'L'); piste en yakın birim en yüksek ayar.
+    // Birim ayarları: süzülüş açısı ±30' (dış) ve ±10' (iç) — yolda: 2 beyaz 2 kırmızı.
+    const Pp = e.papi === undefined ? { angle: 3 } : e.papi;
+    if (Pp) {
+      const g = Pp.angle;
+      const angles = [g + 0.5, g + 1 / 6, g - 1 / 6, g - 0.5];
+      // konum: MEHT (verilmişse) ya da 15 m eşik üstü göz yüksekliği, yoldaki en alçak birimin açısıyla
+      const eyeH = Pp.meht || 15.2;
+      const dist = Pp.dist || eyeH / Math.tan((g - 1 / 6) * Math.PI / 180);
+      const xP = xT + inward * dist;
+      const leftZ = ei === 0 ? -1 : 1;            // A ucuna inen (+X) pilotun solu −Z
+      const sideZ = Pp.side === 'R' ? -leftZ : leftZ;
+      angles.forEach((deg, k) => out.push({ x: xP, y: y + 0.5, z: sideZ * (W / 2 + 15 + k * 9), kind: 2, dir: [sgn, 0], papi: deg * Math.PI / 180, colA: WHITE }));
+      if (layout) layout.papi = Object.assign(layout.papi || {}, { [ei]: { dist, angles } });
+    }
   });
   return out;
 }

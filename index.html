@@ -272,7 +272,16 @@
     #select { z-index: 24; padding: 0; align-items: stretch; justify-content: stretch;
       background: linear-gradient(90deg, rgba(4,7,12,0.62) 0%, rgba(4,7,12,0) 30%, rgba(4,7,12,0) 70%, rgba(4,7,12,0.62) 100%),
                   linear-gradient(0deg, rgba(4,7,12,0.55) 0%, rgba(4,7,12,0) 26%), linear-gradient(180deg, rgba(4,7,12,0.45) 0%, rgba(4,7,12,0) 22%); }
-    .mp-wrap { position: absolute; inset: 0; display: grid; gap: 12px 16px;
+    .cine-fade { position: absolute; inset: 0; background: #05080c; opacity: 0; pointer-events: none; z-index: 0; }
+    .cine-vignette { position: absolute; inset: 0; pointer-events: none; z-index: 0;
+      background: radial-gradient(120% 90% at 50% 45%, rgba(5,8,12,0) 55%, rgba(5,8,12,0.55) 100%),
+                  linear-gradient(180deg, rgba(5,8,12,0.55) 0%, rgba(5,8,12,0) 18%, rgba(5,8,12,0) 70%, rgba(5,8,12,0.6) 100%); }
+    .cine-loc { position: absolute; left: calc(var(--sal) + 22px); bottom: calc(var(--sab) + 74px); z-index: 1; pointer-events: none;
+      display: flex; flex-direction: column; gap: 4px; padding-left: 12px; border-left: 2px solid rgba(245,247,250,0.75); }
+    .cine-loc-k { font-size: 12px; font-weight: 600; letter-spacing: 0.32em; text-transform: uppercase; color: #f5f7fa; }
+    .cine-loc-s { font-size: 10.5px; letter-spacing: 0.14em; color: rgba(203,211,221,0.85); }
+    @media (max-height: 520px) { .cine-loc { display: none; } }
+    .mp-wrap { position: absolute; inset: 0; display: grid; gap: 12px 16px; z-index: 1;
       grid-template-columns: minmax(230px, 300px) 1fr minmax(250px, 330px); grid-template-rows: auto minmax(0, 1fr) auto;
       grid-template-areas: "head head head" "left . right" "foot foot foot";
       padding: calc(var(--sat) + 14px) calc(var(--sar) + 18px) calc(var(--sab) + 12px) calc(var(--sal) + 18px); color: #f5f7fa; }
@@ -337,6 +346,7 @@
       .mp-row { flex-wrap: nowrap; }
       .mp-chips { gap: 4px; }
       .mp-right .mp-chips { flex-wrap: nowrap; }
+      .mp-right #mp-tod { flex-wrap: wrap; justify-content: flex-end; }
       #mp-tod .mp-chip { padding: 3px 7px; font-size: 10.5px; }
       .sel-credits { font-size: 7.5px; max-width: 68%; bottom: calc(var(--sab) + 1px); }
     }
@@ -612,6 +622,9 @@
   </div>
 
   <div id="select" class="overlay" hidden data-tin="420" data-tout="260">
+    <div class="cine-fade" id="cine-fade" aria-hidden="true"></div>
+    <div class="cine-vignette" aria-hidden="true"></div>
+    <div class="cine-loc" aria-hidden="true"><span class="cine-loc-k">Bodrum Peninsula</span><span class="cine-loc-s">Aegean coast · 37.03° N 27.43° E · 20 × 20 km</span></div>
     <div class="mp-wrap">
       <header class="mp-head">
         <div class="mp-title"><span class="mp-kicker">Mission preparation</span><h1>F-35A<b>Lightning II</b></h1></div>
@@ -637,7 +650,7 @@
         <p class="sel-hint" id="sel-hint">Pause → Hangar returns here.</p>
         <button class="mp-fly" id="btn-fly" type="button">Fly<span id="fly-sub">Runway 10L</span></button>
       </footer>
-      <p class="sel-credits" id="sel-credits">Bodrum region: contains modified Copernicus Sentinel data 2024 · elevation EU-DEM (Copernicus) / SRTM via AWS Terrain Tiles · buildings, roads, aeroways, coastline © OpenStreetMap contributors (ODbL), Microsoft Building Footprints, Overture Maps · land cover © ESA WorldCover 2021 (CC BY 4.0) · aerodrome data OurAirports</p>
+      <p class="sel-credits" id="sel-credits">Bodrum region: contains modified Copernicus Sentinel data 2024 · elevation EU-DEM (Copernicus) / SRTM via AWS Terrain Tiles · roads, aeroways, coastline © OpenStreetMap contributors (ODbL) via Overture Maps · aerodrome data OurAirports · the Gümbet Bay skyline district is fictional</p>
     </div>
   </div>
 
@@ -663,7 +676,7 @@
   <div class="overlay" id="loading" role="status" aria-live="polite" aria-busy="true" data-tout="520">
     <div class="ld-bg" aria-hidden="true"></div>
     <div class="ld-shade" aria-hidden="true"></div>
-    <div class="ld-top" aria-hidden="true"><span>LTFE · Milas–Bodrum</span><span class="ld-coord">N37°14.96′ E027°39.84′</span></div>
+    <div class="ld-top" aria-hidden="true"><span>Bodrum · Gümbet Bay</span><span class="ld-coord">N37°02.1′ E027°24.2′</span></div>
     <div class="ld-card">
       <p class="ld-kicker">Flight Simulator</p>
       <h1 class="ld-title">F-35A<span>Lightning II</span></h1>
@@ -729,10 +742,13 @@
       </div>
       <div class="opt"><span>Time of day <small>(Bodrum region, 3 Oct, local time)</small></span>
         <div class="seg" id="tod-seg">
-          <button data-d="default" class="on">12:10</button>
+          <button data-d="sunrise">07:40</button>
           <button data-d="morning">08:30</button>
+          <button data-d="default" class="on">12:10</button>
           <button data-d="afternoon">16:30</button>
-          <button data-d="evening">18:25</button>
+          <button data-d="evening">18:05</button>
+          <button data-d="dusk">18:58</button>
+          <button data-d="night">21:30</button>
         </div>
       </div>
       <div class="opt"><span>FPS counter</span>
@@ -743,7 +759,7 @@
         </div>
       </div>
       <p class="small">Version <span id="version"></span> · Changing the quality rebuilds the scenery.</p>
-      <p class="small credits">Bodrum region map data: elevation — Terrain Tiles on AWS Open Data (EU-DEM: produced using Copernicus data and information funded by the European Union; SRTM: U.S. Geological Survey; ETOPO1: NOAA; tiles by Mapzen). Imagery — contains modified Copernicus Sentinel data 2024 (Sentinel-2 L2A, 3 &amp; 5 Oct 2024). Buildings, roads, aeroways and coastline — © OpenStreetMap contributors (ODbL) and Microsoft Building Footprints (ODbL), via Overture Maps Foundation release 2026-10-21.0; building heights are mostly approximate. Land cover — © ESA WorldCover project 2021, contains modified Copernicus Sentinel data (2021) processed by the ESA WorldCover consortium (CC BY 4.0). Aerodrome data — OurAirports, OpenStreetMap. Geoid — EGM96. Magnetic variation — NOAA WMM-2025.</p>
+      <p class="small credits">Bodrum region map data: elevation — Terrain Tiles on AWS Open Data (EU-DEM: produced using Copernicus data and information funded by the European Union; SRTM: U.S. Geological Survey; ETOPO1: NOAA; tiles by Mapzen). Imagery — contains modified Copernicus Sentinel data 2024 (Sentinel-2 L2A, 3 &amp; 5 Oct 2024). Road network, aeroways and coastline — © OpenStreetMap contributors (ODbL), via Overture Maps Foundation release 2026-10-21.0. The 20 × 20 km Bodrum map (v5.0) is built on this real geography; its buildings are modelled, and the Gümbet Bay skyline district is fictional. Coastal bathymetry is modelled where the source data held placeholders. Aerodrome data — OurAirports, OpenStreetMap; LTFE lighting per Turkish AIP (AIRAC 06/16) and DHMİ aerodrome chart. Geoid — EGM96. Magnetic variation — NOAA WMM-2025.</p>
       <div class="row"><button class="btn" id="btn-settings-close">Close</button></div>
     </div>
   </div>

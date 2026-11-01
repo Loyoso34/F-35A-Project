@@ -24,9 +24,9 @@ export const LAYER_NOREFLECT = 3;
 
 // Dalga kümesi: [yön (derece, ilerleme; 0 = kuzey, saat yönü), dalga boyu m, diklik a·k]
 const WAVES = [
-  [158, 61, 0.034], [131, 41, 0.040], [182, 29, 0.046], [117, 19.5, 0.050], [203, 13.1, 0.052],
-  [146, 8.9, 0.056], [96, 6.2, 0.054], [221, 4.3, 0.052], [168, 2.9, 0.05], [129, 1.9, 0.046],
-  [75, 1.3, 0.04], [190, 0.9, 0.036],
+  [152, 57, 0.026], [118, 43, 0.030], [189, 33, 0.034], [101, 24, 0.040], [214, 18.5, 0.044],
+  [141, 13.7, 0.050], [77, 10.3, 0.048], [233, 7.6, 0.052], [166, 5.6, 0.054], [123, 4.1, 0.052],
+  [58, 3.0, 0.048], [197, 2.2, 0.046], [149, 1.6, 0.042], [96, 1.15, 0.038],
 ];
 
 const OCEAN_VS = /* glsl */`
@@ -67,16 +67,30 @@ const OCEAN_FS = /* glsl */`
       shel = min(shel, mix(1.0, s.w, 1.0 - smoothstep(s.z * 0.55, s.z, d)));
     }
     float amp = uWaveK * shel;
+    // dalga grupları: her dalganın genliği büyük ölçekli, yavaş kayan bir gürültüyle değişir
+    // (düzenli şerit deseni oluşmaz; açık denizde gerçek "set"ler gibi)
+    vec4 gm = texture2D(tNoise, p * (1.0 / 1900.0) + vec2(uTime * 0.0011, uTime * 0.0007));
+    vec4 gm2 = texture2D(tNoise, p * (1.0 / 640.0) - vec2(uTime * 0.0017, -uTime * 0.0009) + 0.37);
     vec2 sl = vec2(0.0); float hgt = 0.0, lost = 0.0, hmax = 0.0;
     for (int i = 0; i < NW; i++) {
       vec4 w = uW[i];
       float k = w.z, L = 6.2831853 / k;
       float fade = 1.0 - smoothstep(L * 22.0, L * 95.0, camD);
       float ph = k * dot(w.xy, p) - sqrt(9.81 * k) * uTime + float(i) * 1.731;
-      float a = w.w * amp;
+      float gi = i < 5 ? mix(gm.r, gm.b, float(i) * 0.25) : mix(gm2.g, gm2.a, fract(float(i) * 0.37));
+      float a = w.w * amp * (0.25 + 1.5 * gi * gi);
       sl += w.xy * (a * cos(ph) * fade);
       hgt += a / k * sin(ph) * fade; hmax += a / k * fade;
       lost += a * a * (1.0 - fade) * 0.5;
+    }
+    // orta ölçekli rüzgâr dalgacıkları (normal haritası, 3 ölçek; yönleri farklı, akış hızı farklı):
+    // uzakta parıltı yolunu kırar, desen tekrarı görünmez
+    {
+      float mf = 1.0 - smoothstep(1500.0, 9000.0, camD);
+      vec2 m1 = texture2D(tNrm, p * (1.0 / 31.0) + vec2(uTime * 0.008, -uTime * 0.005)).xy * 2.0 - 1.0;
+      vec2 m2 = texture2D(tNrm, mat2(0.8, -0.6, 0.6, 0.8) * p * (1.0 / 87.0) - vec2(uTime * 0.004, uTime * 0.006)).xy * 2.0 - 1.0;
+      sl += (m1 * 0.035 + m2 * 0.03) * mf * (0.4 + 0.6 * shel) * (0.5 + gm.g);
+      lost += 0.0012 * (1.0 - mf);
     }
     // kılcal dalgacıklar (yakında)
     float nf = 1.0 - smoothstep(60.0, 420.0, camD);
@@ -208,7 +222,7 @@ export class Ocean {
       tNrm: { value: o.normalTex || null }, tNoise: TMAT_UNIFORMS.tDet, tRefl: { value: null }, uReflMat: { value: new THREE.Matrix4() }, uReflOn: { value: 0 },
       uShelter: { value: Array.from({ length: 8 }, () => new THREE.Vector4(0, 0, 0, 1)) },
       uDataRect: { value: new THREE.Vector4(...(o.dataRect || [-1e9, -1e9, 1e9, 1e9])) },
-      uSunRad: { value: new THREE.Vector3(2.6, 2.5, 2.3) }, uDeep: { value: new THREE.Color(0.0028, 0.0145, 0.036) },
+      uSunRad: { value: new THREE.Vector3(2.6, 2.5, 2.3) }, uDeep: { value: new THREE.Color(0.0036, 0.019, 0.052) },
       uNight: { value: 0 }, uSeaY: { value: this.seaY }, uWaveK: { value: 1 },
     });
     const mat = new THREE.ShaderMaterial({

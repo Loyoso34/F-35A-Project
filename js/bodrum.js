@@ -54,6 +54,15 @@ export const DESIGN = {
     [[-2620, -40], [-2200, -50], [-2140, 60], [-2620, 70]],          // Gümbet
     [[160, 90], [760, 120], [760, 200], [160, 190]],                // Kumbahçe
   ],
+  // Giriş ekranı sinematik çekimleri (E, N, irtifa MSL): uçak yolu, kamera başlangıç/bitiş, süre (s).
+  // 1) Siluet geçişi: Gümbet koyunun ağzında batıya, kamera güneyde su üstünde (arkada gökdelenler)
+  // 2) Kale geçişi: güneydoğudan liman ağzına, kamera Kumbahçe tarafında alçakta (arkada kale ve marina)
+  // 3) Panorama: uçak yok, Bodrum koylarının yüksekten yavaş yörüngesi
+  menuShots: [
+    { dur: 15, path: [[-1250, -420, 82], [-1900, -470, 86], [-2550, -520, 92], [-3300, -640, 110]], cam: [[-1700, -820, 58], [-2350, -860, 62]], focus: [-2250, 380, 115], mix: 0.42, fov: 44 },
+    { dur: 14, path: [[1000, -1350, 120], [380, -640, 82], [-120, -220, 84], [-640, 300, 125]], cam: [[470, -430, 24], [400, -380, 30]], focus: [0, -40, 26], mix: 0.62, fov: 50 },
+    { dur: 16, orbit: { c: [-1150, 120], r: 3300, h: 820, a0: 200, a1: 238, look: [-1100, 250, 30] }, fov: 50 },
+  ],
   // Liman sığınakları (deniz dalgası): [E, N, r, kalan genlik]
   shelters: [[-380, 240, 360, 0.18], [480, 30, 420, 0.45], [-2380, -260, 520, 0.55]],
 };
@@ -417,6 +426,17 @@ export class BodrumCity {
       }
       b.box(px, top + 2.3, pz, w / 2, d - 1, 0.12, a, [0.33, 0.30, 0.16], [seed, 3, 3, 0]);
     }
+  }
+
+  /** Giriş ekranı çekimleri: yerel dünya koordinatlarında (y = MSL + MSL_Y). */
+  cinematicShots() {
+    const V = ([e, n, h]) => { const p = this.P(e, n); return new THREE.Vector3(p.x, h + MSL_Y, p.z); };
+    return DESIGN.menuShots.map((s) => ({
+      dur: s.dur, fov: s.fov,
+      path: s.path ? new THREE.CatmullRomCurve3(s.path.map(V), false, 'centripetal') : null,
+      cam: s.cam ? s.cam.map(V) : null, focus: s.focus ? V(s.focus) : null, mix: s.mix || 0,
+      orbit: s.orbit ? { c: this.P(...s.orbit.c), r: s.orbit.r, h: s.orbit.h + MSL_Y, a0: s.orbit.a0 * Math.PI / 180, a1: s.orbit.a1 * Math.PI / 180, look: V(s.orbit.look) } : null,
+    }));
   }
 
   // =============================================================================================

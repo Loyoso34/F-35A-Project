@@ -19,6 +19,17 @@
 //  - Tanımlayıcılar yayımlanmış hâliyle; NOAA WMM-2025 sapması (5,41° D) ile 106,6° gerçek =
 //    101,2° manyetik -> "10" (tutarlı).
 //  - Taksi yolları, apronlar, terminal binaları: OSM (airport/ltfe.json, js/ltfe3d.js).
+//
+// Işıklandırma (v5.0). Kaynaklar (oturumdan resmi AIP sunucusuna — dhmi.gov.tr — erişilemedi; değerler
+// aşağıdaki yayımlanmış kaynaklardan derlendi, güncel AIP AD 2.14 ile karşılaştırılmalıdır [E]):
+//  - AIP Türkiye LTFE AD 2.14 (AIRAC 06/16): hassas yaklaşma, barret sistemi, CAT II, 900 m (dış 600 m'si
+//    ardışık flaşörlü), PAPI 3,9°, MEHT 68 ft (28R).
+//  - DHMİ meydan haritası (ADC, LT_AD_2_LTFE_ADC): PAPI (3,3°) 10L; GP 332,0 (ILS).
+//  - airport-data.com: "PAPI Rwy 10 GS 3.3, Rwy 28 GS 3.9"; BAVirtual LTFE brifingi: 10L ILS 3,3°, 28R ILS
+//    3,9° (arazi nedeniyle), 10L/28R ILS CAT II.
+//  - AIP: 10R/28L sivil uçaklarca TAKSİ YOLU olarak kullanılır; pist olarak yalnızca acil durumda —
+//    bu yüzden ALS/PAPI yok, yalnızca kenar ve eşik/son ışıkları.
+//  - CAT II işletme: TDZ ve RCL ışıkları, bekleme konumlarında durma çubukları ICAO Annex 14 gereğidir.
 export const LTFE = {
   id: 'ltfe', icao: 'LTFE', iata: 'BJV', name: 'Milas–Bodrum Airport', kindLabel: 'Milas–Bodrum (LTFE)',
   arp: { lat: 37.249314, lon: 27.66401 }, elevFt: 21,
@@ -26,15 +37,17 @@ export const LTFE = {
     {
       id: '10L/28R', width: 45, lengthM: 3000,
       ends: [
-        { num: '10', suffix: 'L', lat: 37.2549592, lon: 27.6491660, elevFt: 9, pad: 60 },
-        { num: '28', suffix: 'R', lat: 37.2472319, lon: 27.6815772, elevFt: 21, pad: 62 },
+        { num: '10', suffix: 'L', lat: 37.2549592, lon: 27.6491660, elevFt: 9, pad: 60,
+          light: { approach: { cat: 'II', length: 900, flashLen: 600 }, papi: { angle: 3.3, side: 'L' }, tdz: true, rcl: true } },
+        { num: '28', suffix: 'R', lat: 37.2472319, lon: 27.6815772, elevFt: 21, pad: 62,
+          light: { approach: { cat: 'II', length: 900, flashLen: 600 }, papi: { angle: 3.9, side: 'L', meht: 68 * 0.3048 }, tdz: true, rcl: true } },
       ],
     },
     {
       id: '10R/28L', width: 45, lengthM: 2496,
       ends: [
-        { num: '10', suffix: 'R', lat: 37.2533463, lon: 27.6486159, elevFt: 14, pad: 61 },
-        { num: '28', suffix: 'L', lat: 37.2469313, lon: 27.6755746, elevFt: 14, pad: 0 },
+        { num: '10', suffix: 'R', lat: 37.2533463, lon: 27.6486159, elevFt: 14, pad: 61, light: { approach: false, papi: false } },
+        { num: '28', suffix: 'L', lat: 37.2469313, lon: 27.6755746, elevFt: 14, pad: 0, light: { approach: false, papi: false } },
       ],
     },
   ],

@@ -7,6 +7,7 @@ import { LTFE } from './georegion.js';
 import { F35 } from './aircraft.js';
 import { fmtDMS } from './geo.js';
 import { HAZE_UNIFORMS } from './worldshade.js';
+import { TIME_ORDER } from './sun.js';
 import { fmtCrashData } from './crash.js';
 import { FlightModel, FIXED_DT, DEFAULT_WIND } from './physics.js';
 import { FLEET, FLEET_ORDER, getAircraftConfig } from './fleet.js';
@@ -402,7 +403,8 @@ class App {
       this.envMap = pmrem.fromScene(envScene, 0.02, 1, 100).texture;
       pmrem.dispose();
       this.scene.environment = this.envMap;
-      this.scene.environmentIntensity = 0.55;
+      const nk = this.world && this.world.nightK ? this.world.nightK : 0;
+      this.scene.environmentIntensity = 0.55 * (1 - 0.75 * nk);
     } catch (e) {
       console.warn('Could not build the environment map', e);
     }
@@ -571,7 +573,7 @@ class App {
     this._mpDl = dl;
     // Gün saati: Ayarlar'daki seçimle aynı ayar
     if (el.mpTod && !el.mpTod.childElementCount) {
-      for (const [k, lbl] of [['default', '12:10'], ['morning', '08:30'], ['afternoon', '16:30'], ['evening', '18:25']]) {
+      for (const [k, lbl] of TIME_ORDER) {
         const b = document.createElement('button');
         b.type = 'button'; b.className = 'mp-chip'; b.dataset.d = k; b.textContent = lbl;
         b.addEventListener('click', () => this.setTimeOfDayKey(k));
@@ -620,7 +622,7 @@ class App {
         ['Start', 'Lined up, 100 m in'],
       ]);
     }
-    const tod = { default: '12:10', morning: '08:30', afternoon: '16:30', evening: '18:25' }[this.settings.tod || 'default'];
+    const tod = (TIME_ORDER.find(([k]) => k === (this.settings.tod || 'default')) || TIME_ORDER[2])[1];
     if (el.flySub) el.flySub.textContent = `Runway ${sp.runway} · ${tod}`;
     if (el.mpMap && geo) this.drawAirportMap(el.mpMap, geo, id);
   }
@@ -888,8 +890,70 @@ class App {
     this.needsRender = true;
   }
 
+  /**
+   * Giriş ekranı (v5.0): yeni haritanın simge bölgesinde sinematik uçuş. F-35A kapalı bir rota
+   * boyunca (kale, marina, Gümbet silueti, açık deniz) 70 m/s ile uçar; yatış rota eğriliğinden
+   * (tan φ = v²κ/g), takım kapalı. Kamera kritik sönümlü takip: arkadan-yandan, yavaşça değişen açı,
+   * araziye ve yapılara girmez. Gölge odağı uçağın çevresinde şehir ölçeğinde (binaların uzun gölgeleri).
+   * Bu bir ÇİZİM animasyonudur: fizik modeli kullanılmaz ve değiştirilmez.
+   */
+  updateCinematic(dt) {
+    const w = this.world, c = this.camera;
+    if (!this._cine) this._cine = { shots: w.city.cinematicShots(), k: 0, t: 0, look: new THREE.Vector3(), bank: 0, prevP: null };
+    const C = this._cine;
+    C.t += dt;
+    let S = C.shots[C.k];
+    if (C.t >= S.dur) { C.t -= S.dur; C.k = (C.k + 1) % C.shots.length; S = C.shots[C.k]; C.prevP = null; C.lookInit = false; }
+    const f = C.t / S.dur;
+    // çekim geçişi: kısa karartma (DOM katmanı)
+    const fade = this.ui.el.cineFade || (this.ui.el.cineFade = document.getElementById('cine-fade'));
+    if (fade) fade.style.opacity = String(Math.max(0, 1 - C.t / 0.6, (C.t - (S.dur - 0.6)) / 0.6));
+    const ac = this.previewAc;
+    if (S.path) {
+      const P = S.path.getPointAt(f), T = S.path.getTangentAt(f).normalize();
+      const f2 = Math.min(1, f + 0.04), T2 = S.path.getTangentAt(f2);
+      const v = S.path.getLength() / S.dur;
+      const hdg = Math.atan2(T.x, -T.z), hdg2 = Math.atan2(T2.x, -T2.z);
+      let dh = hdg2 - hdg; if (dh > Math.PI) dh -= 2 * Math.PI; if (dh < -Math.PI) dh += 2 * Math.PI;
+      const ds = Math.max(1, (f2 - f) * S.path.getLength());
+      const bankT = f2 > f ? Math.atan(v * v * (dh / ds) / 9.81) : C.bank;
+      C.bank = C.prevP ? C.bank + (bankT - C.bank) * (1 - Math.exp(-dt * 2)) : bankT;
+      C.prevP = P;
+      if (ac) {
+        ac.group.visible = true;
+        ac.group.position.copy(P);
+        ac.group.quaternion.setFromEuler(_prevEuler.set(Math.asin(THREE.MathUtils.clamp(T.y, -1, 1)) + 0.04, -hdg, -C.bank, 'YXZ'));
+        ac.group.updateMatrixWorld(true);
+        this.selClock = (this.selClock || 0) + dt;
+        const A = this._cineArgs || (this._cineArgs = {});
+        Object.assign(A, { elevator: 0, aileron: 0, rudder: 0, lef: 0, toeIn: 0, flaps: 0, gear: 0, throttle: 0.75, engine: 0.75, afterburner: 0,
+          time: this.selClock, nozzle: 0.7, groundSpeed: 0, dt, gearComp: 0, steer: 0, camDist: c.position.distanceTo(P) });
+        ac.update(A);
+      }
+      // kamera: çekim boyunca yavaşça kayar, uçağı yumuşak izler
+      c.position.lerpVectors(S.cam[0], S.cam[1], f * f * (3 - 2 * f));
+      // bakış: uçak ile simge yapı (siluet / kale) arasında: ikisi de kadrajda
+      const tgt = S.focus ? P.clone().lerp(S.focus, S.mix) : P;
+      if (!C.lookInit) { C.look.copy(tgt); C.lookInit = true; } else C.look.lerp(tgt, 1 - Math.exp(-dt * 4));
+      c.up.set(0, 1, 0); c.lookAt(C.look);
+      w.shadowFocus = { x: P.x, z: P.z, y: P.y - 100, half: 650 };
+    } else if (S.orbit) {
+      if (ac) ac.group.visible = false;
+      const O = S.orbit, a = O.a0 + (O.a1 - O.a0) * f;
+      c.position.set(O.c.x + Math.cos(a) * O.r, O.h, O.c.z + Math.sin(a) * O.r);
+      c.up.set(0, 1, 0); c.lookAt(O.look);
+      w.shadowFocus = { x: O.look.x, z: O.look.z, y: O.look.y, half: 1100 };
+    }
+    const gy = w.heightAt(c.position.x, c.position.z);
+    if (c.position.y < gy + 8) c.position.y = gy + 8;
+    const narrow = this.vp && this.vp.w / Math.max(1, this.vp.h) < 1.4;
+    const fov = S.fov * (narrow ? 1.3 : 1);
+    if (c.fov !== fov) { c.fov = fov; c.updateProjectionMatrix(); }
+  }
+
   // Seçim ekranı arka planı: üs üzerinde yavaş sinematik kamera
   updateSelectCamera(dt) {
+    if (this.world && this.world.city && this.world.city.cinematicShots && this.previewAc && this.state !== 'running') { this.updateCinematic(dt); return; }
     this.selT = (this.selT === undefined ? 2.2 : this.selT) + dt * 0.055;
     const c = this.camera, tgt = this.selTarget;
     if (!tgt) {
@@ -922,6 +986,7 @@ class App {
   }
 
   start() {
+    if (this.world) this.world.shadowFocus = null;
     // Önizleme uçağı uçuşta bellekten atılır (≈ 80 geometri, kendi 1024² boya dokuları); görev
     // hazırlığına dönüşte showSelect() yeniden kurar. iPhone'da GPU belleği uçuşa kalır.
     if (this.previewAc) { this.scene.remove(this.previewAc.group); this.previewAc.dispose(); this.previewAc = null; }
@@ -1201,7 +1266,12 @@ class App {
   applyTimeOfDay(world = this.world) {
     if (!world) return;
     const key = this.settings.tod || 'default';
-    if (world.supportsTimeOfDay) { world.setTimeOfDay(key); this.needsRender = true; }
+    if (world.supportsTimeOfDay) {
+      world.setTimeOfDay(key);
+      // ortam haritası (cam/boya yansımaları) yeni gökten yeniden kurulur; gece ortam ışığı azalır
+      if (this.envMap && this.renderer) this.buildEnvironment();
+      this.needsRender = true;
+    }
   }
 
   /** Performans katmanı (` tuşu ya da Ayarlar > FPS counter > Debug): HUD'dan ayrı DOM paneli. */

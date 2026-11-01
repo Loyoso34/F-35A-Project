@@ -34,7 +34,7 @@ export const TMAT_UNIFORMS = {
   uNight: { value: 0 },
   // Su optiği (1/m): berrak, oligotrofik Ege suyu. Kırmızı hızla söner; mavi-yeşil uzun yol alır.
   uSig: { value: new THREE.Vector3(0.38, 0.078, 0.058) },
-  uScat: { value: new THREE.Color(0.0028, 0.0145, 0.036) },    // derin su kütlesi (doğrusal)
+  uScat: { value: new THREE.Color(0.0036, 0.019, 0.052) },     // derin su kütlesi (doğrusal; Ege laciverti)
   uSunI: { value: 1 },
 };
 
