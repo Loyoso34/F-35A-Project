@@ -19,6 +19,7 @@ import { UI, isStandalone, isIOS, loadSettings, saveSettings } from './ui.js';
 import { AdaptiveQuality, perfMultipliers } from './perf.js';
 import { PerfOverlay } from './perfoverlay.js';
 import { WeaponSystem } from './weapons.js';
+import { LAYER_NOREFLECT } from './ocean.js';
 
 // ---------------------------------------------------------------------------
 // Yükleme ilerlemesi. Yüzde ZAMANA bağlı değildir: yalnızca bir iş (ya da arazi
@@ -32,7 +33,8 @@ const LOAD_COST_MS = {
   gfx: 60, sky: 3, lights: 1, terrain: 5800, water: 430, trees: 1000, roads: 52, town: 80,
   airbase: 250, baseDetails: 100, civil: 120, city: 285, surroundings: 15, clouds: 45, collision: 2,
   env: 40, systems: 10, previews: 1500, shaders: 900,
-  geodata: 2600, ltfe: 300, features: 1500, ocean: 15,
+  geodata: 2600, ltfe: 300, features: 1500, ocean: 60,
+  core: 1400, design: 900, coretex: 1600,
 };
 const LOAD_LABEL = {
   gfx: 'Starting graphics…',
@@ -49,7 +51,11 @@ const LOAD_LABEL = {
   systems: 'Setting up flight systems…',
   previews: 'Rendering aircraft preview…',
   shaders: 'Compiling shaders…',
-  geodata: 'Streaming Bodrum terrain and Sentinel-2 imagery…',
+  geodata: 'Streaming regional terrain and Sentinel-2 imagery…',
+  core: 'Shaping the Bodrum peninsula (20 × 20 km)…',
+  design: 'Laying out the city, harbour and roads…',
+  coretex: 'Baking terrain lighting and materials…',
+  city: 'Building Bodrum: castle, marina, skyline…',
   ltfe: 'Building Milas–Bodrum Airport (LTFE)…',
   features: 'Placing buildings, roads and trees…',
   ocean: 'Adding the Aegean Sea…',
@@ -197,6 +203,7 @@ class App {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.5, 60000);
     this.camera.layers.enable(LAYER_TREES);
+    this.camera.layers.enable(LAYER_NOREFLECT);   // yollar, şemsiyeler, çalılar: deniz yansımasına girmez
     this.scene.add(this.camera);
     this.onResize();
     prog.end('gfx');
@@ -1518,3 +1525,4 @@ class App {
 }
 
 window.__app = new App();
+window.__THREE = THREE;   // geliştirme/test kancası (başsız ekran görüntüsü betikleri)

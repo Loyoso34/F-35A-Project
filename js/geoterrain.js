@@ -129,15 +129,16 @@ class DemStore {
     const rgba = await this.decode(await this.fetch(url));
     // v4.0: deniz hücreleri DENİZ TABANINI (negatif) taşır. Yüzey 0 m MSL'dir (fizik), derinlik ayrı
     // kanalda (su rengi). Su bayraklı ve h >= 0 hücre göldür (derinlik verisi yok: sığ varsayılır).
-    const n = TILE * TILE, h = new Float32Array(n), w = new Uint8Array(n), dp = new Uint8Array(n);
+    const n = TILE * TILE, h = new Float32Array(n), w = new Uint8Array(n), dp = new Uint8Array(n), raw = new Float32Array(n);
     for (let i = 0, p = 0; i < n; i++, p += 4) {
       const b = rgba[p + 2];
       let v = rgba[p] * 256 + rgba[p + 1] + (b & 0xfe) / 256 - 32768;
+      raw[i] = v;   // v5.0: batimetri dahil ham değer (çekirdek arazi deniz tabanını çizer)
       const wb = b & 1;
       if (wb) { if (v < 0) { dp[i] = depthCode(-v); v = 0; } else dp[i] = LAKE_DEPTH_CODE; }
       h[i] = v; w[i] = wb;
     }
-    t.h = h; t.w = w; t.dp = dp; t.ready = true; t.t0 = this.clock();
+    t.h = h; t.w = w; t.dp = dp; t.raw = raw; t.ready = true; t.t0 = this.clock();
     this._lastK = -1;
     t.resolve(t);
     if (this.onTile) this.onTile(t);
@@ -434,6 +435,10 @@ export class GeoTerrain {
     this.buildMs = o.buildMs || 3.0;
     this.conform = o.conform || null;
     this.group = o.group || null;
+    // v5.0: malzeme kurucusu (terrainmat.js 'outer') ve çekirdek harita dikdörtgeni (içindeki düğümler
+    // çizilmez ve inceltilmez; kenarı kesen düğümlerde piksel atılır)
+    this.makeMaterial = o.makeMaterial || ((map) => makeTerrainMaterial(map));
+    this.exclude = o.exclude || null;
     // En ince düğüm seviyesi: köşe aralığı = en ince DEM pikseli (z12 için 30 m)
     this.demFine = this.dem.levels[0];
     this.demCoarse = this.dem.levels[this.dem.levels.length - 1];
@@ -773,6 +778,8 @@ export class GeoTerrain {
         const lon = this._lonCol[ii], lat = latRow;
         if (lon < B[0] || lon > B[2] || lat < B[1] || lat > B[3]) { h = -40; w = 1; dp = 255; }
         else if (conform) h = conform(X, Z, h);
+        // v5.0: çizimde deniz tabanı (batimetri); fizik yüzeyi (mslAt) 0 m MSL'de kalır
+        if (w > 0.3 && h <= 0.05) { const a = dp / 255; h -= a * a * 1000 * Math.min(1, (w - 0.3) / 0.4); }
         eh[e] = h + MSL_Y; ew[e] = w; ed[e] = dp;
         if (i >= 0 && i <= N && j >= 0 && j <= N) { if (eh[e] < minY) minY = eh[e]; if (eh[e] > maxY) maxY = eh[e]; }
       }
@@ -832,7 +839,7 @@ export class GeoTerrain {
     geo.setAttribute('uv', this.uv);
     geo.setAttribute('water', new THREE.BufferAttribute(new Uint8Array(vc), 1, true));
     geo.setAttribute('depth', new THREE.BufferAttribute(new Uint8Array(vc), 1, true));
-    const mesh = new THREE.Mesh(geo, makeTerrainMaterial(this.blank));
+    const mesh = new THREE.Mesh(geo, this.makeMaterial(this.blank));
     mesh.frustumCulled = false; mesh.receiveShadow = true; mesh.castShadow = false;
     mesh.matrixAutoUpdate = false; mesh.visible = false;
     mesh.name = 'terrain-node';
@@ -973,8 +980,10 @@ export class GeoTerrain {
     const want = this._want || (this._want = []);
     want.length = 0;
     const K = this.lodFactor * this.detail;
+    const X = this.exclude;
     const visit = (n) => {
       if (!n.inOuter) return;
+      if (X && n.minX >= X.x0 && n.maxX <= X.x1 && n.minZ >= X.z0 && n.maxZ <= X.z1) return;
       n.lastSeen = now;
       const d = this.dist(n, c);
       // Görüş dışındaki düğümler daha kaba kalır (0,45 x çarpan): bellek ve inşa tasarrufu; kamera
@@ -988,7 +997,11 @@ export class GeoTerrain {
         let ready = true;
         // İstenen çocuklar "görüldü" sayılır: kardeşleri inşa edilirken erken inşa edilmiş olanlar
         // (henüz ziyaret edilmez) bütçe tahliyesinde silinip yeniden kurulmasın (kısır döngü)
-        for (const ch of n.children) { ch.lastSeen = now; if (ch.inOuter && !ch.built) { ready = false; want.push(ch); } }
+        for (const ch of n.children) {
+          ch.lastSeen = now;
+          if (X && ch.minX >= X.x0 && ch.maxX <= X.x1 && ch.minZ >= X.z0 && ch.maxZ <= X.z1) continue;
+          if (ch.inOuter && !ch.built) { ready = false; want.push(ch); }
+        }
         if (ready) { for (const ch of n.children) visit(ch); return; }
       }
       if (!n.built) want.push(n);

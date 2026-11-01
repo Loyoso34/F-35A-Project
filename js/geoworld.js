@@ -6,12 +6,15 @@
 import * as THREE from 'three';
 import { World, QUALITY_PRESETS } from './world.js';
 import { LocalFrame, GeoidGrid, MSL_Y } from './geo.js';
-import { GeoTerrain, CURVE_K, TERRAIN_UNIFORMS, makeTerrainMaterial } from './geoterrain.js';
+import { GeoTerrain, CURVE_K, TERRAIN_UNIFORMS } from './geoterrain.js';
 import { BODRUM, LTFE } from './georegion.js';
 import { Ltfe3D } from './ltfe3d.js';
-import { GeoFeatures } from './geofeatures.js';
-import { buildRunway, buildLightPoints, trueHeadingFromEnds } from './runway.js';
-import { makePavementTexture, makeTerrainDetailTexture, makeWaterNormalTexture, makeConcreteTexture, makeFacadeTexture, makeCladdingTexture, makeHangarWallTexture } from './textures.js';
+import { CoreTerrain, CORE, inCore } from './coreterrain.js';
+import { makeTerrainMaterial, makeDetailAtlas, TMAT_UNIFORMS } from './terrainmat.js';
+import { Ocean } from './ocean.js';
+import { BodrumCity } from './bodrum.js';
+import { buildRunway, buildLightPoints, trueHeadingFromEnds, LIGHT_FX } from './runway.js';
+import { makePavementTexture, makeWaterNormalTexture, makeConcreteTexture, makeFacadeTexture, makeCladdingTexture, makeHangarWallTexture } from './textures.js';
 import { HAZE_UNIFORMS, hazeAll } from './worldshade.js';
 import { clamp, smoothstep } from './noise.js';
 import { solarPosition, sunVector, localTimeMs, TIME_PRESETS } from './sun.js';
@@ -32,12 +35,14 @@ const DEG = Math.PI / 180;
 export const GEO_QUALITY = {
   // 3B ayrıntı: bldRadius / roadRadius / vegRadius (m, kameradan), vegDensity (ağaç yoğunluğu
   // çarpanı), featureMs (karede bina/yol/ağaç inşa süresi).
-  low: { drawDistance: 70000, far: 300000, lodFactor: 1.9, textureBudget: 120, nodeBudget: 220, buildMs: 2.5, demBudget: 40,
-    bldRadius: 1800, roadRadius: 1400, vegRadius: 900, vegDensity: 0.6, featureMs: 2.0 },
-  medium: { drawDistance: 100000, far: 420000, lodFactor: 2.5, textureBudget: 180, nodeBudget: 320, buildMs: 3.5, demBudget: 64,
-    bldRadius: 2800, roadRadius: 2300, vegRadius: 1500, vegDensity: 1.0, featureMs: 3.0 },
-  high: { drawDistance: 140000, far: 480000, lodFactor: 3.3, textureBudget: 300, nodeBudget: 460, buildMs: 5.0, demBudget: 96,
-    bldRadius: 4200, roadRadius: 3300, vegRadius: 2400, vegDensity: 1.35, featureMs: 4.0 },
+  // v5.0 çekirdek: coreLod (düğüm bölme çarpanı), coreTex (normal/makro doku), coreNodes (örgü bütçesi),
+  // reflections (düzlemsel deniz yansıması), city (şehir ayrıntı mesafesi çarpanı), trees (ağaç sayısı çarpanı)
+  low: { drawDistance: 70000, far: 300000, lodFactor: 1.9, textureBudget: 110, nodeBudget: 200, buildMs: 2.5, demBudget: 40,
+    coreLod: 1.7, coreTex: 1024, coreNodes: 120, reflections: false, city: 0.7, trees: 0.5 },
+  medium: { drawDistance: 100000, far: 420000, lodFactor: 2.5, textureBudget: 160, nodeBudget: 280, buildMs: 3.5, demBudget: 64,
+    coreLod: 2.2, coreTex: 2048, coreNodes: 170, reflections: true, city: 1.0, trees: 1.0 },
+  high: { drawDistance: 140000, far: 480000, lodFactor: 3.0, textureBudget: 260, nodeBudget: 400, buildMs: 5.0, demBudget: 96,
+    coreLod: 2.8, coreTex: 2048, coreNodes: 240, reflections: true, city: 1.3, trees: 1.4 },
 };
 
 /** Bodrum kalkış noktalarının statik tanımı (hangar listesi dünya kurulmadan da gösterilir). */
@@ -51,7 +56,7 @@ export function bodrumSpawnInfo() {
 }
 
 export class GeoWorld extends World {
-  static get STAGES() { return ['sky', 'lights', 'geodata', 'ltfe', 'features', 'ocean', 'clouds', 'collision']; }
+  static get STAGES() { return ['sky', 'lights', 'geodata', 'core', 'design', 'coretex', 'ltfe', 'city', 'ocean', 'clouds', 'collision']; }
 
   /**
    * opts.base: bölge veri kökü (varsayılan ./geo/bodrum/); opts.fetch / decodeRGBA / fetchJSON /
@@ -64,7 +69,7 @@ export class GeoWorld extends World {
     this.quality = Object.assign({}, QUALITY_PRESETS[qualityKey] || QUALITY_PRESETS.medium, GEO_QUALITY[qualityKey] || GEO_QUALITY.medium);
     this.base = opts.base || BODRUM.base;
     this.halfSize = 125000;          // uçuş alanı ±125 km (veri ±150 km)
-    this.buildingBoxes = [];         // meydan binaları (OSM ayak izi) buildAirport ile eklenir; şehir binaları GeoFeatures.hits
+    this.buildingBoxes = [];         // meydan binaları (OSM ayak izi) buildAirport ile, şehir yapıları bodrum.js ile eklenir
     this.townBoxes = [];
     this.cloudSpread = 150000;
     this.cloudBase = 1500;
@@ -94,6 +99,11 @@ export class GeoWorld extends World {
       const data = this.opts.fetchJSON ? await this.opts.fetchJSON(u) : await (await fetch(u)).json();
       this.ltfe = new Ltfe3D(this.frame, LTFE, data);
     }
+    // v5.0: gerçek yol ağı (OSM; çekirdek + D330 koridoru + meydan erişimi)
+    try {
+      const u = this.base + 'roads.json';
+      this.roadsData = this.opts.fetchJSON ? await this.opts.fetchJSON(u) : await (await fetch(u)).json();
+    } catch (e) { console.warn('roads.json unavailable', e); this.roadsData = null; }
   }
 
   async build(report, pause, sliceMs) {
@@ -107,10 +117,13 @@ export class GeoWorld extends World {
       { id: 'sky', run: () => { this.buildSky(); HAZE_UNIFORMS.hzCurv.value = CURVE_K; } },
       { id: 'lights', run: () => this.buildLights() },
       { id: 'geodata', run: (p) => this.buildGeoTerrain(p) },
+      { id: 'core', run: () => this.bakeCore() },
+      { id: 'design', run: () => this.designCity() },
+      { id: 'coretex', run: (p) => this.buildCoreTextures(p) },
       { id: 'ltfe', run: () => this.buildAirport() },
-      { id: 'features', run: () => this.buildFeatures() },
+      { id: 'city', run: () => this.buildCity() },
       { id: 'ocean', run: () => this.buildOcean() },
-      { id: 'clouds', run: () => this.buildClouds() },
+      { id: 'clouds', run: () => { if (this.renderer) this.buildClouds(); } },
       { id: 'collision', run: () => { this.buildCollisionGrid(); hazeAll(this.group); } },
     ];
   }
@@ -175,29 +188,81 @@ export class GeoWorld extends World {
   // ---- Arazi -------------------------------------------------------------------------------
   async buildGeoTerrain(progress) {
     const q = this.quality;
-    let detail = null, waterN = null;
-    if (this.renderer) {
-      detail = this.track(makeTerrainDetailTexture(512)); detail.anisotropy = q.anisotropy;
-      waterN = this.track(makeWaterNormalTexture(256));
-    }
     const tg = new THREE.Group(); tg.name = 'geo-terrain';
     this.group.add(tg);
+    if (this.renderer) {
+      const det = this.track(makeDetailAtlas(512));
+      if (det) det.anisotropy = q.anisotropy;
+      TMAT_UNIFORMS.tDet.value = det;
+    }
+    TMAT_UNIFORMS.uCoreRect.value.set(CORE.x0, CORE.z0, CORE.x1, CORE.z1);
+    const az = this.man.sun.azimuthDeg * DEG, el = this.man.sun.elevationDeg * DEG;
+    TMAT_UNIFORMS.uAcqSun.value.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el)).normalize();
+    TMAT_UNIFORMS.uMacroGain.value = 1 / (this.man.imagery.albedoScale || 1.6);
     this.terrain = new GeoTerrain({
       frame: this.frame, manifest: this.man, base: this.base, group: this.renderer ? tg : null,
       segments: 64, lodFactor: q.lodFactor, anisotropy: q.anisotropy, textureBudget: q.textureBudget,
-      nodeBudget: q.nodeBudget, buildMs: q.buildMs, demBudget: q.demBudget, detailTex: detail, waterNormalTex: waterN,
+      nodeBudget: q.nodeBudget, buildMs: q.buildMs, demBudget: q.demBudget,
       conform: (x, z, h) => this.conform(x, z, h),
+      makeMaterial: (map) => makeTerrainMaterial('outer', { map }),
+      exclude: { x0: CORE.x0, z0: CORE.z0, x1: CORE.x1, z1: CORE.z1 },
       fetch: this.opts.fetch, decodeRGBA: this.opts.decodeRGBA, clock: this.opts.clock,
     });
-    await this.terrain.loadCoarse((f) => progress && progress(f * 0.3));
-    // Havaalanı ve yaklaşma koridorları (±9 km): uçuş başlamadan ince DEM hazır
-    await this.terrain.ensureArea(LTFE.x, LTFE.z, 9000, (f) => progress && progress(0.3 + f * 0.5));
-    if (this.renderer) await this.terrain.prefetchImagery(LTFE.x, LTFE.z, 6000, (f) => progress && progress(0.8 + f * 0.2));
+    await this.terrain.loadCoarse((f) => progress && progress(f * 0.25));
+    // Havaalanı (±9 km) ve 20 × 20 km çekirdek harita: ince DEM uçuş başlamadan hazır
+    await this.terrain.ensureArea(LTFE.x, LTFE.z, 9000, (f) => progress && progress(0.25 + f * 0.3));
+    await this.terrain.ensureArea(CORE.cx, CORE.cz, CORE.half + 1200, (f) => progress && progress(0.55 + f * 0.35));
+    if (this.renderer) await this.terrain.prefetchImagery(LTFE.x, LTFE.z, 4000, (f) => progress && progress(0.9 + f * 0.1));
   }
 
-  heightAt(x, z) { return this.terrain.mslAt(x, z) + MSL_Y; }
+  /** Çekirdek yükseklik alanı (gerçek DEM'den, üreteç). */
+  *bakeCore() {
+    const q = this.quality;
+    this.core = new CoreTerrain({
+      frame: this.frame, dem: this.terrain.dem, demZ: this.terrain.demFine,
+      lodFactor: q.coreLod || 2.2, texSize: q.coreTex || 2048, anisotropy: q.anisotropy,
+      buildMs: q.buildMs, nodeBudget: q.coreNodes || 170,
+    });
+    yield* this.core.bakeBase();
+  }
+
+  /** Şehir ve kıyı tasarımı: arazi düzenlemeleri (teras, rıhtım, yol yatağı) ve zemin maskeleri. */
+  *designCity() {
+    this.city = new BodrumCity(this);
+    yield* this.city.design();
+  }
+
+  /** Çekirdek dokuları (normal/AO, maske, makro görüntü) ve dörtlü ağaç çizimi. */
+  async buildCoreTextures(progress) {
+    const C = this.core;
+    if (!this.renderer) return;
+    let k = 0;
+    for (const f of C.makeNormalTexture()) { if (progress) progress(f * 0.6); if (++k % 4 === 0) await new Promise((r) => setTimeout(r, 0)); }
+    const mask = this.track(C.makeMaskTexture());
+    const url = (z, x, y) => this.base + this.man.imagery.url.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+    const decode = async (u) => {
+      const r = await fetch(u); if (!r.ok) throw new Error(r.status);
+      const b = await r.blob();
+      try { return await createImageBitmap(b, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' }); } catch (e) { return await createImageBitmap(b); }
+    };
+    const zImg = Math.max(...Object.keys(this.man.imagery.levels).map(Number));
+    const macro = this.track(await C.makeMacroTexture(url, zImg, decode));
+    this.coreMacroCanvas = macro.image;
+    if (progress) progress(0.95);
+    this.track(C.normalTex);
+    const cg = new THREE.Group(); cg.name = 'core-terrain';
+    this.group.add(cg);
+    C.group = cg;
+    C.initRender({ macro, normal: C.normalTex, mask });
+  }
+
+  heightAt(x, z) {
+    if (this.core && inCore(x, z)) return this.core.mslAt(x, z) + MSL_Y;
+    return this.terrain.mslAt(x, z) + MSL_Y;
+  }
 
   surfaceTypeAt(x, z) {
+    if (this.core && inCore(x, z)) return this.core.isWater(x, z) ? 'water' : (this.city ? this.city.surfaceAt(x, z) : 'grass');
     const a = LTFE, o = this._sl || (this._sl = { u: 0, v: 0 });
     for (const r of a.runways) {
       this.rwLocal(r, x, z, o);
@@ -236,7 +301,7 @@ export class GeoWorld extends World {
     o.hMsl = pos.y - MSL_Y;
     o.hEll = this.geoid.ellipsoidal(o.hMsl, g.lat, g.lon);
     o.geoidN = o.hEll - o.hMsl;
-    o.terrainMsl = this.terrain.mslAt(pos.x, pos.z);
+    o.terrainMsl = this.heightAt(pos.x, pos.z) - MSL_Y;
     o.hAgl = o.hMsl - o.terrainMsl;
     o.convergence = this.frame.convergence(g.lat, g.lon);
     o.hdgTrue = (((gridHdg + o.convergence) % 360) + 360) % 360;
@@ -246,6 +311,8 @@ export class GeoWorld extends World {
 
   // ---- Havaalanı çizimi ----------------------------------------------------------------------
   buildAirport() {
+    // başsız (test): çizim yok, yalnızca meydan binası çarpışma hacimleri
+    if (!this.renderer) { if (this.ltfe) this.addAirportSolids(); return; }
     const q = this.quality;
     const pave = this.track(makePavementTexture(512, { base: 92 }));
     pave.anisotropy = q.anisotropy;
@@ -346,88 +413,65 @@ export class GeoWorld extends World {
     return pos;
   }
 
-  /** Binalar, yollar, ağaçlar (geofeatures.js): meydan çevresi uçuş başlamadan hazır. */
-  async buildFeatures() {
-    if (!this.man.buildings) return;
-    const fg = new THREE.Group(); fg.name = 'geo-features';
-    this.group.add(fg);
-    this.features = new GeoFeatures(this, this.renderer ? fg : null);
-    await this.features.preload(new THREE.Vector3(LTFE.x, MSL_Y + 120, LTFE.z + 300));
+  /** Şehir 3B içeriği (bodrum.js): kale, liman, marina, gökdelenler, evler, yollar, ağaçlar. */
+  *buildCity() {
+    if (!this.city) return;
+    yield* this.city.build(this.renderer ? this.group : null);
   }
 
-  /** Yapı çarpışması: meydan binaları (çokgen) + şehir binaları (yönlü kutu, yüklü karolar). */
+  /** Yapı çarpışması: meydan binaları (çokgen) + şehir yapıları. */
   hitsBuilding(x, y, z, r = 3) {
-    return super.hitsBuilding(x, y, z, r) || (this.features ? this.features.hits(x, y, z, r) : false);
+    return super.hitsBuilding(x, y, z, r);
   }
   segmentHit(p0, p1) {
-    const a = super.segmentHit(p0, p1), b = this.features ? this.features.segmentHit(p0, p1) : -1;
-    return a < 0 ? b : b < 0 ? a : Math.min(a, b);
+    return super.segmentHit(p0, p1);
   }
 
-  /** Bölge dışını örten deniz halkası (uzakta pus rengine karışır; ufuk çizgisi doğru batar). */
+  /** Küresel deniz yüzeyi (ocean.js): çekirdek, bölge ve ufuk; tek gölgelendirici, dikiş yok. */
   buildOcean() {
-    // İç kenar: veri sınırının ~4 km İÇİ (arazinin sınır dışı köşeleri −40 m'ye batar; o eğim halkanın
-    // altında kalır). Halka deniz seviyesinin 0,6 m altında: örtüştüğü yerde arazi denizi üstte kalır.
-    const B0 = this.man.bounds.outer, f = this.frame, inset = 0.04;
-    const B = [B0[0] + inset / Math.cos(37.3 * DEG), B0[1] + inset, B0[2] - inset / Math.cos(37.3 * DEG), B0[3] - inset];
-    const inner = [];
-    const nS = 32;
-    const edge = (lo0, la0, lo1, la1) => { for (let k = 0; k < nS; k++) { const t = k / nS; inner.push(f.toLocal(la0 + (la1 - la0) * t, lo0 + (lo1 - lo0) * t)); } };
-    edge(B[0], B[3], B[2], B[3]); edge(B[2], B[3], B[2], B[1]); edge(B[2], B[1], B[0], B[1]); edge(B[0], B[1], B[0], B[3]);
-    const R = 460000, rings = 14, n = inner.length;
-    const pos = [], idx = [];
-    for (let k = 0; k <= rings; k++) {
-      const t = Math.pow(k / rings, 1.6);
-      for (const p of inner) {
-        const a = Math.atan2(p.z, p.x), r0 = Math.hypot(p.x, p.z);
-        const r = r0 + (R - r0) * t;
-        pos.push(Math.cos(a) * r, MSL_Y - 0.6, Math.sin(a) * r);
-      }
-    }
-    for (let k = 0; k < rings; k++) for (let i = 0; i < n; i++) {
-      const a = k * n + i, b = k * n + (i + 1) % n, c = a + n, d = b + n;
-      idx.push(a, c, b, b, c, d);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    // v4.0: halka ARAZİ SUYUYLA AYNI gölgelendiriciyi kullanır (derin su rengi, Fresnel gök
-    // yansıması, güneş parıltısı, pus, eğrilik): eskiden düz Lambert koyu renkti ve veri sınırında
-    // farklı tonda bir dikiş oluşturuyordu. Köşeler: tam su, derin (kod 255), görüntü yok.
-    const nv = pos.length / 3;
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(nv * 2), 2));
-    g.setAttribute('water', new THREE.BufferAttribute(new Uint8Array(nv).fill(255), 1, true));
-    g.setAttribute('depth', new THREE.BufferAttribute(new Uint8Array(nv).fill(255), 1, true));
-    const m = makeTerrainMaterial(this.terrain.blank || null);
-    const mesh = new THREE.Mesh(g, m);
-    mesh.frustumCulled = false; mesh.receiveShadow = false; mesh.name = 'ocean-ring';
-    this.track(g); this.track(m);
-    this.group.add(mesh);
+    if (!this.renderer) return;
+    const B = this.man.bounds.outer, f = this.frame;
+    const a = f.toLocal(B[3], B[0]), b = f.toLocal(B[1], B[2]);
+    const inset = 3000;
+    this.ocean = new Ocean({
+      renderer: this.renderer, quality: this.qualityKey, normalTex: this.track(makeWaterNormalTexture(256)),
+      dataRect: [Math.min(a.x, b.x) + inset, Math.min(a.z, b.z) + inset, Math.max(a.x, b.x) - inset, Math.max(a.z, b.z) - inset],
+      reflections: this.quality.reflections,
+    });
+    if (this.city && this.city.shelters) this.ocean.setShelters(this.city.shelters);
+    this.ocean.setSun(this.sun);
+    this.group.add(this.ocean.mesh);
+    this.track(this.ocean);
   }
 
   update(dt, camera, aircraftPos) {
     this.time += dt;
     this.updateSun(camera, aircraftPos);
+    TMAT_UNIFORMS.uTime.value = this.time;
+    LIGHT_FX.uLTime.value = this.time;
     // Süreler performans katmanı içindir (ölçüm: performance.now, ms)
     let t0 = performance.now();
     if (this.terrain) { this.terrain.update(camera, dt, aircraftPos, this.focusVel); const t1 = performance.now(); this.terrain.stats.updateMs = t1 - t0; t0 = t1; }
-    if (this.features) { this.features.update(camera, aircraftPos, dt); this.features.stats.updateMs = performance.now() - t0; }
+    if (this.core && this.core.group) this.core.update(camera, dt);
+    if (this.city) this.city.update(dt, camera);
     // Pist ışıkları: GL noktaları ucuzdur; yaklaşmada seçilebilsin diye 14 km'ye kadar
     if (this.runwayLightSets) {
       const c = camera.position, d = Math.hypot(c.x - LTFE.x, c.y - MSL_Y, c.z - LTFE.z);
-      for (const p of this.runwayLightSets) p.visible = p.visible ? d < 14400 : d < 13600;
+      for (const p of this.runwayLightSets) p.visible = p.visible ? d < 16400 : d < 15600;
     }
+    // Deniz: en son (düzlemsel yansıma bu karenin sahnesini çizer)
+    if (this.ocean) this.ocean.update(dt, camera, this.scene);
   }
 
   /** Yükleme ekranında: görünür düğümleri bütçesiz kurar (ilk uçuş karesi kaba arazi göstermez). */
   prewarm(camera, maxMs = 2500) {
-    if (!this.terrain || !this.terrain.group) return;
     camera.updateMatrixWorld();
+    if (this.core && this.core.group) this.core.prewarm(camera, maxMs * 0.5);
+    if (!this.terrain || !this.terrain.group) return;
     const t0 = performance.now(), keep = this.terrain.buildMs;
     this.terrain.buildMs = 60;
     let prev = -1;
-    while (performance.now() - t0 < maxMs) {
+    while (performance.now() - t0 < maxMs * 0.5) {
       this.terrain.update(camera, 0);
       const n = this.terrain.stats.built;
       if (n === prev) break;
@@ -439,11 +483,13 @@ export class GeoWorld extends World {
   setPerf(o) {
     super.setPerf(o);
     if (this.terrain) this.terrain.detail = o.detail;
-    if (this.features) this.features.detail = o.detail;
+    if (this.core) this.core.detail = o.detail;
+    if (this.city) this.city.detail = o.detail;
   }
 
   dispose() {
-    if (this.features) this.features.dispose();
+    if (this.city) this.city.dispose();
+    if (this.core) this.core.dispose();
     if (this.terrain) this.terrain.dispose();
     HAZE_UNIFORMS.hzCurv.value = 0;
     super.dispose();

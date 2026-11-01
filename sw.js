@@ -1,10 +1,10 @@
 /* F-35A Simülatör – Service Worker */
-const CACHE_VERSION = '4.0.0';
+const CACHE_VERSION = '4.9.0';
 const CACHE_NAME = 'f35a-sim-' + CACHE_VERSION;
 // Gerçek dünya karoları (geo/<bölge>/dem|img): sürümden BAĞIMSIZ ayrı önbellek. Veri değişince
 // GEO_CACHE adı değiştirilir. Görülen karolar çevrimdışı uçuş için saklanır; sınırlı boyut.
-const GEO_CACHE = 'f35a-geo-bodrum-v40';   // v4.0: DEM karoları yeniden pişirildi (batimetri, kıyı çizgisi, sivri temizliği)
-const GEO_MAX_ENTRIES = 4600;           // tüm bölge 4374 dosya (~25 MB); taşarsa en eskiler silinir
+const GEO_CACHE = 'f35a-geo-bodrum-v50';   // v5.0: kıyı batimetrisi yeniden kuruldu (DEM karoları değişti)
+const GEO_MAX_ENTRIES = 2200;           // v5.0: DEM + görüntü ~1100 dosya; taşarsa en eskiler silinir
 const THREE_VERSION = '0.170.0';
 const CDN_BASE = 'https://cdn.jsdelivr.net/npm/three@' + THREE_VERSION + '/';
 
@@ -47,10 +47,20 @@ const APP_FILES = [
   './js/geoworld.js',
   './js/georegion.js',
   './js/ltfe3d.js',
-  './js/geofeatures.js',
+  './js/coreterrain.js',
+  './js/terrainmat.js',
+  './js/ocean.js',
+  './js/bodrum.js',
+  './js/archmat.js',
+  './js/castle.js',
+  './js/marina.js',
+  './js/skyline.js',
+  './js/roads.js',
+  './js/flora.js',
   './js/perfoverlay.js',
   './js/sun.js',
   './geo/bodrum/manifest.json',
+  './geo/bodrum/roads.json',
   './assets/loading-bodrum.webp',
 ];
 const ICON_FILES = ['./icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
@@ -92,7 +102,7 @@ function isAppShell(url) {
 }
 
 function isGeoTile(url) {
-  return url.origin === self.location.origin && /\/geo\/[^/]+\/(dem|img|bld|road|veg|airport)\//.test(url.pathname);
+  return url.origin === self.location.origin && /\/geo\/[^/]+\/(dem|img|airport)\//.test(url.pathname);
 }
 
 let geoPuts = 0;

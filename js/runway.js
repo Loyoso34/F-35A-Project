@@ -393,7 +393,8 @@ function rwyShader(mat, kind, half, halfW) {
 // ---------------------------------------------------------------------------
 const LIGHT_VS = `
   attribute vec3 colA; attribute vec3 colB; attribute vec4 aDir;   // xy yön (yerel XZ), z tür (0 çok yönlü, 1 yönlü, 2 PAPI), w PAPI açısı (rad)
-  uniform float uScale; uniform float uMinPx; uniform float uFar; uniform float hzCurv;
+  attribute vec4 aFx;   // x yanıp sönme kipi (0 sabit, 1 kırmızı fener 4 s, 2 yeşil fener 4 s, 3 engel ışığı 40/dk, 4 ardışık flaşör), y yalnızca gece, z faz, w flaşör sırası
+  uniform float uScale; uniform float uMinPx; uniform float uFar; uniform float hzCurv; uniform float uLTime; uniform float uLNight;
   varying vec3 vCol; varying float vA;
   void main() {
     vec4 wp = modelMatrix * vec4(position, 1.0);
@@ -414,6 +415,16 @@ const LIGHT_VS = `
     // Tek yönlü armatür (arka rengi siyah): arkadan bakınca görünmez
     if (aDir.z > 0.5 && dot(colB, vec3(1.0)) < 0.01) a *= smoothstep(-0.05, 0.15, facing);
     a *= 1.0 - smoothstep(uFar * 0.7, uFar, dist);
+    // yanıp sönme ve gece kipi
+    float fm = aFx.x;
+    if (fm > 0.5) {
+      float t = uLTime + aFx.z;
+      if (fm < 1.5) a *= step(fract(t / 4.0), 0.25);                  // Fl R 4s
+      else if (fm < 2.5) a *= step(fract(t / 4.0 + 0.5), 0.25);       // Fl G 4s
+      else if (fm < 3.5) a *= 0.25 + 0.75 * step(fract(t / 1.5), 0.45); // engel ışığı (ICAO orta yoğunluk B, 40/dk)
+      else { float ph = fract(t * 2.0) * 32.0; a *= step(abs(ph - aFx.w), 0.9) * 1.6; }  // ardışık flaşör (2/s, eşiğe doğru)
+    }
+    if (aFx.y > 0.5) a *= smoothstep(0.15, 0.6, uLNight);
     vCol = col; vA = a;
     gl_Position = projectionMatrix * viewMatrix * wp;
     gl_PointSize = max(uMinPx, 0.45 * uScale / max(dist, 1.0)) * step(0.01, a);
@@ -428,8 +439,12 @@ const LIGHT_FS = `
     gl_FragColor = vec4(vCol * (0.75 + 0.6 * (1.0 - r)), core * vA);
   }`;
 
+/** Işık efekt saati ve gece oranı (dünya her karede günceller). */
+export const LIGHT_FX = { uLTime: { value: 0 }, uLNight: { value: 0 } };
+
 /**
- * lights: [{ x, y, z, colA:[r,g,b], colB?:[r,g,b], dir?:[dx,dz], kind?:0|1|2, papi?: rad }]
+ * lights: [{ x, y, z, colA:[r,g,b], colB?:[r,g,b], dir?:[dx,dz], kind?:0|1|2, papi?: rad,
+ *            flash?: 0..4, night?: bool, phase?: s, seq?: 0..31 }]
  */
 export function buildLightPoints(lights, { far = 12000, minPx = 2.0 } = {}) {
   const n = lights.length;
@@ -446,9 +461,12 @@ export function buildLightPoints(lights, { far = 12000, minPx = 2.0 } = {}) {
   g.setAttribute('colA', new THREE.BufferAttribute(ca, 3));
   g.setAttribute('colB', new THREE.BufferAttribute(cb, 3));
   g.setAttribute('aDir', new THREE.BufferAttribute(ad, 4));
+  const fx = new Float32Array(n * 4);
+  lights.forEach((l, i) => { fx[i * 4] = l.flash || 0; fx[i * 4 + 1] = l.night ? 1 : 0; fx[i * 4 + 2] = l.phase !== undefined ? l.phase : (i * 0.37) % 1.5; fx[i * 4 + 3] = l.seq || 0; });
+  g.setAttribute('aFx', new THREE.BufferAttribute(fx, 4));
   g.computeBoundingSphere();
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uScale: { value: 400 }, uMinPx: { value: minPx }, uFar: { value: far }, hzCurv: HAZE_UNIFORMS.hzCurv },
+    uniforms: { uScale: { value: 400 }, uMinPx: { value: minPx }, uFar: { value: far }, hzCurv: HAZE_UNIFORMS.hzCurv, uLTime: LIGHT_FX.uLTime, uLNight: LIGHT_FX.uLNight },
     vertexShader: LIGHT_VS, fragmentShader: LIGHT_FS,
     transparent: true, depthWrite: false, blending: THREE.NormalBlending, fog: false,
   });

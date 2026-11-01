@@ -2,8 +2,7 @@
 //   node --import ./register.mjs geoworld.mjs
 // Denetimler: havaalanı verisi ve datumlar, arazi sürekliliği, ince DEM yüklenince ışınlanma
 // olmaması, pistte rölantide kayma olmaması, 10L'den kalkış ve 28R'ye iniş (yüzey = pist).
-// v3.9: OSM meydanı (taksi yolu/apron yüzeyi, bekleme çizgileri, bina çarpışması), şehir binaları
-// (karo biçimi, çarpışma), yol karoları, bitki örtüsü karo dizini.
+// v3.9: OSM meydanı (taksi yolu/apron yüzeyi, bekleme çizgileri, bina çarpışması).
 import { readFileSync, readdirSync } from 'node:fs';
 import { decodePNG } from './png.mjs';
 import { load, run, fmt } from './sim.mjs';
@@ -144,80 +143,7 @@ const L = R.LTFE;
   check(onPave === 0, 'no building collision volume along either runway centreline');
 }
 
-// ---- Şehir binaları, yollar, bitki örtüsü karoları ----
-{
-  const base = M.root + '/geo/bodrum/';
-  const man = W.man;
-  // Bina karosu biçimi: u32 n + n × 12 bayt
-  let files = 0, sizeOk = 0, recs = 0, osm = 0, badDim = 0;
-  const bdir = base + 'bld/14/';
-  for (const x of readdirSync(bdir).slice(0, 60)) for (const f of readdirSync(bdir + x)) {
-    const b = readFileSync(bdir + x + '/' + f), dv = new DataView(b.buffer, b.byteOffset, b.byteLength), n = dv.getUint32(0, true);
-    files++; if (b.byteLength === 4 + 12 * n) sizeOk++;
-    for (let i = 0, p = 4; i < n; i++, p += 12) {
-      const w = dv.getUint16(p + 4, true) * 0.05, d = dv.getUint16(p + 6, true) * 0.05, H = dv.getUint8(p + 10) * 0.25, fl = dv.getUint8(p + 11);
-      recs++; if (fl & 128) osm++;
-      if (!(w > 0.5 && d > 0.5 && H >= 2 && H <= 63.75 && w * d < 60000 * 1.6)) badDim++;
-    }
-  }
-  check(files > 100 && sizeOk === files && badDim === 0, `building tiles: ${files} files are exactly 4 + 12·n bytes; ${recs} records with plausible size/height (${osm} OSM-tagged)`);
-  // Yol karosu biçimi: tüm baytlar tüketilir
-  let rFiles = 0, rOk = 0;
-  const rdir = base + 'road/14/';
-  for (const x of readdirSync(rdir).slice(0, 60)) for (const f of readdirSync(rdir + x)) {
-    const b = readFileSync(rdir + x + '/' + f), dv = new DataView(b.buffer, b.byteOffset, b.byteLength), n = dv.getUint16(0, true);
-    let p = 2, ok = true;
-    for (let k = 0; k < n && ok; k++) { const cls = dv.getUint8(p), nv = dv.getUint16(p + 2, true); if (cls < 1 || cls > 11 || nv < 2) ok = false; p += 4 + nv * 4; }
-    rFiles++; if (ok && p === b.byteLength) rOk++;
-  }
-  check(rFiles > 100 && rOk === rFiles, `road tiles: ${rOk}/${rFiles} parse to their exact byte length with valid classes`);
-  // Karo dizinleri: dizin, diskteki dosyalarla birebir (eksik karo istenmez -> 404 yok)
-  const idxMatch = (sub, ix) => {
-    const bin = Buffer.from(ix.bits, 'base64');
-    let mism = 0, n = 0;
-    const have = new Set();
-    for (const x of readdirSync(base + sub)) for (const f of readdirSync(base + sub + '/' + x)) have.add(x + '/' + parseInt(f, 10));
-    for (let y = ix.y0; y < ix.y0 + ix.h; y++) for (let x = ix.x0; x < ix.x0 + ix.w; x++) {
-      const i = (y - ix.y0) * ix.w + (x - ix.x0), on = (bin[i >> 3] >> (i & 7)) & 1;
-      if (on) n++;
-      if (!!on !== have.has(x + '/' + y)) mism++;
-    }
-    return { n, mism, files: have.size };
-  };
-  const ib = idxMatch('bld/14', man.buildings.index), ir = idxMatch('road/14', man.roads.index), iv = idxMatch('veg/12', man.vegetation.index);
-  check(ib.mism === 0 && ir.mism === 0 && iv.mism === 0 && ib.n === ib.files && iv.n === iv.files,
-    `tile indexes match the files on disk (buildings ${ib.n}, roads ${ir.n}, vegetation ${iv.n}); sea tiles are never requested`);
-  // Çalışma zamanı: meydan + Bodrum çevresi karoları yüklenir, çarpışma kutuları oluşur
-  await W.terrain.ensureArea(L.x, L.z, 2500);
-  await W.buildFeatures();
-  const Fe = W.features;
-  const bod = W.frame.toLocal(37.0385, 27.4290);
-  await W.terrain.ensureArea(bod.x, bod.z, 1500);
-  await Fe.preload(new THREE.Vector3(bod.x, G.MSL_Y + 150, bod.z), 15000);
-  let near = null, nb = 0, inAero = 0;
-  for (const t of Fe.tiles.values()) {
-    if (!t.col) continue;
-    nb += t.col.n;
-    for (let i = 0; i < t.col.n; i++) {
-      if (W.ltfe.pavedDist(t.col.x[i], t.col.z[i]) < 2) inAero++;
-      const d = Math.hypot(t.col.x[i] - bod.x, t.col.z[i] - bod.z);
-      if (t.col.hw[i] > 4 && t.col.hd[i] > 4 && (!near || d < near.d)) near = { d, t, i };
-    }
-  }
-  check(nb > 2000 && inAero === 0, `runtime: ${nb} city/aerodrome-area buildings loaded headless; none on OSM aerodrome pavement`);
-  const C = near.t.col, i = near.i;
-  const yMid = (C.y0[i] + C.y1[i]) / 2;
-  const hit = W.hitsBuilding(C.x[i], yMid, C.z[i], 1);
-  const above = W.hitsBuilding(C.x[i], C.y1[i] + 10, C.z[i], 1);
-  const beside = W.hitsBuilding(C.x[i] + C.c[i] * (C.hw[i] + 8), yMid, C.z[i] - C.s[i] * (C.hw[i] + 8), 1);
-  // Dikey parça: çatının 40 m üstünden binanın içine; ilk temas çatı kotunda (4 m adım)
-  const top = C.y1[i] + 40, bot = C.y0[i] + 1, seg = W.segmentHit(new THREE.Vector3(C.x[i], top, C.z[i]), new THREE.Vector3(C.x[i], bot, C.z[i]));
-  const yHit = top + (bot - top) * seg;
-  check(hit && !above && seg > 0 && Math.abs(yHit - C.y1[i]) < 5, `Bodrum building ${fmt(near.d, 0)} m from 37.0385 N 27.4290 E (${fmt(C.hw[i] * 2, 1)} × ${fmt(C.hd[i] * 2, 1)} m, top ${fmt(C.y1[i] - G.MSL_Y, 1)} m MSL): inside hit, 10 m above clear, falling segment first hits at ${fmt(yHit - G.MSL_Y, 1)} m MSL${beside ? ' (8 m beside its wall: another building)' : ''}`);
-  let vegOn = 0, vegOff = 0;
-  for (let y = 1585; y <= 1598; y++) for (let x = 2355; x <= 2367; x++) { if (Fe.vegExists(x, y)) vegOn++; else vegOff++; }
-  check(vegOn === iv.files && vegOff > 0, `vegetation index at runtime: ${vegOn} land tiles requested, ${vegOff} empty sea tiles skipped`);
-}
+// v5.0: OSM kutu binaları / yol / bitki karoları kaldırıldı; yeni çekirdek harita core.mjs'de denetlenir.
 
 // ---- Arazi sürekliliği (düzleştirme kenarı, kıyı, seviye geçişi) ----
 {
