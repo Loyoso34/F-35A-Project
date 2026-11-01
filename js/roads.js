@@ -184,6 +184,25 @@ export class RoadNetwork {
         if (!s.promenade) (city.skylineStreets || (city.skylineStreets = [])).push({ pts, off: C.hw + 2.2 });
       }
     }
+    // tasarlanmış dönel kavşak: bölge bulvarının kuzey ucu (tek yönlü halka, saat yönü tersine)
+    {
+      const c = city.P(-2385, 900), R = 26, pts = [];
+      for (let k = 0; k <= 28; k++) { const a = -k / 28 * Math.PI * 2; pts.push({ x: c.x + Math.cos(a) * R, z: c.z + Math.sin(a) * R }); }
+      this.roads.push({ cls: 4, pts, C: Object.assign({}, CLS[4], { hw: 4.6, mark: 2, sh: 0 }), urban: true, curb: 2.5, design: true, ring: true });
+    }
+    // dönel kavşaklar: kapalı halkalar (OSM'de tek parça kalanlar + tasarım)
+    this.roundabouts = [];
+    for (const r of this.roads) {
+      const a = r.pts[0], b = r.pts[r.pts.length - 1];
+      if (r.pts.length < 4 || Math.hypot(a.x - b.x, a.z - b.z) > 3) continue;
+      let L = 0; for (let i = 0; i + 1 < r.pts.length; i++) L += Math.hypot(r.pts[i + 1].x - r.pts[i].x, r.pts[i + 1].z - r.pts[i].z);
+      if (L > 500) continue;
+      r.ring = true; r.C = Object.assign({}, r.C, { mark: 2 });
+      const cx = r.pts.reduce((s, p) => s + p.x, 0) / r.pts.length, cz = r.pts.reduce((s, p) => s + p.z, 0) / r.pts.length;
+      const rad = Math.min(...r.pts.map((p) => Math.hypot(p.x - cx, p.z - cz)));
+      this.roundabouts.push({ x: cx, z: cz, r: Math.max(3, rad - r.C.hw - 0.6), road: r });
+    }
+    city.roundabouts = this.roundabouts;
     this.junctions = [];
     this.grid = new Map(); this.cell = 60;
     this.stats = { km: 0, bridges: 0, lights: 0 };
@@ -430,6 +449,13 @@ export class RoadNetwork {
       c.arch.box(x + Math.cos(a) * 1.8, y + 8.95, z + Math.sin(a) * 1.8, 0.7, 0.32, 0.18, a, [0.85, 0.85, 0.8], [0.6, 3, 3, 6]);
     }
     this.stats.lights = lamps.length;
+    // dönel kavşak adaları: bordür halkası + yeşil ada (palmiyeler flora.js'de)
+    for (const ra of this.roundabouts) {
+      const c = chunkOf(ra.x, ra.z, true);
+      const y = (inCore(ra.x, ra.z, 2) ? this.core.rawAt(ra.x, ra.z) : this.w.terrain.mslAt(ra.x, ra.z)) + MSL_Y;
+      c.arch.cylinder(ra.x, y - 0.2, ra.z, ra.r, 0.45, 24, [0.74, 0.73, 0.70], [0.2, 3, 3, 0], { topCol: [0.07, 0.11, 0.04] });
+      c.arch.cylinder(ra.x, y + 0.25, ra.z, ra.r - 0.4, 0.08, 24, [0.07, 0.12, 0.04], [0.2, 3, 3, 0], { topCol: [0.06, 0.11, 0.035] });
+    }
     yield 0.6;
     // örgüler
     for (const c of chunks.values()) {
@@ -445,11 +471,12 @@ export class RoadNetwork {
       ctx.track(g);
       const m = new THREE.Mesh(g, mat);
       m.receiveShadow = true; m.name = c.major ? 'roads-major' : 'roads-minor';
-      ctx.addChunk(m, c.x, c.z, 600, c.major ? 14000 : 5000, { noReflect: true });
+      const qc = ctx.q.city || 1;
+      ctx.addChunk(m, c.x, c.z, 600, c.major ? 14000 * Math.min(1, qc + 0.2) : 5000 * qc, { noReflect: true });
       if (c.arch.count) {
         const am = new THREE.Mesh(ctx.track(c.arch.geometry()), ctx.mats.arch);
         am.castShadow = true; am.receiveShadow = true; am.name = 'road-furniture';
-        ctx.addChunk(am, c.x, c.z, 600, 4500);
+        ctx.addChunk(am, c.x, c.z, 600, qc < 1 ? 1800 : 4500 * qc);
       }
     }
     if (lampPts.length) {

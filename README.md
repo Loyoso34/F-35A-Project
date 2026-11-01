@@ -5,9 +5,11 @@ iPhone Safari (iOS 17+), Android Chrome ve masaüstü tarayıcılarda çalışan
 Oyundaki tek uçak **F-35A Lightning II**'dir. Açılışta **görev hazırlığı** ekranı gelir: pist
 (10L doğuya / 28R batıya), gün saati ve boya şeması seçilir, **Fly** ile uçuş başlar.
 
-**Tek bölge gerçek dünyadır: Bodrum (Muğla) ve Milas–Bodrum Havalimanı (LTFE)** — gerçek
-yükseklik verisi, Sentinel-2 uydu görüntüsü, gerçek koordinatlarda iki paralel pist (bkz. "Gerçek
-dünya: Bodrum" bölümü). v4.0'dan itibaren kurgusal eğitim bölgesi (Anadolu Hava Üssü / Yeşilova)
+**v5.0: dünya yeniden kuruldu.** Ana harita tam **20 km × 20 km (400 km²) Bodrum yarımadası** çekirdeğidir:
+gerçek kıyı ve tepeler üzerinde tasarlanmış şehir (Bodrum Kalesi, Milta marina, beyaz Bodrum evleri,
+kurgusal Gümbet Körfez gökdelen bölgesi), ayrıntılı yollar, yeni deniz; Milas–Bodrum Havalimanı (LTFE)
+gerçek konumunda (kaleden 31,9 km) CAT II ışıklandırmasıyla; ikisini gerçek D330 güzergâhı ve bölgesel
+arazi bağlar (bkz. "v5.0.0" bölümü). Önceki sürümlerin bölümleri tarihçedir. v4.0'dan itibaren kurgusal eğitim bölgesi (Anadolu Hava Üssü / Yeşilova)
 arayüzden seçilemez; kodu yalnızca GeoWorld'ün temel sınıfı ve başsız testler için durur (aşağıdaki
 eski bölümler tarihçedir).
 
@@ -26,10 +28,23 @@ js/geo.js               Jeodezi: WGS84, yerel Transvers Merkatör (Krüger), Web
                         MSL / elipsoit (EGM96 geoid ızgarası) / AGL yükseklikleri
 js/geoterrain.js        Gerçek dünya arazisi: karo dörtlü ağacı, akışlı DEM + Sentinel-2 görüntüsü, LOD, etek,
                         örgü havuzu, doku/DEM bellek bütçesi, fizik yükseklik/su sorgusu, eğrilik
-js/geoworld.js          Bodrum bölgesi (World'den türer): LTFE pistleri, havaalanı düzleştirmesi, deniz halkası,
-                        yüzey tipleri, kalkış noktaları, coğrafi telemetri
+js/geoworld.js          Bodrum bölgesi (World'den türer): çekirdek harita + bölgesel arazi + LTFE, yüzey tipleri,
+                        kalkış noktaları, gün saati (gece dahil), gölge kipi, coğrafi telemetri
+js/coreterrain.js       v5.0 çekirdek harita: 20×20 km yükseklik alanı (2049², 9,77 m), tasarım düzenlemeleri,
+                        CDLOD dörtlü ağaç, fizik sorguları, normal/AO, maske ve makro dokular
+js/terrainmat.js        Ortak arazi malzemesi (çekirdek + bölge): görüntü makro albedosu + yordamsal malzemeler,
+                        deniz tabanı optiği, kostik, kıyı köpüğü
+js/ocean.js             Küresel deniz yüzeyi: dağılımlı dalgalar, GGX parıltı, Fresnel, düzlemsel yansıma
+js/bodrum.js            Şehir tasarımı (kıyı, rıhtım, teras, maske) ve 3B içerik düzenleyicisi; Bodrum evleri
+js/archmat.js           Mimari gölgelendirici: giydirme cephe + iç mekân eşlemesi, badanalı sıva, vitrin, taş
+js/castle.js            Bodrum Kalesi (St. Peter), rıhtım duvarları
+js/marina.js            Marina, gulet rıhtımı, tekneler (yordamsal gövdeler), mendirek, kumsal şemsiyeleri
+js/skyline.js           Gümbet Körfez Bölgesi (KURGUSAL): 8 özgün kule, destek yapıları, dolgu blokları
+js/roads.js             Yol ağı: OSM iskeleti + bölge sokakları, profil/yatak, işaretler, bordür, köprü, lamba
+js/flora.js             Ege bitki örtüsü: kızılçam, zeytin, servi, maki, palmiye
+js/ltfeplus.js          LTFE ayrıntıları: taksi yolu/apron ışıkları, durma çubukları, levhalar, kule, uçaklar
 js/georegion.js         LTFE ve Bodrum verisi (her sayının kaynağıyla)
-geo/bodrum/             Bölge karoları: manifest.json, dem/{z}/{x}/{y}.png, img/{z}/{x}/{y}.webp (~15 MB, 1259 dosya)
+geo/bodrum/             Bölge verisi: manifest.json, dem/{z}/{x}/{y}.png, img/{z}/{x}/{y}.webp, roads.json, airport/ltfe.json
 tools/geodata/          Bölge verisi üretici (bake.py: DEM + Sentinel-2 -> karo piramidi; meta.mjs: geoid, WMM)
 js/worldshade.js        Dünya gölgelendiricileri: atmosferik pus (gökyüzüyle aynı renk), arazi malzemesi
                         (çok ölçekli makro değişim, tarlalar, orman örtüsü, eğim kayası)
@@ -65,7 +80,8 @@ js/noise.js             Gürültü fonksiyonları
 js/version.js           Uygulama sürümü
 icons/                  Ana ekran ikonları (tools/make_icons.py ile üretilir)
 tools/make_icons.py     İkon üretici (yalnızca Python standart kütüphanesi)
-tools/flighttest/       Başsız testler: uçuş fiziği (21 senaryo), çarpma sınıflandırması, pist/yol geometrisi (Node, bkz. README)
+tools/flighttest/       Başsız testler: uçuş fiziği (21 senaryo), çarpma, pist/yol geometrisi, gerçek bölge, göstergeler,
+                        v5.0 çekirdek harita (core.mjs) ve LTFE ışıklandırması (airport.mjs) — npm run test:all
 .nojekyll               GitHub Pages'in dosyaları olduğu gibi sunması için
 ```
 
@@ -1145,6 +1161,112 @@ joystick halkası parmağın altında açılır, 30 px → 0,5 sapma (v3.9 ile a
 dümen 20 px → topuz 20 px; gaz ve flap izleri kalibre; her denetimin vuruş alanı ≥ 44 px, hiçbir
 denetimin görünür alanı başka denetime ait değil. Konsol hatasız. **iPhone'da gerçek dokunuş ve 60 fps
 ölçülmedi.**
+
+## v5.0.0: harita yeniden kuruldu — 20 × 20 km Bodrum yarımadası
+
+**Ölçek ve yapı.** Ana harita yerel TM çerçevesinde eksen hizalı, tam **20 000 m × 20 000 m** bir karedir
+(37,140–36,960° K, 27,288–27,514° D; Bodrum Kalesi kenardan > 2 km içeride). Yükseklik alanı 2049 × 2049
+örnek (9,77 m), gerçek DEM'den (z12 ≈ 30 m) Catmull-Rom ile; yükseklikler abartılmaz — en yüksek nokta
+675 m (Ege tepeleri, alp tipi zirve yok). Kıyı çizgisi OSM su maskesinden yumuşatılır, işaret tutarlıdır
+(kara > 0, deniz < 0). 700 m'lik kenar bandında yüzey bölgesel araziye bağlanır (dört kenarın 3200
+noktasında en büyük uyumsuzluk 0,42 m; dikdörtgen sınır görünmez). Çekirdeğin dışı **kademe 3** bölgesel
+arazidir (aynı malzeme, görüntü yönlü). LTFE gerçek konumunda kalır (kaleden 31,9 km); harita içine
+TAŞINMADI. İkisini gerçek D330 güzergâhı (OSM) bağlar.
+
+**Fizik bütünlüğü.** Uçuş fiziği dosyalarına dokunulmadı (physics, rigidbody, aero, aerodata, engine, fcs,
+atmosphere, fleet, controls, crash: SHA-256 birebir aynı; 21 senaryonun ölçütleri önceki sürümle
+bayt bayt aynı). Arazi entegrasyonu yalnızca dünya arayüzünde: `heightAt` çekirdekte en ince çizim
+üçgenlerinin kendisidir (köşegen (i,j+1)–(i+1,j); hata < 1e-11 m), denizde 0 m MSL; `surfaceTypeAt`,
+`hitsBuilding`, `segmentHit` yeni yapıları kapsar (kale, kuleler, tekneler, meydan ayrıntıları).
+
+**Arazi ve malzeme (js/coreterrain.js, js/terrainmat.js).** CDLOD tarzı dörtlü ağaç (kök 20 km, yaprak 625 m
+= 9,77 m), tek indisli köşeler mesafeyle üst seviyeye kayar (LOD sıçraması ve çatlak yok). Işık LOD'dan
+bağımsız: normal + boşluk AO, tasarım maskesi ve makro albedo 2048² dokularda. Malzeme: Sentinel-2
+albedosunun çekim anı gölgesi geri alınır (de-shading; gün batımında yamaçlar iki kez gölgelenmez);
+yakında yordamsal Ege makisi (öbekli taçlar), kuru ot/toprak, kırmızı toprak, kireçtaşı (çatlak, katman
+bandı), kumsal (ıslak bant), kentsel zemin, park; uzakta görüntünün kendisi. Fiziksel tabanlı ışık
+(MeshStandardMaterial), türev tabanlı ayrıntı normali.
+
+**Deniz (js/ocean.js + terrainmat.js).** Su kütlesi deniz tabanı pikselinde hesaplanır (kanal başına
+Beer–Lambert, saçılma, sığlıkta hareketli kostik, Posidonia çayırları): sığlık turkuaz, derin lacivert.
+Yüzey: 14 dağılımlı dalga (ω = √(gk)), uzaklıkla süzülüp GGX pürüzlülüğüne aktarılır; dalga grupları
+genliği mekânda değiştirir (şerit deseni yok); orta ve kılcal ölçek normal haritaları; Fresnel; güneş
+parıltısı (GGX); tepe köpüğü; limanlarda sığınak bölgeleri. **Düzlemsel yansıma** (yarım çözünürlük HDR
+hedef, eğik yakın düzlem kırpma, dalga normaliyle bükülme): gökdelenler, kale, tekneler, uçak ve gece
+ışıkları yansır; Performance kipinde ve uyarlanabilir kalite ikincil efektleri kısınca yalnızca gök
+yansıması. Kıyı batimetrisi: kaynak veride kıyıdan km'lerce açıkta −1 m yer tutucu vardı; karaya uzaklık
+modeliyle yeniden kuruldu (`tools/geodata/bathymetry.py`; yaklaşık [E]); fizik etkilenmez.
+
+**Şehir (js/bodrum.js, castle.js, marina.js, skyline.js, archmat.js, flora.js).** Ayrıntı hiyerarşisi:
+- *Kademe 1:* Bodrum Kalesi (denizden yükselen burçlar, iç sur, Fransız/İtalyan/İngiliz/Alman/Yılanlı
+  kuleler, minareli şapel, kara tarafı surları; ölçüler yaklaşık), taş rıhtımlar, Milta marina (yüzer
+  iskeleler, Akdeniz usulü kıçtan bağlı ~500 tekne: motoryat, yelkenli, gulet, mega yat — her biri
+  kendi gövde biçimiyle), mendirek (kaya tahkimatı, IALA-A kırmızı fener), Kumbahçe ve Gümbet kumsalları,
+  eski şehir (OSM sokakları boyunca beyaz kübik evler: badana, mavi/yeşil panjur, teras korkuluğu,
+  güneş enerjili su ısıtıcısı, pergola).
+- *Kurgusal:* **Gümbet Körfez Bölgesi** — Gümbet koyunun başındaki düzlükte, tarihi merkezden ayrı bir
+  vadide modern genişleme: Ege Tacı (248 m, 28° burulma, kafes taç), Yelken (192 m), Teraslar (150 m),
+  İkiz Kapılar (2 × 158 m, gök köprüsü), Prizma (176 m), Silindir (128 m, helipad), iki konut kulesi,
+  kavisli otel; podyumlar, vitrinler, çatı tesisatı, BMU vinçleri, ICAO uyarı ışıkları; avlulu dolgu
+  blokları, park, sokak ağaçları. Gerçek yerleşim değildir.
+- *Kademe 2:* köyler (Konacık, Bitez, Ortakent, Torba, Gündoğan, Türkbükü…) — görüntüde yerleşim
+  görünen yerlerde eş yükselti eğrisine paralel evler (toplam ~7 400 ev).
+- Cephe ayrıntısı gölgelendiricidedir (dokusuz): giydirme cephe kayıtları ve döşeme bantları, iç mekân
+  eşlemesi (pencere arkasında derinlikli oda), gece rastgele yanan pencereler.
+- Bitki: kızılçam, maki, zeytin bahçeleri (sıralı), servi, palmiye — görüntü yeşilliğinden.
+
+**Yollar (js/roads.js).** OSM iskeleti (gövde/birincil/ikincil/üçüncül/sınıfsız + eski şehir sokakları;
+`geo/bodrum/roads.json`, zincirlenmiş ve sadeleştirilmiş) + bölge sokakları. Boy profili pencere
+ortalaması ve sınıf eğim sınırıyla (D330 %7 … üçüncül %13); yatak araziye yazılır (yarma 1:1, dolgu
+1:1,5), 7 m'yi aşan dolgu ve OSM köprüleri köprü olur (döşeme, ayaklar, korkuluk). Tüm yollar son araziye
+oturur (havada/gömülü yol yok — test edilir). Gölgelendiricide şerit çizgileri (kesikli eksen, sürekli
+kenar, tek yönlü taşıt yollarında şerit ayırıcı), tekerlek izi, yama, banket; kavşak içinde işaret yok,
+kentsel kavşaklarda zebra ve dur çizgisi. Eski şehirde taş döşeme. Bordür ve kaldırım, dolguda W kuşaklı
+bariyer, sokak lambaları (gece yanar), yön levhaları (gerçek yer adları), dönel kavşak adaları.
+**Yapılmadı:** tüneller, otoyol kavşak rampaları, OSM'de parçalı tutulan dönel kavşakların adaları.
+
+**LTFE (js/ltfeplus.js, runway.js, georegion.js).** Kaynaklar ve doğruluk `georegion.js` başlığında:
+- 10L ve 28R: CAT II barret yaklaşma ışıkları 900 m (dış 600 m ardışık flaşörlü, iç 270 m kırmızı yan
+  barretler, 150/300 m çapraz çubuklar) — AIP AD 2.14 (AIRAC 06/16).
+- PAPI işlevseldir: 10L 3,3° (DHMİ ADC), 28R 3,9° MEHT 68 ft (AIP); dört birim solda, ayarlar ±30′/±10′;
+  kırmızı/beyaz gözün gerçek yükselme açısından. Konum 28R'de MEHT'ten (318 m), 10L'de 15,2 m göz
+  yüksekliğinden (278 m) [E].
+- TDZ ışıkları (900 m) ve pist eksen ışıkları (15 m; son 300 m kırmızı, 900–300 m kırmızı/beyaz).
+- 10R/28L: AIP'ye göre sivil uçaklar için taksi yolu: yalnızca kenar ve eşik/son ışıkları, ALS/PAPI yok.
+- Taksi yolu/apron kenar ışıkları (mavi), 12 bekleme konumunda durma çubukları (kırmızı) ve zorunlu
+  talimat levhaları (tanımlayıcılar eşik tarafına göre sıralı). Taksi yolu harf levhası YOK (OSM'de ad
+  yok; uydurma etiket yazılmaz).
+- Kontrol kulesi konumu YAKLAŞIK (açık veride yok); meydan feneri (beyaz/yeşil), apron projektörleri,
+  park hâlinde kurgusal boyalı yolcu uçakları ve yer araçları; hiçbiri pist şeridine (75 m) girmez.
+- Manyetik tanımlayıcılar: gerçek 106,6° − WMM-2025 5,41° D = 101,2° M → 10/28 (HUD ile aynı model).
+- Resmi AIP sunucusuna (dhmi.gov.tr) bu ortamdan erişilemedi; değerler yayımlanmış ikincil kaynaklardan
+  derlendi ve güncel AIP ile karşılaştırılmalıdır.
+
+**Işık ve gün saati.** 07:40 gün doğumu, 08:30, 12:10, 16:30, **18:05 altın saat** (varsayılan), 18:58
+alacakaranlık, 21:30 gece. Ortak gök işlevine güneş azimutunda ufuk parıltısı eklendi (gök, pus ve su
+yansıması aynı rengi görür). Gece: yıldızlar, ay ve ay ışığı, iç mekânlı yanan pencereler, sokak/liman
+lambaları, kale projektörleri, gökdelen uyarı ışıkları, meydan ışıkları, pozlama uyumu; bulutlar gök
+ışığıyla tonlanır. Gölge: uçak çevresinde dar kip + çekirdekte alçakken şehir ölçeğinde geniş kip
+(Balanced 2048² / ±650 m, Ultra 4096² / ±1100 m): binaların altın saat gölgeleri sokaklara düşer.
+**Yapılmadı:** bloom/son işlem (mobil doluluk maliyeti), ekran uzayı yansıması, hacimsel bulut.
+
+**Giriş ekranı.** Görev hazırlığı ekranının arka planı yeni haritanın canlı sinematiğidir (görüntü değil):
+(1) Gümbet koyunun ağzında gökdelenlerin önünden geçen F-35A — siluet suda yansır, (2) kale ve marina
+önünden geçiş, (3) koyların yüksekten yavaş yörüngesi; yumuşak geçişler, kenar karartması, konum
+etiketi. Uçak animasyonu yalnızca çizimdir (fizik modeli kullanılmaz). Yükleme ekranı görüntüsü
+(`assets/loading-bodrum.webp`) aynı haritadan simülatörün kendi motoruyla çizildi.
+
+**Performans (geliştirme ortamı, SwiftShader; cihaz ölçümü DEĞİL).** Şehir görünümlerinde çizim çağrısı /
+üçgen: Performance ~270–330 / ~1,5 M; Ultra ~400–500 / ~3,7–4,3 M. Önlemler: kümeli birleşik örgüler
+(evler, yollar, tekneler), örneklenmiş ağaçlar ve kayalar, mesafe kümeleri, CDLOD arazi, dokusuz cephe
+ayrıntısı, Performance kipinde yansıma/gölge kapalı ve daha kısa ayrıntı mesafeleri, uyarlanabilir
+kalite (yansıma → ayrıntı mesafesi → çözünürlük). Pişirme sonrası ham DEM dizileri bırakılır. Çekirdek
+yükleme ~3 s (masaüstü). **iPhone'da 60 fps doğrulanmadı.**
+
+**Testler.** `npm run test:all`: önceki tüm paketler + `core.mjs` (harita ölçüsü, kıyı/su fiziği,
+batimetri, kenar sürekliliği, fizik = çizim, yol eğimi ve araziye oturma, bağlantı, D330–LTFE, gökdelen
+ve kale çarpışması) + `airport.mjs` (PAPI açıları ve işlevi, ALS/TDZ/RCL düzeni, levha sıralaması, pist
+şeridi engel serbestliği, manyetik tanımlayıcılar).
 
 ## Yerel test
 

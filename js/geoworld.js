@@ -40,7 +40,7 @@ export const GEO_QUALITY = {
   // v5.0 çekirdek: coreLod (düğüm bölme çarpanı), coreTex (normal/makro doku), coreNodes (örgü bütçesi),
   // reflections (düzlemsel deniz yansıması), city (şehir ayrıntı mesafesi çarpanı), trees (ağaç sayısı çarpanı)
   low: { drawDistance: 70000, far: 300000, lodFactor: 1.9, textureBudget: 110, nodeBudget: 200, buildMs: 2.5, demBudget: 40,
-    coreLod: 1.7, coreTex: 1024, coreNodes: 120, reflections: false, city: 0.7, trees: 0.5, shadowWide: 0 },
+    coreLod: 1.6, coreTex: 1024, coreNodes: 110, reflections: false, city: 0.65, trees: 0.35, shadowWide: 0 },
   medium: { drawDistance: 100000, far: 420000, lodFactor: 2.5, textureBudget: 160, nodeBudget: 280, buildMs: 3.5, demBudget: 64,
     coreLod: 2.2, coreTex: 2048, coreNodes: 170, reflections: true, city: 1.0, trees: 1.0, shadowMap: 2048, shadowWide: 650 },
   high: { drawDistance: 140000, far: 480000, lodFactor: 3.0, textureBudget: 260, nodeBudget: 400, buildMs: 5.0, demBudget: 96,
@@ -226,6 +226,10 @@ export class GeoWorld extends World {
       buildMs: q.buildMs, nodeBudget: q.coreNodes || 170,
     });
     yield* this.core.bakeBase();
+    // pişirme sonrası: batimetrili ham DEM dizileri ve çekirdek ızgarası artık gerekmez (bellek; fizik
+    // dış bölgede h/w/dp dizilerini kullanır)
+    for (const t of this.terrain.dem.tiles.values()) t.raw = null;
+    this.core.raster = null; this.core.map16 = null;
   }
 
   /** Şehir ve kıyı tasarımı: arazi düzenlemeleri (teras, rıhtım, yol yatağı) ve zemin maskeleri. */
@@ -618,6 +622,8 @@ export class GeoWorld extends World {
     if (this.terrain) this.terrain.detail = o.detail;
     if (this.core) this.core.detail = o.detail;
     if (this.city) this.city.detail = o.detail;
+    // uyarlanabilir kalite: kare süresi yetmezse önce düzlemsel deniz yansıması kapanır (gök yansıması kalır)
+    if (this.ocean) this.ocean.reflectEnabled = o.effects >= 0.75;
   }
 
   dispose() {

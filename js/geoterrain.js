@@ -29,6 +29,7 @@ import { HAZE_UNIFORMS, HAZE_PARS_VS, HAZE_PARS_FS, CURVE_PROJECT } from './worl
 export const EARTH_R = 6371000;
 export const CURVE_K = 0.5 / EARTH_R;
 const BLEND_S = 1.2;
+const smoothstep01 = (t) => { t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); };
 const TILE = 256;
 // Derinlik kodu (0..255): sqrt(m / 1000) ölçeği — sığlıkta çözünürlük yüksek (1 m ≈ 8, 10 m ≈ 26),
 // 1000 m'de doyar. Köşe özniteliği de aynı kodu taşır; gölgelendirici d = (a·a)·1000 m çözer.
@@ -778,10 +779,32 @@ export class GeoTerrain {
         const lon = this._lonCol[ii], lat = latRow;
         if (lon < B[0] || lon > B[2] || lat < B[1] || lat > B[3]) { h = -40; w = 1; dp = 255; }
         else if (conform) h = conform(X, Z, h);
-        // v5.0: çizimde deniz tabanı (batimetri); fizik yüzeyi (mslAt) 0 m MSL'de kalır
-        if (w > 0.3 && h <= 0.05) { const a = dp / 255; h -= a * a * 1000 * Math.min(1, (w - 0.3) / 0.4); }
         eh[e] = h + MSL_Y; ew[e] = w; ed[e] = dp;
         if (i >= 0 && i <= N && j >= 0 && j <= N) { if (eh[e] < minY) minY = eh[e]; if (eh[e] > maxY) maxY = eh[e]; }
+      }
+    }
+    // v5.0: çizimde deniz tabanı (batimetri); fizik yüzeyi (mslAt) 0 m MSL'de kalır. Su payı komşu köşelerle
+    // yumuşatılır: 30 m'lik su maskesinin merdiven kıyısı yerine yuvarlak kıyı çizgisi oluşur.
+    {
+      const wb = this._ewb || (this._ewb = new Float32Array(E * E));
+      for (let jj = 0; jj < E; jj++) for (let ii = 0; ii < E; ii++) {
+        let s = 0, n = 0;
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+          const a2 = ii + di, b2 = jj + dj;
+          if (a2 < 0 || b2 < 0 || a2 >= E || b2 >= E) continue;
+          const k = (di ? 1 : 2) * (dj ? 1 : 2); s += ew[b2 * E + a2] * k; n += k;
+        }
+        wb[jj * E + ii] = s / n;
+      }
+      for (let k = 0; k < E * E; k++) {
+        const w = wb[k];
+        if (w <= 0.35) continue;
+        const h = eh[k] - MSL_Y;
+        if (h > 4) continue;
+        const a = ed[k] / 255, f = smoothstep01((w - 0.35) / 0.3);
+        // kıyı: yükseklik su payıyla birlikte 0'ın altına iner (kara hücresinin kenarı yumuşak)
+        eh[k] = Math.min(h, h * (1 - f) - (0.4 + a * a * 1000) * f) + MSL_Y;
+        if (eh[k] - MSL_Y < minY - MSL_Y) minY = Math.min(minY, eh[k]);
       }
     }
     // 3) Köşe öznitelikleri (düğüm merkezine göre)

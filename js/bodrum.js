@@ -303,9 +303,10 @@ export class BodrumCity {
     // kümeler: 400 m'lik hücreler (görünürlük ve çizim çağrısı)
     const chunks = new Map();
     const chunkOf = (x, z) => {
-      const ci = Math.floor((x - CORE.x0) / 400), cj = Math.floor((z - CORE.z0) / 400), k = ci * 1000 + cj;
+      const S = this.q.coreTex >= 2048 ? 500 : 800;          // mobilde daha büyük küme = daha az çizim çağrısı
+      const ci = Math.floor((x - CORE.x0) / S), cj = Math.floor((z - CORE.z0) / S), k = ci * 1000 + cj;
       let c = chunks.get(k);
-      if (!c) { c = { b: new ArchBuilder(), x: CORE.x0 + (ci + 0.5) * 400, z: CORE.z0 + (cj + 0.5) * 400, n: 0 }; chunks.set(k, c); }
+      if (!c) { c = { b: new ArchBuilder(), x: CORE.x0 + (ci + 0.5) * S, z: CORE.z0 + (cj + 0.5) * S, n: 0, S }; chunks.set(k, c); }
       return c;
     };
     const tierMax = { 1: 1, 2: 0.55 };
@@ -373,7 +374,7 @@ export class BodrumCity {
       const mesh = new THREE.Mesh(this.w.track(c.b.geometry()), this.mats.arch);
       mesh.castShadow = true; mesh.receiveShadow = true;
       mesh.name = 'houses';
-      ctx.addChunk(mesh, c.x, c.z, 300, far);
+      ctx.addChunk(mesh, c.x, c.z, c.S * 0.72, far);
     }
     this.stats = Object.assign(this.stats || {}, { houses });
   }

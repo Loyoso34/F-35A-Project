@@ -197,6 +197,15 @@ export function* buildFlora(ctx) {
       put(rand() < 0.35 ? 'pine' : rand() < 0.6 ? 'olive' : 'cyp', x, ctx.ground(x, z), z, 0.8 + rand() * 0.5, rand() * 6.28, rand()); n++;
     }
   }
+  // dönel kavşak adalarında palmiyeler
+  for (const ra of city.roundabouts || []) {
+    const n0 = Math.max(1, Math.min(5, Math.round(ra.r / 5)));
+    for (let k = 0; k < n0; k++) {
+      const a = k / n0 * Math.PI * 2, rr = n0 === 1 ? 0 : ra.r * 0.5;
+      const x = ra.x + Math.cos(a) * rr, z = ra.z + Math.sin(a) * rr;
+      put('palm', x, ctx.ground(x, z) + 0.3, z, 0.9 + rand() * 0.2, rand() * 6.28, rand()); n++;
+    }
+  }
   // kale avlusunda birkaç zeytin ve servi
   for (const [e, nn] of [[20, -60], [-10, -90], [40, 0], [-40, -30]]) { const p = ctx.P(e, nn); put(rand() < 0.5 ? 'olive' : 'cyp', p.x, ctx.ground(p.x, p.z), p.z, 1, rand() * 6.28, rand()); n++; }
   // örgüler

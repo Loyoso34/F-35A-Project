@@ -311,3 +311,34 @@ nose close-up) were compared before the release; every view shows the geometric 
 *All figures above are from open publications. Where a number could not be found in
 a public source it is marked **[E]** or **[T]** and the reasoning is given, rather
 than being presented as fact.*
+
+
+## 11. Bodrum 20 × 20 km map and LTFE lighting (v5.0.0)
+
+Tags: **[V]** verified public value, **[E]** engineering approximation, **[F]** fictional by design.
+
+| Item | Status / source |
+|---|---|
+| Core terrain shape, coastline, hills (max 675 m) | [V] EU-DEM / SRTM via AWS Terrain Tiles (z12, ~30 m), OSM coastline water mask |
+| Coastal bathymetry | [E] distance-to-coast shelf model where the source held −1 m placeholders (`tools/geodata/bathymetry.py`); deeper source values kept |
+| Road network skeleton (D330, coastal roads, old-town streets, LTFE access) | [V] OpenStreetMap via Overture Maps 2026-10-21.0 (ODbL), chained and simplified (`geo/bodrum/roads.json`) |
+| Road cross-sections, lane widths, grade limits | [E] typical Turkish highway practice |
+| Castle of St. Peter layout and tower heights | [E] simplified from aerial imagery knowledge; position [V] (37.0319 N, 27.4289 E) |
+| Marina pontoons, gulet quay, breakwater | [E] designed to the real bays; IALA region A entrance lights |
+| Bodrum houses | [E] procedural, placed on real OSM streets and on imagery-detected settlements |
+| Gümbet Bay skyline district | [F] fictional modern district; no such towers exist |
+| LTFE runway thresholds, lengths, elevations | [V] OSM / OurAirports (unchanged from v3.9) |
+| LTFE magnetic designators | [V] true 106.6° − NOAA WMM-2025 5.41° E = 101.2° M → 10/28 |
+| LTFE ALS: precision CAT II barrette, 900 m, outer 600 m flashing | [V] Turkish AIP AD 2 LTFE AD 2.14 (AIRAC 06/16) — current AIP not reachable from the build environment |
+| LTFE PAPI 10L 3.3°, 28R 3.9° MEHT 68 ft | [V] DHMİ aerodrome chart (PAPI 3.3°), AIP 2016 (3.9°, 68 ft), airport-data.com, BAVirtual LTFE briefing (10L 3.3°, 28R 3.9°) |
+| PAPI placement (side, distance) | [E] left side per ICAO; distance from MEHT (28R) or 15.2 m eye height (10L) |
+| TDZ and runway centreline lights, stop bars | [E] ICAO Annex 14 requirements for CAT II operations; exact layouts not published openly |
+| 10R/28L as taxiway for civil aircraft (emergency runway) | [V] AIP note; therefore no ALS/PAPI modelled |
+| Taxiway edge lights, apron floodlights, beacon | [E] ICAO Annex 14 typical; positions not surveyed |
+| Control tower position | [E] approximate (not in open data) |
+| Taxiway designators / location signs | not modelled (not in the available data; no invented labels) |
+| Parked airliners | [F] generic A320-class shape, fictional liveries |
+
+Sources consulted for LTFE lighting: Turkish AIP LT AD 2 LTFE (dhmi.gov.tr, AIRAC 06/16 extract), DHMİ
+LT_AD_2_LTFE_ADC aerodrome chart, airport-data.com LTFE page, BAVirtual LTFE aerodrome briefing
+(flight-simulation use only). Verify against the current AIP before any real-world use.

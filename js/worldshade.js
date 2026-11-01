@@ -41,7 +41,7 @@ export const SKY_GLSL = `
     vec2 dh = normalize(d.xz + 1e-5), sh = normalize(sunDir.xz + 1e-5);
     float az = dot(dh, sh) * 0.5 + 0.5;
     col += sunColor * band * lowS * (pow(az, 4.0) * 0.42 + pow(c, 6.0) * 0.45);
-    col += vec3(0.30, 0.17, 0.22) * band * lowS * (1.0 - az) * 0.25;
+    col += vec3(0.30, 0.17, 0.22) * band * lowS * (1.0 - az) * 0.25 * clamp(dot(sunColor, vec3(0.6)), 0.0, 1.0);
     col += sunColor * (pow(c, 8.0) * 0.10 + pow(c, 128.0) * 0.35) * sunStrength;
     col += sunColor * smoothstep(0.99935, 0.99965, c) * 6.0 * sunStrength;
     return col;
