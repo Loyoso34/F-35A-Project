@@ -21,6 +21,7 @@ import { AdaptiveQuality, perfMultipliers } from './perf.js';
 import { PerfOverlay } from './perfoverlay.js';
 import { WeaponSystem } from './weapons.js';
 import { LAYER_NOREFLECT } from './ocean.js';
+import { FlightAlerts, FUEL_LOW_KG } from './alerts.js';
 
 // ---------------------------------------------------------------------------
 // Yükleme ilerlemesi. Yüzde ZAMANA bağlı değildir: yalnızca bir iş (ya da arazi
@@ -134,6 +135,7 @@ const REGIONS = {
 // alınamazsa (ör. ilk açılış çevrimdışı) yükleme ekranı yeniden denemeyi önerir.
 const ALL_SPAWNS = bodrumSpawnInfo();
 const spawnDesc = (id) => ALL_SPAWNS.find((s) => s.id === id) || ALL_SPAWNS[0];
+const thousandsKg = (n) => Math.round(n).toLocaleString('en-US') + ' kg';
 const PREVIEW_COMP = 0.07;                 // önizleme: park hâlinde amortisör sıkışması (fizik reset ile aynı)
 const _prevEuler = new THREE.Euler();
 
@@ -221,6 +223,8 @@ class App {
     this.aircraft = null; this.physics = null; this.aircraftId = null;
     this.hud = new HUD(this.hudCanvas);
     this.audio = new AudioEngine();
+    this.alerts = new FlightAlerts();
+    this._alertList = [];
     this.cameraRig = new CameraRig(this.camera, null, this.world, null);
     this.controls = new Controls({
       onGear: () => this.toggleGear(),
@@ -233,6 +237,9 @@ class App {
       onLights: () => this.toggleLights(),
       onFire: () => this.fireMissile(),
       onPhysDebug: () => this.togglePhysDebug(),
+      onHelp: () => this.toggleGuide(),
+      onGamepadStart: () => this.gamepadStart(),
+      onGamepad: (id, on) => this.ui.message(on ? 'Controller connected — left stick flies, triggers throttle, Start pauses' : 'Controller disconnected', on ? 3200 : 1800),
       onPerfDebug: () => this.togglePerfDebug(),
       onMenu: () => this.ui.toggleMenu(),
       onMenuActivity: () => this.ui.menuActivity(),
@@ -421,7 +428,8 @@ class App {
     el.btnSettingsClose.addEventListener('click', () => { ui.hide('settings'); if (this.state === 'paused') ui.show('pause'); });
     el.btnCrashRestart.addEventListener('click', () => { ui.hide('crash'); this.restart(); });
     if (el.btnCrashHangar) el.btnCrashHangar.addEventListener('click', () => { ui.hide('crash'); this.clearCrash(); this.showSelect(); });
-    el.btnUpdate.addEventListener('click', () => location.reload());
+    el.btnUpdate.addEventListener('click', () => { window.__ffsAllowUnload = true; location.reload(); });
+    if (el.btnControls) el.btnControls.addEventListener('click', () => this.toggleGuide());
     ui.bindSeg(el.qualitySeg, 'q', (v) => this.setQuality(v));
     ui.bindSeg(el.tiltSeg, 't', async (v) => {
       const on = v === '1';
@@ -483,6 +491,36 @@ class App {
       }
     });
     window.addEventListener('pagehide', () => { if (this.state === 'running') this.pause(); });
+    // Uçuş sürerken sayfadan çıkış onayı: klavyede Ctrl (gaz azalt) + W (burun aşağı) tarayıcıda
+    // sekmeyi KAPATIR ve bu kısayol sayfa tarafından engellenemez. Bilinçli yenilemeler
+    // (güncelleme, yeniden deneme) window.__ffsAllowUnload ile bu onayı atlar.
+    window.addEventListener('beforeunload', (e) => {
+      if (window.__ffsAllowUnload) return;
+      if (this.state !== 'running' && this.state !== 'paused') return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
+  }
+
+  /** Oyun kumandasının Start düğmesi: görev hazırlığında uç, kazadan sonra yeniden başlat, uçuşta duraklat/devam. */
+  gamepadStart() {
+    if (this.state === 'select') { if (this.loaded && !this.switching && !this.ui.isOpen('loading')) this.pickAircraft(FLEET_ORDER[0]); return; }
+    if (this.state === 'crashed') { this.ui.hide('crash'); this.restart(); return; }
+    this.togglePause();
+  }
+
+  /** Kontroller ekranı (H tuşu / duraklatma menüsü). */
+  toggleGuide() {
+    if (this.ui.isOpen('guide')) { this.ui.hide('guide'); return; }
+    if (this.state !== 'running' && this.state !== 'paused') return;
+    if (this.state === 'paused') {
+      // Duraklatma menüsü kontrollerin önündedir: menü kapanır, kontroller kapanınca geri gelir
+      this.ui.hide('pause');
+      this.ui.show('guide');
+      this.ui.afterGuide(() => { if (this.state === 'paused') this.ui.show('pause'); });
+      return;
+    }
+    this.ui.show('guide');
   }
 
   // Kalite ön ayarının piksel oranı x uyarlanabilir ölçek. 60 fps tutturulamayınca ölçek düşer, tutturulunca geri yükselir.
@@ -846,6 +884,9 @@ class App {
         this.physics.reset(this.world.spawnPose(this.settings.spawn));
         this.cameraRig.reset();
         this.weapons.reset(); this._weaponsT = null;
+        // Hangardan yeniden uçuş: gaz kolu ve kumandalar da kalkış durumuna döner (eskiden kol
+        // önceki uçuştaki konumunda kalıyordu; %100'de bırakılmışsa uçak pistte hemen hızlanıyordu)
+        this.resetCockpit();
       }
       this.settings.aircraft = id;
       saveSettings(this.settings);
@@ -882,6 +923,7 @@ class App {
     this.aircraft.setLandingLights(false);
     this.ui.setToggle(this.ui.el.btnLights, false);
     this.controls.resetLever(0);
+    if (this.alerts) this.alerts.reset();
     // Flap kolu: kademe adları ve açıları uçaktan gelir, kol her zaman 0'da başlar
     this.controls.setFlapDetents(cfg.systems.flapNames, cfg.systems.flapNotes);
     this.updateToggleButtons();
@@ -996,7 +1038,8 @@ class App {
     this.ui.hide('select');
     this.ui.hide('start');
     this.ui.show('touch');
-    this.ui.show('guide');
+    // Kontroller ekranı oturumdaki ilk uçuşta açılır; sonra H tuşu / Duraklat → Controls ile
+    if (!this._guideShown) { this._guideShown = true; this.ui.show('guide'); }
     if (this.settings.tilt) {
       this.controls.setTiltEnabled(true).then((ok) => { if (!ok) { this.settings.tilt = 0; this.ui.setSeg(this.ui.el.tiltSeg, 't', 0); } });
     }
@@ -1055,18 +1098,27 @@ class App {
     this._weaponsT = null;
     this.controls.resetInputs();
   }
+  /** Kalkış durumu: gaz rölanti, kumandalar nötr, iniş ışıkları kapalı, uyarılar sıfır. */
+  resetCockpit() {
+    this.lightsOn = false;
+    if (this.aircraft) this.aircraft.setLandingLights(false);
+    this.ui.setToggle(this.ui.el.btnLights, false);
+    this.controls.resetLever(0);
+    this.controls.resetInputs();
+    this._lastLandingShown = null;
+    if (this.alerts) this.alerts.reset();
+    this.updateToggleButtons();
+  }
   restart() {
     this.clearCrash();
     this.ui.hide('crash');
     this.physics.reset(this.world.spawnPose(this.settings.spawn));
-    this.lightsOn = false; this.aircraft.setLandingLights(false); this.ui.setToggle(this.ui.el.btnLights, false);
-    this.controls.resetLever(0);
+    this.resetCockpit();
     this.controls.setEnabled(true);
     this.cameraRig.reset();
     this.ui.show('touch');
     this.state = 'running';
     this.audio.resume();
-    this.updateToggleButtons();
     this.lastTime = performance.now();
     this.accumulator = 0; this._stickSynced = false;
     this.syncAircraft(0);
@@ -1132,6 +1184,15 @@ class App {
     const c = this._fireCount || (this._fireCount = document.getElementById('fire-count'));
     const txt = i.pending ? 'QUEUED' : 'AIM-120 ×' + i.count;
     if (c && c.textContent !== txt) c.textContent = txt;
+  }
+  /** Uçuş uyarıları (alerts.js): yere yaklaşma, yakıt, motor. Yeni tetiklenenler bildirim olarak da çıkar. */
+  updateAlerts(dt) {
+    const A = this.alerts;
+    A.update(dt, this.physics, this.world);
+    for (const ev of A.events) {
+      if (ev === 'fuelLow') this.ui.message(`Low fuel — ${thousandsKg(FUEL_LOW_KG)} remaining. Head back to LTFE`, 3200);
+      else if (ev === 'flameout') this.ui.message('Engine flameout — fuel exhausted. Glide to a landing', 4200);
+    }
   }
   cycleCamera() {
     this.cameraRig.next();
@@ -1483,6 +1544,7 @@ class App {
     const running = this.state === 'running';
 
     // Uçak seçim ekranı: henüz uçak yok, arka planda üs üzerinde sinematik kamera döner
+    if (this.state !== 'running' && this.controls) this.controls.pollGamepad(dt, false);
     if (!this.physics || this.state === 'select') {
       this.updateSelectCamera(dt);
       const w0 = performance.now();
@@ -1534,6 +1596,7 @@ class App {
         const fpm = Math.round(Math.abs(p.lastLanding.data.verticalSpeedFpm));
         this.ui.message(`${p.lastLanding.cause === 'firm' ? 'Firm touchdown' : 'Touchdown'} · ${fpm} ft/min`, 2200);
       }
+      if (!this.physics.crashed) this.updateAlerts(dt);
       this.syncAircraft(dt);
       this.cameraRig.update(dt, this.pose);
       this._wind = this.physics.windAt(this.physics.groundY + 8, this.physics.time);
@@ -1548,6 +1611,12 @@ class App {
       const Tm = this.physics.telemetry;
       if (this.world.geoInfo) { const G = this.world.geoInfo(this.pose.pos, Tm.heading, this._geoHud || (this._geoHud = {})); Tm.hdgMag = G.hdgMag; }
       else Tm.hdgMag = undefined;
+      // Kokpit panoramik ekranı: yalnızca kokpitten bakılırken canlı tazelenir
+      if (this.cameraRig.mode === 'cockpit' && this.aircraft.updateDisplay) {
+        const di = this._pcdInfo || (this._pcdInfo = { home: { x: LTFE.x, z: LTFE.z, name: 'LTFE' } });
+        di.alerts = this.alerts; di.pos = this.pose.pos; di.nozzle = this.physics.engine_.nozzle;
+        this.aircraft.updateDisplay(dt, Tm, di);
+      }
       if (this.physDebug) this.drawPhysDebug();
     }
     const wrecking = this.state === 'crashing' || this.state === 'crashed';
@@ -1569,6 +1638,7 @@ class App {
         this.hud.draw(this.physics.telemetry, this.camera, this.pose, {
           visible: cockpit, externalOnly: !cockpit,
           dt, safe: this.safe, cameraName: CAMERA_NAMES[this.cameraRig.mode], weapons: wi,
+          alertList: this.alerts.list(this.physics.telemetry, this._alertList), fuelLow: this.alerts.fuelLow,
         });
       }
       this.needsRender = false;
@@ -1576,7 +1646,7 @@ class App {
     const crashCam = wrecking && this.cameraRig.crash && !this.cameraRig.crash.keep;
     this.audio.setListener(this.cameraRig.mode === 'cockpit' && !crashCam ? 'cockpit' : 'external', this.cameraRig.doppler, this.cameraRig.distance);
     // Kaza sahnesinde motor sesi (yıkıcı değilse) gaz kesik hâlde doğal olarak söner
-    this.audio.update(dt, this.physics.telemetry, running || (wrecking && this.crashSeq && !this.crashSeq.destroyed));
+    this.audio.update(dt, this.physics.telemetry, running || (wrecking && this.crashSeq && !this.crashSeq.destroyed), running ? this.alerts : null);
     // ---- Uyarlanabilir kalite (perf.js): ham kare aralığıyla, yalnızca uçuşta ölçülür ----
     if (running) this.aq.sample(frameDt, this.frameMs);
     if (this.perfOverlay.on) this.perfOverlay.update(dt, this.perfInfo());

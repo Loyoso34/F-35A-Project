@@ -81,7 +81,8 @@ export class HUD {
     ];
     // RA: 100 ft üstünde 10 ft adımlarla (titremesin), altında 1 ft
     if (agl < RA_MAX) items.push(['RA', thousands(agl > 100 ? Math.round(agl / 10) * 10 : Math.round(agl)), 'FT', '0,000']);
-    items.push(['VS', (vs > 0 ? '+' : vs < 0 ? '−' : '') + thousands(Math.abs(vs)), 'FPM', '+0,000']);
+    // Şablon beş basamaklı: dalışta 10 000 ft/dk'yı aşan değer (ör. −25,950) etikete taşıyordu
+    items.push(['VS', (vs > 0 ? '+' : vs < 0 ? '−' : '') + thousands(Math.abs(vs)), 'FPM', '+00,000']);
     items.push(['HDG', String(Math.round(hdgOf(T)) % 360 || 360).padStart(3, '0'), T.hdgMag !== undefined ? '°M' : '°', '000']);
     const fL = `600 ${9 * U}px ${SANS}`, fV = `600 ${14 * U}px ${MONO}`, fU = `600 ${8 * U}px ${SANS}`;
     const gap = 16 * U, padX = 12 * U, hgt = 26 * U;
@@ -115,17 +116,30 @@ export class HUD {
     this.externalInfoBox = { x: x0, y: y0, w: total, h: hgt };
   }
 
-  // Dış kameralarda yalnızca küçük, yeşil olmayan uyarılar (stall / takım)
+  // Dış kameralarda uyarılar (v5.1): şeridin altında, öncelik sırasıyla en fazla iki satır. Her satır
+  // koyu zeminli küçük bir hap içindedir (sahne üzerinde, açık gökte de okunur); kırmızı uyarılar ve
+  // kehribar uyarıların çoğu yanıp söner, kalıcı durumlar (LOW FUEL, ENGINE OUT) sabittir.
   drawExternalWarnings(T, opts, on) {
+    const list = opts.alertList;
+    if (!list || !list.length) return;
     const ctx = this.ctx; const { w } = this;
     ctx.save();
     ctx.font = `700 ${12.5 * U}px ${SANS}`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 1;
-    const y = opts.safe.top + 50 * U;
-    if (T.stall && on) { ctx.fillStyle = RED; ctx.fillText('STALL', w / 2, y); }
-    else if (T.stallWarn && on) { ctx.fillStyle = AMBER; ctx.fillText('STALL WARNING', w / 2, y); }
-    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = AMBER; ctx.fillText('LANDING GEAR', w / 2, y + 18 * U); }
+    let y = opts.safe.top + 50 * U;
+    const n = Math.min(2, list.length);
+    for (let i = 0; i < n; i++) {
+      const [txt, sev, flash] = list[i];
+      const col = sev === 'red' ? RED : AMBER;
+      if (!flash || on) {
+        const tw = ctx.measureText(txt).width + 22 * U, th = 19 * U;
+        ctx.fillStyle = sev === 'red' ? 'rgba(48,8,6,0.72)' : 'rgba(40,26,4,0.66)';
+        ctx.strokeStyle = col; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(Math.round(w / 2 - tw / 2) + 0.5, Math.round(y - th / 2) + 0.5, Math.round(tw), Math.round(th), 5 * U); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = col; ctx.fillText(txt, w / 2, y + 0.5);
+      }
+      y += 24 * U;
+    }
     ctx.restore();
   }
 
@@ -146,15 +160,16 @@ export class HUD {
     this.blink += opts.dt || 0.016;
     this.extAge = (this.extAge || 0) + (opts.dt || 0.016);
     const on = Math.floor(this.blink * 4) % 2 === 0;
-    const warnStall = T.stall ? 2 : T.stallWarn ? 1 : 0;
-    const warnGear = !T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0;
+    const list = opts.alertList || [];
+    let warnKey = '', flashing = false;
+    for (let i = 0; i < list.length && i < 2; i++) { warnKey += list[i][0][0] + list[i][0].length; if (list[i][2]) flashing = true; }
     const key = Math.round(S.ias) + '|' + Math.round(S.alt) + '|' + Math.round(S.vs / 50) + '|' + Math.round(hdgOf(T)) + '|' + (S.agl < RA_MAX ? Math.round(S.agl / 10) : -1)
-      + '|' + warnStall + (warnGear ? 'g' : '') + ((warnStall || warnGear) && on ? '*' : '')
+      + '|' + warnKey + (flashing && on ? '*' : '')
       + '|' + this.w + 'x' + this.h + '|' + opts.safe.top + ',' + opts.safe.left + ',' + opts.safe.right;
     if (this.mode === 'external' && key === this.extKey) return;
     if (this.mode === 'external' && this.extAge < EXT_INTERVAL) return;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    if (this.mode === 'external') ctx.clearRect(0, 0, this.w, Math.min(this.h, opts.safe.top + 96));
+    if (this.mode === 'external') ctx.clearRect(0, 0, this.w, Math.min(this.h, opts.safe.top + 110));
     else ctx.clearRect(0, 0, this.w, this.h);
     this.mode = 'external'; this.extKey = key; this.extAge = 0;
     this.drawExternalInfo(T, opts);
@@ -301,8 +316,8 @@ export class HUD {
     const thrTxt = T.ab > 0.05 ? 'THR AB' : 'THR ' + Math.round(T.throttle * 100) + '%';
     ctx.fillStyle = GREEN;
     ctx.fillText(thrTxt, lx, infoY);
-    ctx.fillStyle = GREEN;
-    ctx.fillText('ENG ' + Math.round(T.engine * 100) + '%', lx, infoY + 16);
+    if (T.flameout) { ctx.fillStyle = RED; ctx.fillText('ENG OUT', lx, infoY + 16); }
+    else { ctx.fillStyle = GREEN; ctx.fillText('ENG ' + Math.round(T.engine * 100) + '%', lx, infoY + 16); }
     const gearTxt = T.gear >= 0.99 ? 'GEAR DN' : T.gear <= 0.01 ? 'GEAR UP' : 'GEAR ···';
     ctx.fillStyle = T.gear > 0.01 && T.gear < 0.99 ? '#ffd35a' : GREEN;
     ctx.fillText(gearTxt, lx, infoY + 32);
@@ -312,7 +327,9 @@ export class HUD {
     if (T.brakes) flags.push('BRK');
     if (flags.length) ctx.fillText(flags.join('  '), lx, infoY + 48);
     ctx.textAlign = 'right';
+    ctx.fillStyle = T.flameout ? RED : (opts.fuelLow ? AMBER : GREEN);
     ctx.fillText('FUEL ' + thousands(Math.round(T.fuelKg)) + ' kg', rx + boxW, infoY);
+    ctx.fillStyle = GREEN;
     // Silah durumu: kalan füze, sıradaki/meşgul/engelli
     if (opts.weapons) {
       const wpn = opts.weapons;
@@ -324,11 +341,26 @@ export class HUD {
 
     // ---- Uyarılar ----
     ctx.textAlign = 'center';
-    ctx.font = `bold 20px ${MONO}`;
     const on = Math.floor(this.blink * 4) % 2 === 0;
-    if (T.stall && on) { ctx.fillStyle = RED; ctx.fillText('STALL', cx, cy + 70); }
-    else if (T.stallWarn) { ctx.fillStyle = AMBER; ctx.font = `bold 14px ${MONO}`; ctx.fillText('AoA ' + (on ? '▲' : '△') + ' STALL WARN', cx, cy + 70); }
-    if (!T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0 && on) { ctx.fillStyle = AMBER; ctx.font = `bold 20px ${MONO}`; ctx.fillText('GEAR', cx, cy + 94); }
+    // Uyarılar (v5.1): ortak öncelik listesi (alerts.js), en fazla üç satır. PULL UP çerçeveli ve büyük.
+    const list = opts.alertList || [];
+    let wy = cy + 70;
+    for (let i = 0; i < list.length && i < 3; i++) {
+      const [txt, sev, flash] = list[i];
+      const col = sev === 'red' ? RED : AMBER;
+      const big = txt === 'PULL UP';
+      if (!flash || on || txt === 'STALL WARNING') {
+        ctx.fillStyle = col; ctx.strokeStyle = col;
+        if (txt === 'STALL WARNING') { ctx.font = `bold 14px ${MONO}`; ctx.fillText('AoA ' + (on ? '▲' : '△') + ' STALL WARN', cx, wy); }
+        else {
+          ctx.font = `bold ${big ? 24 : 18}px ${MONO}`;
+          ctx.fillText(txt, cx, wy);
+          if (big) { const tw = ctx.measureText(txt).width; ctx.lineWidth = 2; ctx.strokeRect(cx - tw / 2 - 10, wy - 17, tw + 20, 34); ctx.lineWidth = 1.5; }
+        }
+      }
+      wy += big ? 36 : 24;
+    }
+    ctx.strokeStyle = GREEN; ctx.fillStyle = GREEN;
     ctx.restore();   // %80 blok
     ctx.restore();
   }

@@ -571,63 +571,7 @@ export function makeSoftNoiseTexture(size = 256, seed = 91) {
   return finishTexture(new THREE.CanvasTexture(c));
 }
 
-// Kokpit panoramik ekranı (PCD): koyu arka plan, portal pencereler, semboloji.
-export function makeCockpitDisplayTexture(w = 1024, h = 384) {
-  const c = makeCanvas(w, h);
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#0b0d10';
-  ctx.fillRect(0, 0, w, h);
-  // Ekran alanı
-  const pad = 26;
-  ctx.fillStyle = '#0f1a24';
-  ctx.fillRect(pad, pad, w - pad * 2, h - pad * 2);
-  const cols = [pad, w * 0.5, w - pad];
-  const rows = [pad, h * 0.22, h - pad];
-  ctx.strokeStyle = '#3f5a6e';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(pad, pad, w - pad * 2, h - pad * 2);
-  ctx.beginPath(); ctx.moveTo(w * 0.5, pad); ctx.lineTo(w * 0.5, h - pad); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(pad, rows[1]); ctx.lineTo(w - pad, rows[1]); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(w * 0.25, rows[1]); ctx.lineTo(w * 0.25, h - pad); ctx.moveTo(w * 0.75, rows[1]); ctx.lineTo(w * 0.75, h - pad); ctx.stroke();
-  // Üst şerit: uyarı/menü hücreleri
-  ctx.font = 'bold 20px Arial';
-  ctx.fillStyle = '#8fd3ff';
-  const menu = ['TSD', 'SMS', 'FCS', 'DAS', 'CNI', 'ENG', 'FUEL', 'CKLST'];
-  menu.forEach((t, i) => {
-    const x = pad + ((i + 0.5) * (w - pad * 2)) / menu.length;
-    ctx.textAlign = 'center';
-    ctx.fillText(t, x, rows[1] - 24);
-  });
-  // Sol: taktik durum (menzil halkaları)
-  const cx = w * 0.125, cy = (rows[1] + rows[2]) / 2;
-  ctx.strokeStyle = '#5cc2ff';
-  for (let r = 20; r <= 100; r += 40) { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); }
-  ctx.fillStyle = '#5cc2ff';
-  ctx.beginPath(); ctx.moveTo(cx, cy - 12); ctx.lineTo(cx - 8, cy + 8); ctx.lineTo(cx + 8, cy + 8); ctx.closePath(); ctx.fill();
-  // Yapay ufuk
-  const ax = w * 0.375;
-  ctx.fillStyle = '#2a6cb0'; ctx.fillRect(ax - 100, cy - 100, 200, 100);
-  ctx.fillStyle = '#6b4a2a'; ctx.fillRect(ax - 100, cy, 200, 100);
-  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(ax - 100, cy); ctx.lineTo(ax + 100, cy); ctx.stroke();
-  for (const d of [-60, -30, 30, 60]) { ctx.beginPath(); ctx.moveTo(ax - 30, cy + d); ctx.lineTo(ax + 30, cy + d); ctx.stroke(); }
-  ctx.strokeStyle = '#ffd35a'; ctx.beginPath(); ctx.moveTo(ax - 40, cy); ctx.lineTo(ax - 12, cy); ctx.lineTo(ax, cy + 8); ctx.lineTo(ax + 12, cy); ctx.lineTo(ax + 40, cy); ctx.stroke();
-  // Sağ: motor/yakıt çubukları
-  const bx = w * 0.625;
-  ctx.fillStyle = '#8fd3ff'; ctx.font = '18px Arial'; ctx.textAlign = 'left';
-  ['RPM 68%', 'FTIT 540', 'OIL 45', 'NOZ 85%'].forEach((t, i) => ctx.fillText(t, bx - 90, cy - 60 + i * 34));
-  const fx = w * 0.875;
-  ctx.fillStyle = '#2b4a5e'; ctx.fillRect(fx - 80, cy - 90, 160, 180);
-  ctx.fillStyle = '#39ff6a'; ctx.fillRect(fx - 70, cy + 60 - 130, 40, 130); ctx.fillRect(fx + 30, cy + 60 - 120, 40, 120);
-  ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.fillText('FUEL', fx, cy + 82);
-  ctx.fillText('8300 kg', fx, cy - 100);
-  // Bezel yansıması
-  ctx.strokeStyle = '#2c3138'; ctx.lineWidth = 6; ctx.strokeRect(6, 6, w - 12, h - 12);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.needsUpdate = true;
-  return t;
-}
+// Kokpit panoramik ekranı (PCD): v5.1'den beri canlıdır, bkz. js/pcd.js (CockpitDisplay).
 
 // Silah yuvası kapakları: testere dişli çizgili, şeffaf çıkartma
 export function makeBayDoorTexture(w = 1024, h = 512) {

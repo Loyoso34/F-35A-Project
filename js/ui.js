@@ -24,7 +24,7 @@ export class UI {
       loading: $('loading'), loadingText: $('loading-text'), loadingBar: $('loading-bar'), loadingPct: $('loading-pct'),
       loadingProgress: $('loading-progress'), loadingVer: $('loading-ver'), btnLoadRetry: $('btn-load-retry'),
       start: $('start-screen'), btnStart: $('btn-start'), startHint: $('start-hint'),
-      pause: $('pause-menu'), btnResume: $('btn-resume'), btnRestart: $('btn-restart'), btnSettings: $('btn-settings'),
+      pause: $('pause-menu'), btnResume: $('btn-resume'), btnRestart: $('btn-restart'), btnSettings: $('btn-settings'), btnControls: $('btn-controls'),
       settings: $('settings'), btnSettingsClose: $('btn-settings-close'), qualitySeg: $('quality-seg'), tiltSeg: $('tilt-seg'), soundSeg: $('sound-seg'), fpsSeg: $('fps-seg'), fovSeg: $('fov-seg'), todSeg: $('tod-seg'), btnCalibrate: $('btn-calibrate'), version: $('version'),
       crash: $('crash'), crashReason: $('crash-reason'), btnCrashRestart: $('btn-crash-restart'), btnCrashHangar: $('btn-crash-hangar'),
       crashTitle: $('crash-title'), crashSpeed: $('crash-speed'), crashVs: $('crash-vs'), crashAtt: $('crash-att'), crashGear: $('crash-gear'), crashNotes: $('crash-notes'),
@@ -45,8 +45,10 @@ export class UI {
       if (e.key === 'Escape' && this.isOpen('guide')) { this.hide('guide'); e.stopPropagation(); }
     }, true);
     this.el.standaloneHintClose.addEventListener('click', () => this.hide('standaloneHint'));
-    this.el.btnReload.addEventListener('click', () => location.reload());
-    if (this.el.btnLoadRetry) this.el.btnLoadRetry.addEventListener('click', () => location.reload());
+    // Bilinçli yenileme: uçuş sırasındaki sayfadan çıkış onayını (main.js beforeunload) atlar
+    const reload = () => { window.__ffsAllowUnload = true; location.reload(); };
+    this.el.btnReload.addEventListener('click', reload);
+    if (this.el.btnLoadRetry) this.el.btnLoadRetry.addEventListener('click', reload);
     this.msgTimer = 0; this.msgClearTimer = 0;
     // İlerleme gösterimi: hedef (gerçek ilerleme) ve ekranda çizilen değer
     this.progTarget = 0; this.progShown = 0; this.progRaf = 0; this.progWaiters = [];

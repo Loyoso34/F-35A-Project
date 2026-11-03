@@ -140,6 +140,9 @@ export class AudioEngine {
     this.stallOsc = ctx.createOscillator(); this.stallOsc.type = 'square'; this.stallOsc.frequency.value = 720;
     this.stallGain = ctx.createGain(); this.stallGain.gain.value = 0;
     this.stallOsc.connect(this.stallGain); this.stallGain.connect(this.master); this.stallOsc.start();
+    // Uyarı sesleri (v5.1: PULL UP, TERRAIN, LOW FUEL, ENGINE OUT): kanopi süzgecini atlar, kokpitte boğulmaz
+    this.alertBus = ctx.createGain(); this.alertBus.gain.value = 1; this.alertBus.connect(this.comp);
+    this._alertNext = 0;
 
     this.rateNodes = [this.roarA, this.roarB, this.hiss, this.abSrc, this.crackle];
     this.baseRates = this.rateNodes.map((n) => n.playbackRate.value);
@@ -197,13 +200,30 @@ export class AudioEngine {
     this.distanceGain = 1 / (1 + Math.max(0, distance) / 180);
   }
 
-  update(dt, T, running) {
-    if (!this.ready || !T) return;
+  /**
+   * Uçuş dışı (görev hazırlığı, yükleme): tüm sürekli katmanlar kısa sürede susar. Eskiden telemetri
+   * yokken güncelleme hiç yapılmıyordu: kaza ekranından hangara dönünce enkazın rölanti gürlemesi
+   * ve rüzgâr son seviyelerinde takılı kalıp görev hazırlığında çalmaya devam ediyordu.
+   */
+  silence() {
+    if (!this.ready || this._silent) return;
+    const t = this.ctx.currentTime;
+    for (const g of [this.rumbleGain, this.roarGain, this.whineGain, this.hissGain, this.abGain, this.crackleGain, this.windGain, this.rollGain, this.gearHumGain, this.stallGain]) g.gain.setTargetAtTime(0, t, 0.12);
+    this._air = false; this._gearPrev = undefined; this.lastAb = 0;
+    this._silent = true;
+  }
+
+  update(dt, T, running, alerts = null) {
+    if (!this.ready) return;
+    if (!T) { this.silence(); return; }
+    this._silent = false;
     const ctx = this.ctx, t = ctx.currentTime, k = 0.06;
     const P = this.profile || DEFAULT_PROFILE;
+    // Yanma durumu (yakıt bitince 1 -> 0): katmanlar söner, çekirdek rüzgâr değirmeni hızına iner
+    const run = T.engineRun === undefined ? 1 : T.engineRun;
     const eng = running ? T.engine : 0;
     const ab = running ? T.ab * P.ab : 0;
-    const rpm = P.idle + (1 - P.idle) * eng;     // rölanti hissi profile göre
+    const rpm = (P.idle + (1 - P.idle) * eng) * (0.3 + 0.7 * run);     // rölanti hissi profile göre
     const cockpit = this.view === 'cockpit';
     const dg = cockpit ? 1 : this.distanceGain;
     const dop = cockpit ? 1 : this.doppler;
@@ -215,19 +235,19 @@ export class AudioEngine {
     const fr = (P.rumbleF[0] + rpm * P.rumbleF[1]) * dop;
     for (const r of this.rumbleOscs) r.o.frequency.setTargetAtTime(fr * r.mul, t, k);
     this.rumbleFilter.frequency.setTargetAtTime(P.rumbleFilter[0] + rpm * P.rumbleFilter[1], t, k);
-    this.rumbleGain.gain.setTargetAtTime(running ? (P.rumbleGain[0] + rpm * P.rumbleGain[1]) * (cockpit ? 1.25 : 0.9) * dg : 0, t, k);
+    this.rumbleGain.gain.setTargetAtTime(running ? (P.rumbleGain[0] + rpm * P.rumbleGain[1]) * (cockpit ? 1.25 : 0.9) * dg * (0.15 + 0.85 * run) : 0, t, k);
 
     // Kükreme: spektrum rpm ile yukarı, seviye rpm² ile
     this.roarBP.frequency.setTargetAtTime((P.roarBP[0] + rpm * P.roarBP[1]) * dop, t, k);
     this.roarLP.frequency.setTargetAtTime((P.roarLP[0] + rpm * P.roarLP[1]) * dop, t, k);
-    this.roarGain.gain.setTargetAtTime(running ? (P.roarGain[0] + rpm * rpm * P.roarGain[1]) * (cockpit ? 0.45 : 1.0) * dg : 0, t, k);
+    this.roarGain.gain.setTargetAtTime(running ? (P.roarGain[0] + rpm * rpm * P.roarGain[1]) * (cockpit ? 0.45 : 1.0) * dg * run : 0, t, k);
 
     // Islık: 700 Hz -> 4200 Hz, dışarıda belirgin, kokpitte kısık
     const fw = (P.whineF[0] + rpm * P.whineF[1]) * dop;
     for (const w of this.whineOscs) w.o.frequency.setTargetAtTime(fw * w.mul, t, k);
-    this.whineGain.gain.setTargetAtTime(running ? (P.whineGain[0] + rpm * P.whineGain[1]) * (cockpit ? 0.5 : 1.0) * dg : 0, t, k);
+    this.whineGain.gain.setTargetAtTime(running ? (P.whineGain[0] + rpm * P.whineGain[1]) * (cockpit ? 0.5 : 1.0) * dg * (0.25 + 0.75 * run) : 0, t, k);
     this.hissHP.frequency.setTargetAtTime(P.hissHP[0] + rpm * P.hissHP[1], t, k);
-    this.hissGain.gain.setTargetAtTime(running ? rpm * rpm * P.hissGain * (cockpit ? 0.3 : 1.0) * dg : 0, t, k);
+    this.hissGain.gain.setTargetAtTime(running ? rpm * rpm * P.hissGain * (cockpit ? 0.3 : 1.0) * dg * run : 0, t, k);
 
     // Art yakıcı: ateşleme darbesi + gürleme + çıtırtı
     if (P.ab && ab > 0.25 && this.lastAb <= 0.25 && running) this.thump();
@@ -270,6 +290,46 @@ export class AudioEngine {
     } else {
       this.stallGain.gain.setTargetAtTime(0, t, 0.02);
     }
+    this.updateAlerts(alerts, cockpit, t);
+  }
+
+  /**
+   * Uyarı sesleri: PULL UP — yükselen iki "whoop" (0,9 s'de bir), TERRAIN — iki tonlu ikaz (1,6 s'de bir),
+   * LOW FUEL / ENGINE OUT — tetiklendiğinde bir kez ana ikaz çanı. Dışarıdan bakarken daha kısık.
+   */
+  updateAlerts(A, cockpit, t) {
+    if (!A || this.muted) { this._alertNext = 0; return; }
+    const g = cockpit ? 1 : 0.55;
+    for (const ev of A.events) {
+      if (ev === 'fuelLow') this.chime(t, [880, 660], 0.07 * g);
+      else if (ev === 'flameout') this.chime(t, [660, 520, 400], 0.09 * g);
+      else if (ev === 'gear') this.chime(t, [1046, 1046, 1046], 0.05 * g);
+    }
+    if (t < this._alertNext) return;
+    if (A.pullUp) {
+      this._beep(t, 380, 1150, 0.34, 0.075 * g, 'sawtooth', 1800);
+      this._beep(t + 0.42, 380, 1150, 0.34, 0.075 * g, 'sawtooth', 1800);
+      this._alertNext = t + 0.95;
+    } else if (A.terrain) {
+      this._beep(t, 740, 740, 0.16, 0.05 * g, 'triangle', 3000);
+      this._beep(t + 0.2, 590, 590, 0.22, 0.05 * g, 'triangle', 3000);
+      this._alertNext = t + 1.6;
+    } else this._alertNext = 0;
+  }
+  /** Uyarı tonu: frekans süpürmeli, alçak geçirenli, uyarı yoluna (kanopi süzgecini atlar). */
+  _beep(t, f0, f1, dur, gain, type = 'sine', lp = 4000) {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp; f.Q.value = 0.5;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.015); g.gain.setValueAtTime(gain, t + dur * 0.8); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(f); f.connect(g); g.connect(this.alertBus); o.start(t); o.stop(t + dur + 0.05);
+  }
+  /** Ana ikaz çanı: kısa, yumuşak sönümlü tonlar dizisi. */
+  chime(t, freqs, gain) {
+    if (!this.ready || this.muted) return;
+    freqs.forEach((f, i) => this._beep(t + i * 0.22, f, f, 0.2, gain, 'sine', 5000));
   }
 
   // ---- Silah sesleri (tek seferlik; gürültü tamponları önbellekte, her çağrıda üretilmez) ----
@@ -374,7 +434,7 @@ export class AudioEngine {
     o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(32, t + 0.45);
     const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
     o.connect(g); g.connect(this.bus); o.start(t); o.stop(t + 0.6);
-    const n = ctx.createBufferSource(); n.buffer = this.makeNoiseBuffer(0.4, 'brown', 77);
+    const n = ctx.createBufferSource(); n.buffer = this._buf('thump', 0.4, 'brown', 77);
     const ng = ctx.createGain(); ng.gain.setValueAtTime(0.35, t); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
     const nf = ctx.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 400;
     n.connect(nf); nf.connect(ng); ng.connect(this.bus); n.start(t); n.stop(t + 0.45);

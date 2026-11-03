@@ -1,5 +1,5 @@
 /* F-35A Simülatör – Service Worker */
-const CACHE_VERSION = '5.0.0';
+const CACHE_VERSION = '5.1.0';
 const CACHE_NAME = 'f35a-sim-' + CACHE_VERSION;
 // Gerçek dünya karoları (geo/<bölge>/dem|img): sürümden BAĞIMSIZ ayrı önbellek. Veri değişince
 // GEO_CACHE adı değiştirilir. Görülen karolar çevrimdışı uçuş için saklanır; sınırlı boyut.
@@ -37,6 +37,8 @@ const APP_FILES = [
   './js/fcs.js',
   './js/controls.js',
   './js/hud.js',
+  './js/alerts.js',
+  './js/pcd.js',
   './js/audio.js',
   './js/weapons.js',
   './js/fx.js',

@@ -6,6 +6,38 @@ const AB_DETENT = 1.0;   // gaz kolu 0..1.15; 1.0 üzeri art yakıcı
 // Çubuk yumuşatma hızı (1/s). main.js aynı yumuşatmayı 120 Hz fizik alt adımlarında
 // uygular; böylece komut kare hızından bağımsız olarak aynı sürekli eğriyi izler.
 export const STICK_SMOOTH = 14;
+// Klavye çubuğu (v5.1): tuş basılıyken sapma kademeli artar (0 -> tam ≈ 0,38 s), bırakınca
+// ya da ters yöne basınca hızla merkeze döner. Eskiden tuş anında TAM sapma veriyordu: kısa bir
+// dokunuş bile 9 g çekiş ya da tam yatış demekti, masaüstünde ince düzeltme yapılamıyordu.
+const KB_RISE = 2.6, KB_RETURN = 7.5;   // 1/s
+// Gaz kolu tuşları. Ctrl (gaz azalt) + W/S/D tarayıcıda sekme kapat / kaydet / yer imi
+// kısayollarına denk geliyordu; uçuş tuşlarında varsayılan davranış engellenir, ayrıca
+// kısayolsuz seçenekler vardır (+/−, Page Up/Down).
+const THR_UP_KEYS = ['ShiftLeft', 'ShiftRight', 'Equal', 'NumpadAdd', 'PageUp'];
+const THR_DOWN_KEYS = ['ControlLeft', 'ControlRight', 'Minus', 'NumpadSubtract', 'PageDown'];
+const FLIGHT_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ...THR_UP_KEYS, ...THR_DOWN_KEYS]);
+const THROTTLE_KEY_RATE = 0.5;   // kol/s (rölantiden askeri güce ~2 s)
+// Oyun kumandası (v5.1, Gamepad API "standard" eşlemesi): sol çubuk yunuslama/yatış, sağ çubuk bakış,
+// RT/LT gaz (basınçla orantılı hız), LB/RB dümen, A ateş, B fren, X takım, Y kamera, D-pad ↑/↓ flap,
+// ← ışıklar, → ses, Start duraklat, Back/View kontroller ekranı, R3 bakışı ortala.
+const GP_DEAD = 0.14;            // çubuk ölü bölgesi (yarıçapsal)
+const GP_THROTTLE_RATE = 0.7;    // kol/s, tetik tam basılıyken
+const GP_LOOK = 340;             // px/s eşdeğeri bakış sürüklemesi (sağ çubuk tam sapmada)
+const GP = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+/** Yarıçapsal ölü bölge + yeniden ölçekleme: küçük çubuk kayması girdi üretmez, tam sapma 1 kalır. */
+function deadzone2(x, y) {
+  const r = Math.hypot(x, y);
+  if (r < GP_DEAD) return [0, 0];
+  const k = Math.min(1, (r - GP_DEAD) / (1 - GP_DEAD)) / r;
+  return [x * k, y * k];
+}
+/** Klavye ekseni: hedefe doğru artış hızı KB_RISE, merkeze (ya da merkezden geçerek ters yöne) KB_RETURN. */
+function rampAxis(v, target, dt) {
+  const toward = target === 0 || (v !== 0 && Math.sign(target) !== Math.sign(v)) ? 0 : target;
+  const rate = toward === 0 ? KB_RETURN : KB_RISE;
+  const d = toward - v, step = rate * dt;
+  return Math.abs(d) <= step ? toward : v + Math.sign(d) * step;
+}
 
 export class Controls {
   constructor(callbacks = {}) {
@@ -16,6 +48,8 @@ export class Controls {
     this.leverMax = 1.15;   // üst %15: art yakıcı kademesi
     this.enabled = false;
     this.keys = new Set();
+    this.kb = { pitch: 0, roll: 0 };   // klavye çubuğu (kademeli, bkz. rampAxis)
+    this.gp = { index: -1, prev: [], pitch: 0, roll: 0, rudder: 0, active: false };   // oyun kumandası
     this.stickPointer = null;
     this.stickOrigin = { x: 0, y: 0 };
     this.stickVec = { x: 0, y: 0 };
@@ -68,6 +102,15 @@ export class Controls {
     this.onResize = () => { this.setThrottleUI(); this.setFlapUI(this.flapIndex); };
     window.addEventListener('resize', this.onResize);
     window.addEventListener('orientationchange', this.onResize);
+    window.addEventListener('gamepadconnected', (e) => {
+      this.gp.index = e.gamepad.index; this.gp.prev = [];
+      this.cb.onGamepad && this.cb.onGamepad(e.gamepad.id, true);
+    });
+    window.addEventListener('gamepaddisconnected', (e) => {
+      if (e.gamepad.index !== this.gp.index) return;
+      this.gp.index = -1; this.gp.active = false; this.gp.pitch = this.gp.roll = this.gp.rudder = 0;
+      this.cb.onGamepad && this.cb.onGamepad(e.gamepad.id, false);
+    });
     document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
     document.addEventListener('gesturechange', (e) => e.preventDefault(), { passive: false });
     document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
@@ -80,6 +123,9 @@ export class Controls {
     this.enabled = v;
     if (!v) {
       this.releaseStick(); this.rudderHeld = false; this.rudderPointer = null; this.keys.clear();
+      this.kb.pitch = this.kb.roll = 0;
+      this.throttlePointer = null; this.flapPointer = null;
+      if (this.els.flaps) this.els.flaps.classList.remove('moving');
       if (this.els.rudderKnob) this.els.rudderKnob.classList.remove('active');
     }
   }
@@ -95,6 +141,7 @@ export class Controls {
     this.updateRudderUI();
     this.raw.pitch = this.raw.roll = this.raw.yaw = 0;
     this.state.pitch = this.state.roll = this.state.yaw = 0;
+    this.kb.pitch = this.kb.roll = 0;
     this.keys.clear();
   }
 
@@ -380,9 +427,12 @@ export class Controls {
   // ---- Klavye ----
   bindKeyboard() {
     window.addEventListener('keydown', (e) => {
+      // Uçuşta, uçuş tuşlarının tarayıcı kısayolları (Ctrl+S, Ctrl+D, Ctrl+E…) çalışmaz. Ctrl+W
+      // gibi engellenemeyen kısayollar için main.js sayfadan çıkışta onay ister.
+      if (this.enabled && FLIGHT_KEYS.has(e.code)) e.preventDefault();
       if (e.repeat) { this.keys.add(e.code); return; }
       this.keys.add(e.code);
-      if (!this.enabled && e.code !== 'KeyP' && e.code !== 'Escape') return;
+      if (!this.enabled && e.code !== 'KeyP' && e.code !== 'Escape' && e.code !== 'KeyH') return;
       switch (e.code) {
         case 'KeyG': this.cb.onGear && this.cb.onGear(); break;
         case 'KeyF': this.cb.onFlaps && this.cb.onFlaps(); break;
@@ -393,8 +443,10 @@ export class Controls {
         case 'KeyR': this.cb.onViewRecenter && this.cb.onViewRecenter(); break;   // bakışı ortala
         case 'Space': this.cb.onFire && this.cb.onFire(); break;                   // füze (basılı tutmak tekrar ateşlemez)
         case 'KeyP': case 'Escape': this.cb.onPause && this.cb.onPause(); break;
-        // Shift+D: geliştirici fizik paneli (§40). Normal oyunda kapalı.
-        case 'KeyD': if (e.shiftKey) this.cb.onPhysDebug && this.cb.onPhysDebug(); break;
+        case 'KeyH': this.cb.onHelp && this.cb.onHelp(); break;                     // kontroller ekranı
+        // I: geliştirici fizik paneli (§40). Normal oyunda kapalı. (Eskiden Shift+D idi: Shift gaz
+        // artırır, D sağa yatırır — gaz verirken sağa yatan pilot paneli açıp kapatıyordu.)
+        case 'KeyI': this.cb.onPhysDebug && this.cb.onPhysDebug(); break;
         // `: performans katmanı (kare süreleri, çizim çağrıları, bellek tahmini)
         case 'Backquote': this.cb.onPerfDebug && this.cb.onPerfDebug(); break;
         default: return;
@@ -403,6 +455,47 @@ export class Controls {
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
+  }
+
+  // ---- Oyun kumandası ----
+  /**
+   * Kumandayı okur. flying = true: tüm eşleme; false (duraklatılmış): yalnızca Start (devam) ve Back.
+   * Düğmeler kenar algılamalıdır (basılı tutmak tekrar tetiklemez).
+   */
+  pollGamepad(dt, flying) {
+    const G = this.gp;
+    if (G.index < 0 || typeof navigator === 'undefined' || !navigator.getGamepads) { G.active = false; return; }
+    const pad = navigator.getGamepads()[G.index];
+    if (!pad || !pad.connected) { G.active = false; return; }
+    const b = pad.buttons, prev = G.prev;
+    const val = (i) => (b[i] ? (typeof b[i] === 'object' ? b[i].value : b[i]) : 0);
+    const down = (i) => !!(b[i] && (b[i].pressed || val(i) > 0.5));
+    const edge = (i) => { const d = down(i); const e = d && !prev[i]; return e; };
+    const cb = this.cb;
+    if (edge(GP.START)) (cb.onGamepadStart || cb.onPause || (() => {}))();
+    if (edge(GP.BACK)) cb.onHelp && cb.onHelp();
+    if (flying) {
+      if (edge(GP.A)) cb.onFire && cb.onFire();
+      if (edge(GP.B)) cb.onBrake && cb.onBrake();
+      if (edge(GP.X)) cb.onGear && cb.onGear();
+      if (edge(GP.Y)) cb.onCamera && cb.onCamera();
+      if (edge(GP.LEFT)) cb.onLights && cb.onLights();
+      if (edge(GP.RIGHT)) cb.onSound && cb.onSound();
+      if (edge(GP.R3)) cb.onViewRecenter && cb.onViewRecenter();
+      const n = this.flapNames.length;
+      if (edge(GP.UP) && this.flapIndex > 0) cb.onFlapIndex && cb.onFlapIndex(this.flapIndex - 1);
+      if (edge(GP.DOWN) && this.flapIndex < n - 1) cb.onFlapIndex && cb.onFlapIndex(this.flapIndex + 1);
+      const ax = pad.axes || [];
+      const [lx, ly] = deadzone2(ax[0] || 0, ax[1] || 0);
+      const [rx, ry] = deadzone2(ax[2] || 0, ax[3] || 0);
+      G.roll = lx; G.pitch = ly;   // çubuğu kendine çekmek (aşağı, +) = burun yukarı, dokunmatik çubukla aynı
+      G.rudder = (down(GP.RB) ? 1 : 0) - (down(GP.LB) ? 1 : 0);
+      if (rx || ry) cb.onViewDrag && cb.onViewDrag(rx * GP_LOOK * dt, ry * GP_LOOK * dt);
+      const thr = val(GP.RT) - val(GP.LT);
+      if (Math.abs(thr) > 0.05) { this.lever = clamp(this.lever + thr * GP_THROTTLE_RATE * dt, 0, this.leverMax); this.setThrottleUI(); }
+      G.active = !!(lx || ly);
+    } else { G.active = false; G.pitch = G.roll = G.rudder = 0; }
+    for (let i = 0; i < b.length; i++) prev[i] = down(i);
   }
 
   // ---- Eğim ----
@@ -461,19 +554,27 @@ export class Controls {
   update(dt) {
     const k = this.keys;
     let pitch = 0, roll = 0, yaw = 0;
+    let kp = 0, kr = 0;
+    this.pollGamepad(dt, this.enabled);
     if (this.enabled) {
-      if (k.has('KeyS') || k.has('ArrowDown')) pitch += 1;
-      if (k.has('KeyW') || k.has('ArrowUp')) pitch -= 1;
-      if (k.has('KeyD') || k.has('ArrowRight')) roll += 1;
-      if (k.has('KeyA') || k.has('ArrowLeft')) roll -= 1;
-      if (k.has('KeyE')) this.rudderKey = 1; else if (k.has('KeyQ')) this.rudderKey = -1; else this.rudderKey = 0;
-      if (k.has('ShiftLeft') || k.has('ShiftRight')) { this.lever = Math.min(this.leverMax, this.lever + dt * 0.5); this.setThrottleUI(); }
-      if (k.has('ControlLeft') || k.has('ControlRight')) { this.lever = Math.max(0, this.lever - dt * 0.5); this.setThrottleUI(); }
-    }
+      if (k.has('KeyS') || k.has('ArrowDown')) kp += 1;
+      if (k.has('KeyW') || k.has('ArrowUp')) kp -= 1;
+      if (k.has('KeyD') || k.has('ArrowRight')) kr += 1;
+      if (k.has('KeyA') || k.has('ArrowLeft')) kr -= 1;
+      if (k.has('KeyE')) this.rudderKey = 1; else if (k.has('KeyQ')) this.rudderKey = -1; else this.rudderKey = this.gp.rudder;
+      const up = THR_UP_KEYS.some((c) => k.has(c)), down = THR_DOWN_KEYS.some((c) => k.has(c));
+      if (up && !down) { this.lever = Math.min(this.leverMax, this.lever + dt * THROTTLE_KEY_RATE); this.setThrottleUI(); }
+      else if (down && !up) { this.lever = Math.max(0, this.lever - dt * THROTTLE_KEY_RATE); this.setThrottleUI(); }
+    } else this.rudderKey = 0;
+    this.kb.pitch = rampAxis(this.kb.pitch, kp, dt);
+    this.kb.roll = rampAxis(this.kb.roll, kr, dt);
+    pitch = this.kb.pitch; roll = this.kb.roll;
     this.computeTilt();
     if (this.stickPointer !== null) {
       pitch = this.stickVec.y; roll = this.stickVec.x;
-    } else if (this.tiltEnabled) {
+    } else if (this.gp.active && !kp && !kr) {
+      pitch = this.gp.pitch; roll = this.gp.roll;
+    } else if (this.tiltEnabled && !kp && !kr && !this.kb.pitch && !this.kb.roll) {
       pitch = this.tiltOut.pitch; roll = this.tiltOut.roll;
     }
     // Rudder: kaydırıcı basılıysa doğrudan; klavye basılıysa hedefe yaklaş; bırakılınca yay ile tam ortaya dön

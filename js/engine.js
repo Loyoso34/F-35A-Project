@@ -15,9 +15,10 @@ export class Engine {
     this.abLin = 0;      // art yakıcı kademe ilerlemesi (doğrusal); ab bunun S eğrisidir
     this.abTimer = 0;    // tutuşma gecikmesi sayacı
     this.nozzle = 0.55;  // nozul açıklığı 0 (askeri güçte kısılı) .. 1 (tam AB)
+    this.run = 1;        // yanma durumu: 1 çalışıyor, 0 sönmüş (yakıt bitti; rüzgâr değirmeni)
   }
 
-  reset() { this.n = 0; this.ab = 0; this.abLin = 0; this.abTimer = 0; this.thrust = 0; this.fuelFlow = 0; this.nozzle = 0.55; }
+  reset() { this.n = 0; this.ab = 0; this.abLin = 0; this.abTimer = 0; this.thrust = 0; this.fuelFlow = 0; this.nozzle = 0.55; this.run = 1; }
 
   /**
    * Motoru bir adım ilerletir ve net itkiyi döndürür.
@@ -26,9 +27,14 @@ export class Engine {
    * @param {boolean} abRequest art yakıcı isteği
    * @param {object} atm atmosphere() çıktısı
    * @param {number} mach
+   * @param {boolean} [fuelOk=true] yakıt var mı. Yoksa motor SÖNER (v5.1): gaz ve art yakıcı etkisiz,
+   *   yanma ~3 s'de söner, itki ve yakıt akışı sıfıra iner; çekirdek rüzgâr değirmeni hızına yavaşlar.
+   *   (Eskiden yakıt 0 kg'a inince motor tam itki vermeye devam ediyordu.)
    */
-  update(dt, throttle, abRequest, atm, mach) {
+  update(dt, throttle, abRequest, atm, mach, fuelOk = true) {
     const D = this.D;
+    if (!fuelOk) { throttle = 0; abRequest = false; }
+    this.run += ((fuelOk ? 1 : 0) - this.run) * (1 - Math.exp(-dt / (fuelOk ? 1.2 : 1.6)));
     // Spool: yukarı çıkarken daha yavaş, düşük N'de ek gecikme (gerçek turbofan davranışı)
     const tau = throttle > this.n
       ? D.spoolUp * (1 - D.spoolIdleLag + D.spoolIdleLag * (1 - this.n))
@@ -69,8 +75,9 @@ export class Engine {
     let T = Tmil * (idleNet + (1 - D.idleFrac) * this.n);
     if (D.thrustAB > D.thrustMil) T += (D.thrustAB - D.thrustMil) * lapse * this.ab;
 
+    T *= this.run;
     this.thrust = T;
-    this.fuelFlow = D.sfcMil * (0.08 + 0.92 * this.n) + D.sfcAB * this.ab;
+    this.fuelFlow = fuelOk ? D.sfcMil * (0.08 + 0.92 * this.n) + D.sfcAB * this.ab : 0;
     this.lapse = lapse;
     return T;
   }

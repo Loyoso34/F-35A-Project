@@ -343,7 +343,7 @@ export class FlightModel {
       F.addScaledVector(right, Yf);
     }
     // İtki gövde ileri ekseni boyuncadır; eksen kayması olmadığından yapay moment üretmez.
-    const thrust = this.engine_.update(dt, this.throttle, this.afterburner, atm, mach);
+    const thrust = this.engine_.update(dt, this.throttle, this.afterburner, atm, mach, this.fuel > 0);
     F.addScaledVector(fwd, thrust);
     this.fuel = Math.max(0, this.fuel - this.engine_.fuelFlow * dt);
 
@@ -759,6 +759,7 @@ export class FlightModel {
     t.stall = !this.onGround && aAbs > stallOn && V > 15;
     t.buffet = this._buffet || 0;
     t.fuelKg = this.fuel; t.surface = extra.surface || 'runway'; t.thrustKN = (extra.thrust || 0) / 1000;
+    t.engineRun = this.engine_.run; t.flameout = this.fuel <= 0;
     // Yer hızı: yatay yer-göreli hız (eskiden 3B hız vektörünün boyu: tırmanış/dalışta fazla okurdu).
     // Yerel düzlem çerçevesinde (TM) yataydır; dünya eğriliğinin etkisi bu ölçekte ihmal edilebilir.
     t.gsKt = Math.hypot(this.vel.x, this.vel.z) * KT;

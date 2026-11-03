@@ -272,21 +272,24 @@
     #select { z-index: 24; padding: 0; align-items: stretch; justify-content: stretch;
       background: linear-gradient(90deg, rgba(4,7,12,0.62) 0%, rgba(4,7,12,0) 30%, rgba(4,7,12,0) 70%, rgba(4,7,12,0.62) 100%),
                   linear-gradient(0deg, rgba(4,7,12,0.55) 0%, rgba(4,7,12,0) 26%), linear-gradient(180deg, rgba(4,7,12,0.45) 0%, rgba(4,7,12,0) 22%); }
-    #tod-seg { flex-wrap: wrap; }
+    /* Yedi gün saati düğmesi dört sütunlu ızgarada (4 + 3): eskiden esnek satır sararken 21:30 tek başına
+       ikinci satıra düşüyordu */
+    #tod-seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
     #tod-seg button { min-width: 0; padding-left: 6px; padding-right: 6px; font-size: 11.5px; }
     .cine-fade { position: absolute; inset: 0; background: #05080c; opacity: 0; pointer-events: none; z-index: 0; }
     .cine-vignette { position: absolute; inset: 0; pointer-events: none; z-index: 0;
       background: radial-gradient(120% 90% at 50% 45%, rgba(5,8,12,0) 55%, rgba(5,8,12,0.55) 100%),
                   linear-gradient(180deg, rgba(5,8,12,0.55) 0%, rgba(5,8,12,0) 18%, rgba(5,8,12,0) 70%, rgba(5,8,12,0.6) 100%); }
-    .cine-loc { position: absolute; left: calc(var(--sal) + 22px); bottom: calc(var(--sab) + 74px); z-index: 1; pointer-events: none;
+    .cine-loc { position: absolute; left: calc(var(--sal) + 22px); bottom: calc(var(--sab) + 84px); z-index: 1; pointer-events: none;
       display: flex; flex-direction: column; gap: 4px; padding-left: 12px; border-left: 2px solid rgba(245,247,250,0.75); }
     .cine-loc-k { font-size: 12px; font-weight: 600; letter-spacing: 0.32em; text-transform: uppercase; color: #f5f7fa; }
     .cine-loc-s { font-size: 10.5px; letter-spacing: 0.14em; color: rgba(203,211,221,0.85); }
-    @media (max-height: 520px) { .cine-loc { display: none; } }
+    /* Konum etiketi sol panelin altında yalnızca yeterli dikey boşluk varken görünür (kısa ekranda panelle çakışıyordu) */
+    @media (max-height: 640px) { .cine-loc { display: none; } .mp-src { display: none; } }
     .mp-wrap { position: absolute; inset: 0; display: grid; gap: 12px 16px; z-index: 1;
       grid-template-columns: minmax(230px, 300px) 1fr minmax(250px, 330px); grid-template-rows: auto minmax(0, 1fr) auto;
       grid-template-areas: "head head head" "left . right" "foot foot foot";
-      padding: calc(var(--sat) + 14px) calc(var(--sar) + 18px) calc(var(--sab) + 12px) calc(var(--sal) + 18px); color: #f5f7fa; }
+      padding: calc(var(--sat) + 14px) calc(var(--sar) + 18px) calc(var(--sab) + 32px) calc(var(--sal) + 18px); color: #f5f7fa; }
     .mp-head { grid-area: head; display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
     .mp-kicker { display: block; font-size: 10.5px; letter-spacing: 0.34em; text-transform: uppercase; font-weight: 600; color: #9cb4ce; }
     .mp-title h1 { margin: 4px 0 0; font-size: clamp(22px, 4.6vh, 34px); font-weight: 250; letter-spacing: 0.05em; line-height: 1; color: #f5f7fa; }
@@ -332,7 +335,7 @@
     .sel-credits { position: absolute; left: calc(var(--sal) + 18px); bottom: calc(var(--sab) + 2px); margin: 0; max-width: 60%;
       font-size: 8.5px; line-height: 1.3; color: rgba(203,211,221,0.42); pointer-events: none; }
     @media (max-height: 460px) {
-      .mp-wrap { gap: 8px 12px; padding-top: calc(var(--sat) + 9px); grid-template-columns: minmax(210px, 252px) 1fr minmax(232px, 282px); }
+      .mp-wrap { gap: 8px 12px; padding-top: calc(var(--sat) + 9px); padding-bottom: calc(var(--sab) + 12px); grid-template-columns: minmax(210px, 252px) 1fr minmax(232px, 282px); }
       .mp-panel { padding: 10px 12px 9px; border-radius: 13px; }
       .mp-desc { display: none; }
       .mp-specs { gap: 3px 10px; font-size: 11px; }
@@ -352,7 +355,16 @@
       #mp-tod .mp-chip { padding: 3px 7px; font-size: 10.5px; }
       .sel-credits { font-size: 7.5px; max-width: 68%; bottom: calc(var(--sab) + 1px); }
     }
-    @media (max-height: 380px) { .mp-map { max-height: 70px; } .mp-title h1 b { display: none; } }
+    /* Çok kısa yatay ekranlar (iPhone SE/8: 375 px): brifing paneli kaydırmadan sığsın. Eskiden bu
+       aralıkta meydan şeması BÜYÜYORDU (70 px) ve gün saati satırı panelin altında kırpılıyordu. */
+    @media (max-height: 400px) {
+      .mp-map { max-height: 40px; }
+      .mp-right h2 { display: none; }
+      .mp-chip, .ap-chip, .lv-chip { min-height: 27px; }
+      .mp-specs { gap: 2px 10px; }
+      .mp-row { margin: 4px 0 4px; }
+      .mp-title h1 b { display: none; }
+    }
     /* Dikey (döndürme uyarısı açık): paneller alt alta kayar */
     @media (max-width: 620px) and (min-height: 461px) {
       .mp-wrap { grid-template-columns: 1fr; grid-template-rows: auto auto auto auto; grid-template-areas: "head" "left" "right" "foot"; overflow-y: auto; }
@@ -665,11 +677,12 @@
         <li><b>Right slider:</b> throttle &mdash; afterburner (AB) at the top</li>
         <li><b>Bottom row, left to right:</b> flap lever &rarr; stick &rarr; rudder slider (center)</li>
         <li><b>Rudder slider:</b> drag to yaw; it springs back to center. On the ground it also steers the nosewheel</li>
-        <li><b>Flap lever:</b> slide down to extend, up to retract. It snaps to each detent and shows the setting and flap angle</li>
+        <li><b>Flap lever:</b> slide down to extend, up to retract. It snaps to each detent and shows the setting</li>
         <li><b>Gear / Brakes:</b> tap to toggle. <b>FIRE</b> (Space): AIM-120, wing stations first, then the internal bays</li>
-        <li><b>Takeoff:</b> you start with the brakes released and flaps up &mdash; open the throttle and rotate at about 140 kt</li>
-        <li><b>☰ Menu:</b> Pause, <b>Camera</b> (free &rarr; cockpit &rarr; chase &rarr; flyby &rarr; left wing &rarr; right wing &rarr; landing gear), Sound and Lights</li>
-        <li><b>Keyboard:</b> WASD/arrows pitch and roll, Q/E rudder, Shift/Ctrl throttle, G gear, F flaps, B brakes, L lights, C camera, Space fire, P pause</li>
+        <li><b>Takeoff:</b> brakes released, flaps up &mdash; full throttle, start the rotation at about 150 kt; she lifts off near 180 kt (about 155 kt with flaps LAND). Raise the gear in the climb</li>
+        <li><b>Fuel:</b> about 13 minutes at full afterburner, an hour at military power. With empty tanks the engine flames out</li>
+        <li><b>☰ Menu:</b> Pause, <b>Camera</b> (free &rarr; cockpit &rarr; chase &rarr; rear &rarr; flyby &rarr; cinematic &rarr; wings &rarr; landing gear), Sound and Lights</li>
+        <li><b>Keyboard:</b> WASD/arrows pitch and roll, Q/E rudder, Shift/Ctrl or +/&minus; throttle, G gear, F flaps, B brakes, L lights, C camera, R look ahead, Space fire, P pause, H this help</li>
         <li><b>Airport:</b> Milas–Bodrum (LTFE). Choose runway 10L or 28R and the time of day in the mission preparation screen</li>
       </ul>
     </div>
@@ -707,6 +720,7 @@
         <button class="btn" id="btn-resume">Resume</button>
         <button class="btn" id="btn-restart">Restart</button>
         <button class="btn" id="btn-aircraft">Hangar</button>
+        <button class="btn" id="btn-controls">Controls</button>
         <button class="btn" id="btn-settings">Settings</button>
       </div>
     </div>

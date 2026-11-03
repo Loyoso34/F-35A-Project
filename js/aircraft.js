@@ -2,7 +2,8 @@
 // Eksenler: burun -Z, üst +Y, sağ kanat +X. Uzunluk 15.7 m, açıklık 10.7 m, yükseklik 4.4 m.
 import * as THREE from 'three';
 import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
-import { makeStealthPanelTexture, makeRoughnessTexture, makeMilInsigniaTexture, makeTextTexture, makeCockpitDisplayTexture, makeFlameNoiseTexture, makeGlowTexture, makeGearBayTexture, makeMacroNoiseTexture, makeStencilAtlas, STENCIL_ATLAS, makeStripLightTexture, makeStripGlowTexture } from './textures.js';
+import { CockpitDisplay } from './pcd.js';
+import { makeStealthPanelTexture, makeRoughnessTexture, makeMilInsigniaTexture, makeTextTexture, makeFlameNoiseTexture, makeGlowTexture, makeGearBayTexture, makeMacroNoiseTexture, makeStencilAtlas, STENCIL_ATLAS, makeStripLightTexture, makeStripGlowTexture } from './textures.js';
 import { getLivery } from './liveries.js';
 
 // Zaten dizinsiz geometride toNonIndexed() konsola uyarı yazar: yalnızca dizinliyse dönüştür
@@ -1137,7 +1138,9 @@ export class F35A {
     }
 
     // --- Panoramik ekran (PCD): tek geniş dokunmatik ekran, göze dönük ~26° eğik ---
-    const pcdTex = this.track(makeCockpitDisplayTexture(1024, 384));
+    // v5.1: canlı ekran (pcd.js) — kokpit kamerasında uçuş verisiyle 6 Hz tazelenir
+    this.pcd = new CockpitDisplay(1024, 384);
+    const pcdTex = this.track(this.pcd.texture);
     const pcdMat = this.track(new THREE.MeshStandardMaterial({ map: pcdTex, emissive: 0xffffff, emissiveMap: pcdTex, emissiveIntensity: 0.9, roughness: 0.4 }));
     pcdMat.userData.cockpit = true;
     const PS = 3.97, tilt = 26 * DEG, panelY = deck(PS) + 0.115;
@@ -2624,6 +2627,9 @@ export class F35A {
     bay.missile.updateWorldMatrix(true, false);
     bay.missile.matrixWorld.decompose(outPos, outQuat, _tmpScale);
   }
+
+  /** Kokpit panoramik ekranını canlı veriyle tazeler (yalnızca kokpit görünümünde çağrılır; 6 Hz). */
+  updateDisplay(dt, T, info) { if (this.pcd) this.pcd.update(dt, T, info); }
 
   setCockpitView(on) {
     for (const p of this.parts.pilotParts) p.visible = !on;

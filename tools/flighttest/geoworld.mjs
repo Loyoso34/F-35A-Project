@@ -32,6 +32,7 @@ async function makeWorld() {
 }
 const W = await makeWorld();
 const L = R.LTFE;
+const { FlightAlerts } = await import(M.root + '/js/alerts.js');
 
 // ---- Havaalanı verisi ve datumlar ----
 {
@@ -193,8 +194,10 @@ const cfg = M.getAircraftConfig('f35a');
   fm.reset(W.spawnPose('ltfe-10l'));
   const r0 = L.runways[0];
   let lift = null, crashed = false, surfAtLift = null, air = false;
+  const AL = new FlightAlerts(), alertsSeen = new Set();
   run(M, fm, { seconds: 50, fps: 60, throttle: 1, ab: true, stick: (t, f) => {
     const T = f.telemetry;
+    AL.update(1 / 60, f, W); for (const e of AL.events) alertsSeen.add(e);
     if (!f.onGround) air = true;
     if (!f.onGround && lift === null) { lift = { kias: T.kias, x: f.pos.x, z: f.pos.z }; surfAtLift = W.surfaceTypeAt(f.pos.x, f.pos.z); }
     if (T.aglFt > 300 && f.gearCmd > 0.5) f.toggleGear();
@@ -206,6 +209,7 @@ const cfg = M.getAircraftConfig('f35a');
   const roll = lift ? o.u + r0.len / 2 : NaN;
   check(!crashed && lift && surfAtLift === 'runway' && roll < r0.len && fm.telemetry.altFt > 1500,
     `takeoff 10L: lift-off ${fmt(lift && lift.kias, 0)} KIAS after ${fmt(roll, 0)} m of 3000 m, climbing through ${fmt(fm.telemetry.altFt, 0)} ft MSL`);
+  check(!alertsSeen.has('pullUp') && !alertsSeen.has('terrain'), `takeoff 10L over the real terrain: no nuisance PULL UP / TERRAIN alert (${[...alertsSeen].join(', ') || 'none'})`);
 }
 
 // ---- İniş: 28R, 3° yaklaşma, flap + takım ----
@@ -228,6 +232,7 @@ const cfg = M.getAircraftConfig('f35a');
   fm.setFlapIndex(fm.sys.flapNames.length - 1); fm.flapsPos = fm.flapsCmd;
   fm.engine_.n = 0.55; fm.throttle = 0.55;
   let thr = 0.55, tdInfo = null, bounces = 0, prevG = false, prevVs = 0;
+  const AL = new FlightAlerts(), alertsSeen = new Set();
   const pilot = (f, vsT) => {
     const T = f.telemetry, Vv = Math.max(30, f.vel.length());
     const gDes = Math.asin(Math.max(-0.5, Math.min(0.5, vsT / Vv))) / DEG;
@@ -248,6 +253,7 @@ const cfg = M.getAircraftConfig('f35a');
   }, stick: (t, f) => {
     const agl = f.telemetry.aglFt * FT;
     const lat = lateral(f);
+    AL.update(1 / 60, f, W); for (const e of AL.events) alertsSeen.add(e);
     if (f.onGround || tdInfo) {
       // Rulman: burun indikten sonra fren (anti-skid), burun tekeriyle eksen tutma
       f.throttle = 0; f.brakes = f.telemetry.kias < 140 && f.telemetry.pitch < 1.5;
@@ -265,6 +271,60 @@ const cfg = M.getAircraftConfig('f35a');
   console.log(`      (rollout end: ${fmt(fm.vel.length(), 2)} m/s, brakes ${fm.brakes}, onGround ${fm.onGround}, throttle ${fmt(fm.throttle, 2)} engine ${fmt(fm.engine, 2)})`);
   check(!fm.crashed && tdInfo && surfTd === 'runway' && bounces === 0 && stopSurf === 'runway' && fm.vel.length() < 3,
     `landing 28R: touchdown on ${surfTd} at ${fmt(tdInfo && tdInfo.vs * 196.85, 0)} ft/min, ${fmt(tdInfo && tdInfo.kias, 0)} KIAS, no bounce; stopped on ${stopSurf}${fm.crashed ? ' — CRASH: ' + fm.crashReason : ''}`);
+  check(!alertsSeen.has('pullUp') && !alertsSeen.has('terrain'), `3° approach and landing on 28R over the real terrain: no nuisance PULL UP / TERRAIN alert (${[...alertsSeen].join(', ') || 'none'})`);
+}
+
+// ---- Arazi uyarısı (v5.1): gerçek DEM'de bir tepeye doğru alçak, düz uçuş ----
+{
+  // LTFE çevresindeki en yüksek noktayı bul (12 km yarıçap), 4 km gerisinden zirvenin 120 m altında yaklaş
+  let best = { h: -1e9, x: 0, z: 0 };
+  for (let i = -24; i <= 24; i++) for (let j = -24; j <= 24; j++) {
+    const x = L.x + i * 500, z = L.z + j * 500, h = W.heightAt(x, z);
+    if (h > best.h) best = { h, x, z };
+  }
+  // Yaklaşma yönü: ilk 2,5 km'si zirveden en az 220 m alçak olan yön (8 yön denenir)
+  const V = 200;
+  let pick = null;
+  for (let k = 0; k < 8 && !pick; k++) {
+    const hdg = k * 45, ux = Math.sin(hdg * DEG), uz = -Math.cos(hdg * DEG);
+    let floor = -1e9; for (let d = 0; d <= 2500; d += 50) floor = Math.max(floor, W.heightAt(best.x - ux * (4000 - d), best.z - uz * (4000 - d)));
+    if (floor < best.h - 220) pick = { hdg, ux, uz, floor };
+  }
+  const { hdg, ux, uz } = pick;
+  const fm = new M.FlightModel(W, cfg);
+  fm.wind = { dirDeg: 0, kt: 0, gustKt: 0, shear: 0 };
+  fm.reset({ x: best.x - ux * 4000, z: best.z - uz * 4000, hdg });
+  const alt = best.h - 120;
+  fm.pos.y = alt; fm.vel.set(ux * V, 0, uz * V); fm.gearCmd = 0; fm.gearPos = 0;
+  fm.quat.setFromEuler(new THREE.Euler(3 * DEG, -hdg * DEG, 0, 'YXZ'));
+  fm.onGround = false; fm.wasOnGround = false; fm.engine_.n = 0.8; fm.throttle = 0.8;
+  const AL = new FlightAlerts();
+  let tTerr = null, tPull = null, tCrash = null, t = 0;
+  run(M, fm, { seconds: 40, fps: 60, throttle: 0.8, stick: (tt, f) => {
+    t = tt; AL.update(1 / 60, f, W);
+    if (AL.terrain && tTerr === null) tTerr = tt;
+    if (AL.pullUp && tPull === null) tPull = tt;
+    return { pitch: 0, roll: 0, yaw: 0 };
+  } });
+  if (fm.crashed) tCrash = t;
+  check(tPull !== null && tCrash !== null && tCrash - tPull > 1.5 && (tTerr === null || tTerr < tPull),
+    `CFIT toward the ${fmt(best.h - G.MSL_Y, 0)} m summit at ${fmt(alt - G.MSL_Y, 0)} m MSL, 200 m/s: TERRAIN at ${fmt(tTerr, 1)} s, PULL UP at ${fmt(tPull, 1)} s, impact at ${fmt(tCrash, 1)} s (${fmt(tCrash - tPull, 1)} s warning)`);
+  // Aynı uçuş, pilot PULL UP'a 0,6 s'de tam geri çubukla (kanatlar düz) yanıt verir: kurtulmalı
+  const f2 = new M.FlightModel(W, cfg);
+  f2.wind = { dirDeg: 0, kt: 0, gustKt: 0, shear: 0 };
+  f2.reset({ x: best.x - ux * 4000, z: best.z - uz * 4000, hdg });
+  f2.pos.y = alt; f2.vel.set(ux * V, 0, uz * V); f2.gearCmd = 0; f2.gearPos = 0;
+  f2.quat.setFromEuler(new THREE.Euler(3 * DEG, -hdg * DEG, 0, 'YXZ'));
+  f2.onGround = false; f2.wasOnGround = false; f2.engine_.n = 0.8; f2.throttle = 0.8;
+  const A2 = new FlightAlerts();
+  let tp = null, minClr = Infinity;
+  run(M, f2, { seconds: 30, fps: 60, throttle: 1, stick: (tt, f) => {
+    A2.update(1 / 60, f, W);
+    if (A2.pullUp && tp === null) tp = tt;
+    minClr = Math.min(minClr, f.pos.y - W.heightAt(f.pos.x, f.pos.z));
+    return { pitch: tp !== null && tt > tp + 0.6 ? 1 : 0, roll: 0, yaw: 0 };
+  } });
+  check(!f2.crashed && tp !== null, `obeying PULL UP 0.6 s after the alert (full aft stick) clears the ridge: minimum clearance ${fmt(minClr, 0)} m${f2.crashed ? ' — CRASH: ' + f2.crashReason : ''}`);
 }
 
 console.log(fails ? `\n${fails} geo-world check(s) FAILED` : '\nall geo-world checks passed');

@@ -71,7 +71,9 @@ js/fcs.js               Fly-by-wire kontrol kanunu (genel mimari; gerçek F-35 k
                         g/AoA kanunu, takım-aşağı oran kanunu, sürekli sınırlayıcılar, eyleyiciler
 PUBLIC_DATA_SOURCES.md  Her sayının kaynağı: [V] doğrulanmış kamuya açık / [E] mühendislik yaklaşımı / [T] ayarlanmış
 js/controls.js          Dokunmatik / klavye / eğim girişleri
-js/hud.js               Yeşil HUD
+js/hud.js               HUD (kokpit) ve dış kamera bilgi şeridi
+js/alerts.js            Uçuş uyarıları (v5.1): toparlanma yörüngeli PULL UP / TERRAIN, LOW FUEL, ENGINE OUT, takım
+js/pcd.js               Canlı kokpit panoramik ekranı (v5.1): TSD + LTFE kerterizi, yapay ufuk, motor, yakıt
 js/audio.js             Prosedürel ses
 js/cameras.js           Takip, kokpit, serbest kamera
 js/ui.js                Menüler, katman geçişleri (açılış/kapanış animasyonları), yükleme göstergesi
@@ -81,7 +83,8 @@ js/version.js           Uygulama sürümü
 icons/                  Ana ekran ikonları (tools/make_icons.py ile üretilir)
 tools/make_icons.py     İkon üretici (yalnızca Python standart kütüphanesi)
 tools/flighttest/       Başsız testler: uçuş fiziği (21 senaryo), çarpma, pist/yol geometrisi, gerçek bölge, göstergeler,
-                        v5.0 çekirdek harita (core.mjs) ve LTFE ışıklandırması (airport.mjs) — npm run test:all
+                        v5.0 çekirdek harita (core.mjs), LTFE ışıklandırması (airport.mjs) ve v5.1 sistemleri
+                        (systems.mjs: motor sönmesi, uyarılar) — npm run test:all
 .nojekyll               GitHub Pages'in dosyaları olduğu gibi sunması için
 ```
 
@@ -142,7 +145,7 @@ pilot girdisi -> FCS -> yüzey komutu -> aerodinamik kuvvet/moment -> ivme -> h�
   tensörü kamuya açık değildir; modellenmemiştir. Her sayının kaynağı ve türetimi
   `PUBLIC_DATA_SOURCES.md` dosyasında etiketlenmiştir.
 
-**Shift+D** geliştirici fizik panelini açar: hava verileri, alpha/beta, açısal oranlar,
+**I** tuşu (v5.1'e kadar Shift+D) geliştirici fizik panelini açar: hava verileri, alpha/beta, açısal oranlar,
 katsayılar, kuvvetler, momentler (jiroskopik dahil), itki, yüzey komutları ve FCS iç değerleri.
 
 ## GitHub Pages ile yayınlama
@@ -886,8 +889,9 @@ Aerodinamik her zaman **havaya göre bağıl hızla** hesaplanır, yer hızıyla
 - **Kamera:** takip → kokpit → serbest (sürükleyerek döndür, iki parmakla yakınlaştır) → uçuş geçişi (sabit dış kamera, Doppler sesi) → sol kanat → sağ kanat → iniş takımı. Kanat ve takım görünümleri gövdeye sabittir. Tam HUD yalnızca kokpit görünümünde çizilir; tüm dış görünümlerde üst ortada kompakt bir şerit sürekli **IAS / ALT / VS / HDG** gösterir; altında kısa uyarılar (STALL, İNİŞ TAKIMI) çıkar. Dar ekranda sığmayan alanlar sondan düşer.
 - **Işık:** iniş ışıkları (takım açıkken burun önünü aydınlatır). Seyir ışıkları (kırmızı/yeşil/beyaz), flaşörler ve dönen ikaz ışıkları her zaman açıktır.
 - **FIRE (sağ sütunun üstü):** AIM-120 fırlatır — önce kanat altı istasyonları, sonra iç silah yuvaları. Düğme kalan füze sayısını, bekleme süresini (dolan şerit) ve sıradaki atışı (QUEUED) gösterir. Yerde engellidir; yerde durunca 2 s içinde yeniden yüklenir.
-- **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış, Q/E dümen, Shift/Ctrl gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, L ışıklar, M ses, **Space ateş**, P/Esc duraklat.
-- **Kalkış:** gazı sonuna kadar itin, ~145 kt'ta burnu kaldırın, tırmanışta takımı toplayın. (Fren zaten açıktır; park freni istenirse **Brakes** düğmesiyle basılır.)
+- **Klavye:** W/S veya ↑/↓ yunuslama, A/D veya ←/→ yatış (v5.1: tuş basılı kaldıkça sapma ~0,4 s'de kademeli artar, kısa dokunuş ince düzeltmedir), Q/E dümen, Shift/Ctrl, +/− ya da Page Up/Down gaz (üst uçta art yakıcı), G takım, F flap, B fren, C kamera, R bakışı ortala, L ışıklar, M ses, **Space ateş**, P/Esc duraklat, **H kontroller ekranı**, I fizik paneli, ` performans katmanı. Uçuşta uçuş tuşlarının tarayıcı kısayolları (Ctrl+S, Ctrl+D…) engellenir; engellenemeyen Ctrl+W için sayfadan çıkış onayı istenir.
+- **Oyun kumandası (v5.1, standart eşleme):** sol çubuk yunuslama/yatış, sağ çubuk bakış (serbest kamera / kokpit), RT/LT gaz, LB/RB dümen, A ateş, B fren, X takım, Y kamera, D-pad ↑/↓ flap, ← ışıklar, → ses, Start duraklat/devam (görev hazırlığında uç, kazadan sonra yeniden başlat), Back/View kontroller ekranı, R3 bakışı ortala.
+- **Kalkış:** gazı sonuna kadar itin, ~150 kt'ta rotasyona başlayın (FCS yerde yunuslamayı 12° ile sınırlar); flap UP ile kopma ~180 kt, flap LAND ile ~155 kt. Tırmanışta takımı toplayın. (Fren zaten açıktır; park freni istenirse **Brakes** düğmesiyle basılır.)
 - **Stall:** Hücum açısı 19°'de uyarı (HUD ve ses), 24°'nin üzerinde taşıma hızla düşer; burun düşer, kanat sallanır. Toparlamak için çubuğu ileri itip hız kazanın.
 - **Eğim kontrolü:** Ayarlar → Eğim kontrolü → Açık. Telefonu rahat tuttuğunuz açıda **Kalibre Et**'e basın.
 
@@ -1001,7 +1005,7 @@ düğümünün köşeleri düğüm merkezine göredir; model-görünüm matrisi 
 kurulduğu için bölgenin her yerinde titreme yoktur.
 
 **Yükseklikler hiçbir yerde karıştırılmaz.** HUD **MSL** irtifa ve radar (**AGL**) gösterir;
-Shift+D panelinde ayrıca WGS84 **elipsoit** yüksekliği (MSL + EGM96 ondülasyonu, LTFE'de 34,1 m),
+Fizik panelinde (I) ayrıca WGS84 **elipsoit** yüksekliği (MSL + EGM96 ondülasyonu, LTFE'de 34,1 m),
 zemin kotu, enlem/boylam, ızgara/gerçek/manyetik yön ve meridyen yakınsaması vardır. HUD yönü
 gerçek dünyada **manyetiktir** (WMM-2025, 5,41° D) ve pist numaralarıyla tutarlıdır.
 
@@ -1077,7 +1081,7 @@ yansıması çizilmez.
 
 **Göstergeler.** IAS artık **kalibre hava hızıdır** (pitot darbe basıncı; ses altı izantropik, ses
 üstü Rayleigh); önceden EAS gösteriliyordu (FL300 M0,80'de 16 kt düşük). Yer hızı yataydır (önceden
-3B hız). Shift+D panelinde TAS, IAS(CAS), EAS, GS, iz, Mach, RA.
+3B hız). Fizik panelinde (I) TAS, IAS(CAS), EAS, GS, iz, Mach, RA.
 
 **Performans katmanı.** Ayarlar › FPS counter › **Debug** ya da **`** tuşu: HUD'dan ayrı panel. Kare
 aralığı (ortalama/p95/en kötü), CPU kare işi (dünya güncellemesi + çizim gönderimi; GPU süresi
@@ -1267,6 +1271,65 @@ yükleme ~3 s (masaüstü). **iPhone'da 60 fps doğrulanmadı.**
 batimetri, kenar sürekliliği, fizik = çizim, yol eğimi ve araziye oturma, bağlantı, D330–LTFE, gökdelen
 ve kale çarpışması) + `airport.mjs` (PAPI açıları ve işlevi, ALS/TDZ/RCL düzeni, levha sıralaması, pist
 şeridi engel serbestliği, manyetik tanımlayıcılar).
+
+## v5.1.0: oynanış cilası — uyarılar, yakıt, kumandalar, kokpit ekranı
+
+Bu sürüm haritaya ve uçuş modelinin yakıtlı davranışına dokunmaz (21 senaryonun ölçütleri aynı); hataları
+düzeltir, eksik sistemleri tamamlar.
+
+**Hatalar.**
+- *Yakıt bitince motor çalışmaya devam ediyordu.* Yakıt 0 kg'a inince itki tam kalıyordu (tam AB'de iç yakıt
+  ~13 dakikada biter). Artık motor SÖNER: gaz ve AB etkisiz, yanma ~3 s'de söner, itki ve yakıt akışı
+  sıfırlanır, çekirdek rüzgâr değirmeni hızına yavaşlar; ses de söner. Yakıt varken motor birebir aynıdır.
+- *Klavye kısayolları.* Ctrl (gaz azalt) + W/S/D tarayıcıda sekmeyi kapatıyor / sayfayı kaydediyor / yer imi
+  ekliyordu; Shift (gaz artır) + D (sağa yatış) geliştirici fizik panelini açıp kapatıyordu. Uçuşta uçuş
+  tuşlarının varsayılan davranışı engellenir, engellenemeyen Ctrl+W için sayfadan çıkış onayı istenir,
+  gaz için kısayolsuz +/− ve Page Up/Down eklendi, fizik paneli **I** tuşuna taşındı.
+- *Hangarda motor sesi.* Kaza ekranından hangara dönünce enkazın rölanti gürlemesi ve rüzgâr görev
+  hazırlığında çalmaya devam ediyordu (ses güncellemesi telemetri yokken hiç yapılmıyordu). Artık uçuş
+  dışında tüm katmanlar söner.
+- *Hangardan yeniden uçuş.* Gaz kolu önceki uçuştaki konumunda kalıyordu (%100'de bırakıldıysa uçak pistte
+  hemen hızlanıyordu); iniş ışıkları ve uyarılar da sıfırlanmıyordu. Yeniden başlatmayla aynı kalkış
+  durumu uygulanır.
+- *Dış kamera şeridi:* 10 000 ft/dk'yı aşan dikey hız (ör. −25,950) VS etiketinin üstüne taşıyordu.
+- *Görev hazırlığı yerleşimi:* sol alttaki konum etiketi, ipucu satırı ve kaynak yazısı orta boy ekranlarda
+  üst üste biniyordu; iPhone SE/8 yatay (375 px) ekranda gün saati satırı panelin altında kırpılıyordu
+  (meydan şeması bu aralıkta küçüleceğine büyüyordu). Ayarlar'daki yedi gün saati düğmesi 4 + 3 ızgarada.
+- *Kontroller ekranı:* "≈140 kt'ta kaldır" yazıyordu; ölçülen kopma flap UP ile ~180 kt, flap LAND ile
+  ~155 kt. Kamera sırası eksikti (Rear, Cinematic). Ekran artık oturumdaki ilk uçuşta açılır; sonra **H**
+  tuşu, kumandada Back ya da **Duraklat → Controls** ile.
+
+**Yeni: uçuş uyarıları (`js/alerts.js`).** HUD, dış kamera şeridi (koyu zeminli renkli haplar, öncelik
+sırasıyla en fazla iki satır), kokpit ekranı ve ses aynı durumu okur.
+- *PULL UP / TERRAIN* — F-35 Auto-GCAS mantığında **toparlanma yörüngesi** benzetimi (kumandaya dokunulmaz):
+  tepki gecikmesi -> yatışı düzelt (150°/s) -> kullanılabilir yük katsayısıyla (≤ 5 g, düşük hızda taşıma
+  sınırlı) 25° tırmanışa çek. Bu yörünge 10 s içinde arazi/denizden 12 m pay bırakmıyorsa: 1,6 s gecikmeyle
+  bile çarpıyorsa **PULL UP**, 5 s gecikmeyle çarpıyorsa **TERRAIN**. Düz bir "çarpmaya kalan süre" eşiği
+  yanıltıcıydı (600 m'den 25° dalış rahatça toparlanır; tepeye doğru düz uçuşta uyarı çok daha erken
+  gerekir). Yüksek yapılar (kule, kale) çarpışma sorgusuyla. İniş düzeninde (takım aşağı, yol açısı > −7°,
+  alçalma < 2000 ft/dk) ve 50 ft altında susar. Ses: PULL UP iki yükselen "whoop", TERRAIN iki tonlu ikaz.
+- *LOW FUEL* (< 1200 kg, histerezisli, bildirim + çan), *ENGINE OUT* (yakıt bitti), *LANDING GEAR* (çan).
+- Doğrulama: gerçek DEM'de LTFE çevresindeki 746 m'lik tepeye düz uçuşta TERRAIN çarpmadan 5,5 s, PULL UP
+  2,4 s önce; PULL UP'a 0,6 s'de tam geri çubukla uyan pilot sırtı 69 m payla aşar. Gerçek 10L kalkışı ve
+  28R inişinde hiç uyarı yok.
+
+**Yeni: canlı kokpit ekranı (`js/pcd.js`).** Panoramik ekran sabit bir resimdi ("FUEL 8300 kg" hiç
+değişmiyordu). Artık: yön yukarı TSD (dönen pusula, 10/20/40 km halkaları, LTFE'ye kerteriz/uzaklık —
+eve dönüş için), yapay ufuk, devir / FTIT / nozul / gaz, iki tanklı yakıt göstergesi (kehribar / kırmızı),
+uyarıda renklenen menü hücreleri. Yalnızca kokpitten bakarken, 6 Hz.
+
+**Yeni: oyun kumandası (Gamepad API).** Bkz. Kontroller. Start görev hazırlığında uçuşu başlatır, kazadan
+sonra yeniden başlatır.
+
+**Klavye çubuğu.** Tuş anında tam sapma veriyordu (kısa dokunuş 9 g ya da tam yatış demekti); şimdi
+basılı kaldıkça ~0,4 s'de kademeli artar, bırakınca hızla merkeze döner.
+
+**Testler.** `systems.mjs` (motor sönmesi, yakıtla davranışın değişmediği, süzülme, uyarıların dalış /
+sırt / kule / ters uçuş / iniş / takımlı dalış durumları, LOW FUEL histerezisi) ve `geoworld.mjs`'e gerçek
+arazide uyarı denetimleri eklendi. Tarayıcıda (SwiftShader) doğrulandı: Ctrl+S/D/W/E engellenir,
+sayfadan çıkış onayı uçuşta etkin, Shift+D paneli açmaz, uyarı hapları ve kokpit PULL UP çerçevesi,
+motor sönmesi göstergeleri, Duraklat → Controls → Duraklat akışı, hangarda ses tamamen kısık, yeniden
+uçuşta gaz 0, beş ekran boyutunda görev hazırlığı yerleşimi. **Gerçek iPhone'da ölçülmedi.**
 
 ## Yerel test
 
