@@ -150,5 +150,15 @@ const evalAlerts = (fm, world, seconds = 1.2) => {
   check(A.flameout && A.events.includes('flameout') && !A.fuelLow, 'ENGINE OUT replaces LOW FUEL when the tanks are dry');
 }
 
+{
+  // Uçuş alanı sınırı: halfSize − 8 km'de bir kez uyarı, geri dönünce (9 km histerezis) kalkar
+  const W = Object.assign(flatWorld(), { halfSize: 125000 });
+  const fm = makeAir(M, { alt: 3000, V: 230 });
+  const A = new FlightAlerts();
+  let n = 0;
+  for (const x of [100000, 116500, 117500, 118000, 116500, 115500]) { fm.pos.x = x; A.update(1 / 60, fm, W); n += A.events.filter((e) => e === 'area').length; }
+  check(n === 1 && !A.areaLimit, `AREA LIMIT 8 km before the ±125 km edge, once, clears after turning back (events ${n})`);
+}
+
 console.log(fails ? `\n${fails} system check(s) FAILED` : '\nall system checks passed');
 process.exit(fails ? 1 : 0);

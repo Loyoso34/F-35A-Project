@@ -32,7 +32,7 @@ const RATE = 1 / 10;        // s, değerlendirme aralığı (10 Hz yeterli; kare
 const PULL_UP = Object.freeze(['PULL UP', 'red', true]), STALL = Object.freeze(['STALL', 'red', true]);
 const ENGINE_OUT = Object.freeze(['ENGINE OUT', 'red', false]), TERRAIN = Object.freeze(['TERRAIN', 'amber', true]);
 const STALL_WARN = Object.freeze(['STALL WARNING', 'amber', true]), GEAR = Object.freeze(['LANDING GEAR', 'amber', true]);
-const LOW_FUEL = Object.freeze(['LOW FUEL', 'amber', false]);
+const LOW_FUEL = Object.freeze(['LOW FUEL', 'amber', false]), AREA = Object.freeze(['AREA LIMIT', 'amber', false]);
 
 export class FlightAlerts {
   constructor() { this.reset(); }
@@ -40,7 +40,7 @@ export class FlightAlerts {
   reset() {
     this.tti = Infinity;
     this.pullUp = false; this.terrain = false;
-    this.fuelLow = false; this.flameout = false; this.gearWarn = false;
+    this.fuelLow = false; this.flameout = false; this.gearWarn = false; this.areaLimit = false;
     this._acc = RATE;        // ilk güncellemede hemen değerlendir
     this.events = [];        // yeni tetiklenen uyarılar (bildirim/ses için tek seferlik)
   }
@@ -89,7 +89,7 @@ export class FlightAlerts {
 
   /**
    * fm: FlightModel, world: heightAt sağlayan dünya. Telemetri bayraklarını günceller ve yeni
-   * tetiklenen uyarıları this.events'e yazar ('pullUp' | 'terrain' | 'fuelLow' | 'flameout' | 'gear').
+   * tetiklenen uyarıları this.events'e yazar ('pullUp' | 'terrain' | 'fuelLow' | 'flameout' | 'gear' | 'area').
    */
   update(dt, fm, world) {
     this.events.length = 0;
@@ -105,6 +105,13 @@ export class FlightAlerts {
     const gw = !fm.crashed && !T.onGround && T.gear < 0.99 && T.aglFt < 800 && T.kias < 200 && T.vsFpm < 0;
     if (gw && !this.gearWarn) this.events.push('gear');
     this.gearWarn = gw;
+    // ---- Uçuş alanı sınırı: fizik ±halfSize'da konumu kırpar (görünmez duvar). 8 km önce uyar. ----
+    if (world && world.halfSize) {
+      const m = Math.max(Math.abs(fm.pos.x), Math.abs(fm.pos.z));
+      const near = this.areaLimit ? m > world.halfSize - 9000 : m > world.halfSize - 8000;
+      if (near && !this.areaLimit) this.events.push('area');
+      this.areaLimit = near && !fm.crashed;
+    }
     // ---- Yere yaklaşma (10 Hz) ----
     this._acc += dt;
     if (this._acc < RATE) return;
@@ -139,6 +146,7 @@ export class FlightAlerts {
     if (!T.stall && T.stallWarn) out.push(STALL_WARN);
     if (this.gearWarn) out.push(GEAR);
     if (this.fuelLow) out.push(LOW_FUEL);
+    if (this.areaLimit) out.push(AREA);
     return out;
   }
 }

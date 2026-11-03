@@ -572,8 +572,11 @@
       top: calc(var(--sat) + 60px); color: #ffd35a; font-weight: 700; font-size: 16px; text-shadow: 0 1px 4px #000; pointer-events: none; z-index: 12;
       opacity: 0; transform: translateY(-4px); transition: opacity var(--t-med) ease, transform var(--t-med) var(--ease-out); }
     #msg.show { opacity: 1; transform: none; }
+    /* Dış kameralarda bilgi şeridinin altında iki uyarı hapı olabilir: bildirim onların altına iner.
+       Kokpitte yukarıda kalır (baş bandının üstünde). */
+    body.ext-view #msg { top: calc(var(--sat) + 76px); }
     #fps { position: absolute; right: calc(var(--sar) + 84px); top: calc(var(--sat) + 8px); font-size: 11px; color: rgba(255,255,255,0.5); pointer-events: none; }
-    /* Geliştirici fizik paneli — Shift+D ile açılır/kapanır. Oyunda varsayılan olarak kapalıdır. */
+    /* Geliştirici fizik paneli — I tuşuyla açılır/kapanır (v5.1; eskiden Shift+D). Oyunda varsayılan olarak kapalıdır. */
     #physdbg {
       position: absolute; left: calc(var(--sal) + 8px); top: calc(var(--sat) + 8px);
       font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

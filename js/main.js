@@ -871,6 +871,10 @@ class App {
         this.installAircraft(id, () => prog.step('flight', 0, label));
         prog.step('shaders', 0, 'Compiling shaders…');
         await this.breathe();
+        // Kalkış noktasının arazisi yükleme ekranında kurulur. Eskiden arazi LOD'u yalnızca görev
+        // hazırlığı sinematiğinin kamerasında (Bodrum, ~30 km ötede) ısıtılıyordu: uçuşun ilk
+        // saniyelerinde pist çevresinde kaba düğümler çiziliyor, yer yer pist kaplamasının üstüne çıkıyordu.
+        this.prewarmAtSpawn(2500);
         // Uçağın iniş ışığı sahnenin ışık kümesini değiştirir: DÜNYANIN malzemeleri de
         // yeni program ister. Bu yüzden yalnızca uçak değil tüm sahne derlenir.
         await this.precompile(this.scene);
@@ -884,6 +888,7 @@ class App {
         this.physics.reset(this.world.spawnPose(this.settings.spawn));
         this.cameraRig.reset();
         this.weapons.reset(); this._weaponsT = null;
+        this.prewarmAtSpawn(1200);   // kısa bütçe: yükleme ekranı yok, geçiş animasyonu sırasında
         // Hangardan yeniden uçuş: gaz kolu ve kumandalar da kalkış durumuna döner (eskiden kol
         // önceki uçuştaki konumunda kalıyordu; %100'de bırakılmışsa uçak pistte hemen hızlanıyordu)
         this.resetCockpit();
@@ -1192,6 +1197,7 @@ class App {
     for (const ev of A.events) {
       if (ev === 'fuelLow') this.ui.message(`Low fuel — ${thousandsKg(FUEL_LOW_KG)} remaining. Head back to LTFE`, 3200);
       else if (ev === 'flameout') this.ui.message('Engine flameout — fuel exhausted. Glide to a landing', 4200);
+      else if (ev === 'area') this.ui.message('Approaching the edge of the flight area — turn back toward LTFE', 4000);
     }
   }
   cycleCamera() {
@@ -1262,6 +1268,19 @@ class App {
     this.needsRender = true;
   }
 
+  /** Uçuş kamerasını kalkış noktasına oturtur ve görünür arazi düğümlerini kurar (bütçe ms). */
+  prewarmAtSpawn(maxMs) {
+    if (!this.physics || !this.world) return;
+    this.snapPose();
+    this.cameraRig.update(1, this.pose);
+    this.camera.updateMatrixWorld();
+    try {
+      this.world.update(0, this.camera, this.pose.pos);
+      if (this.world.prewarm) this.world.prewarm(this.camera, maxMs);
+    } catch (e) { console.warn('Spawn terrain prewarm skipped', e); }
+    this.needsRender = true;
+  }
+
   /** Kalkış noktasının biraz arkası ve yukarısı (yeni bölgede ilk görüntü için arazi ısıtma konumu). */
   _spawnCamPos() {
     const sp = this.world.spawnPose(this.settings.spawn), h = sp.hdg * Math.PI / 180;
@@ -1304,7 +1323,7 @@ class App {
 
   // ---- Döngü ----
   // -------------------------------------------------------------------------
-  // Geliştirici fizik paneli (§40). Shift+D ile açılır. Uçuş modelinin ÜRETTİĞİ
+  // Geliştirici fizik paneli (§40). I tuşuyla açılır. Uçuş modelinin ÜRETTİĞİ
   // değerleri gösterir; ayrı bir hesap yapmaz, bu yüzden panel ile fizik asla
   // birbirinden ayrışamaz. Kapalıyken hiçbir maliyeti yoktur.
   // -------------------------------------------------------------------------
@@ -1313,7 +1332,7 @@ class App {
     const el = document.getElementById('physdbg');
     if (el) el.hidden = !this.physDebug;
     if (!this.physDebug && el) el.textContent = '';
-    this.ui.message(this.physDebug ? 'Physics panel on (Shift+D)' : 'Physics panel off');
+    this.ui.message(this.physDebug ? 'Physics panel on (I)' : 'Physics panel off');
   }
 
   perfInfo() {
@@ -1632,6 +1651,7 @@ class App {
       if (wrecking) this.hud.clear();
       else {
         const cockpit = this.cameraRig.mode === 'cockpit';
+        if (cockpit !== this._cockpitClass) { this._cockpitClass = cockpit; document.body.classList.toggle('ext-view', !cockpit); }
         const W = this.weapons, wi = this._hudWpn || (this._hudWpn = {});
         wi.count = W.count; wi.pending = W.pending; wi.inhibit = !!W.inhibited();
         wi.busy = false; for (const b of W.bays) if (b.state === 'opening' || b.state === 'eject') wi.busy = true;

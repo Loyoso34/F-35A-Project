@@ -86,6 +86,17 @@ export const TERRAIN_GLSL = /* glsl */`
     vec3 grad = sign(det) * (bx * r1 + by * r2);
     return normalize(abs(det) * N - grad);
   }
+  // Ekran ayak izine göre ayrıntı sönümü (v5.1): döşenen bir ayrıntı katmanının bir karosu ekranda
+  // en sıkışık ekseninde 32 pikselden azına düştüğünde katman ortalamasına (0.5) doğru söner, 8 pikselde
+  // tamamen. Yalnızca mesafeye bağlı sönüm (nf) bakış açısını bilmiyordu: sığ açıda 4–17 m'lik karolar
+  // birkaç piksele sıkışıyor, eşikli karışımlar (çalı öbekleri, çatlaklar) mip artığını büyütüp yerde
+  // "televizyon karıncalanması" gibi bir benek üretiyordu. Türevler dallanmanın DIŞINDA alınır.
+  // tileFoot: piksel başına karo kesrinin karesi (en sıkışık eksen).
+  float tileFoot(vec2 uv) { vec2 a = dFdx(uv), b = dFdy(uv); return max(dot(a, a), dot(b, b)); }
+  float tileFade(float f) { return 1.0 - smoothstep(1.0 / 1024.0, 1.0 / 64.0, f); }
+  // İnce tane (G kanalı, karonun ~1/96'sı): tane 4 pikselden küçülünce söner, 1 pikselde tamamen. Yakında
+  // (10–60 m) tane piksel boyutundaydı ve pist kenarında dijital parazit gibi görünüyordu.
+  float grainFade(float f) { return 1.0 - smoothstep(1.0 / 147456.0, 1.0 / 9216.0, f); }
   // Görüntünün çekim anı gölgelemesini geri al (kaba Lambert; ortam payı ~%45)
   vec3 deshade(vec3 macro, vec3 N) {
     float flatS = 0.45 + 0.55 * max(uAcqSun.y, 0.0);
@@ -113,15 +124,19 @@ export const TERRAIN_GLSL = /* glsl */`
     float sand = mask.y, urban = mask.x, park = mask.z;
     float terra = smoothstep(0.415, 0.465, rr) * (1.0 - veg) * 0.6;          // kırmızı toprak (terra rossa)
     // Ayrıntı örnekleri (mesafeyle sönen)
+    vec2 uvA = p * (1.0 / 61.0), uvB = pr * (1.0 / 17.0) + 0.37, uvC = pr * (1.0 / 4.3) + 0.71, uvM = p * (1.0 / 233.0) + 0.61;
+    float tfA = tileFoot(uvA), tfB = tileFoot(uvB), tfC = tileFoot(uvC);
+    vec4 kA = vec4(tileFade(tfA)), kB = vec4(tileFade(tfB)), kC = vec4(tileFade(tfC));
+    kA.g *= grainFade(tfA); kB.g *= grainFade(tfB); kC.g *= grainFade(tfC);
     float nf = 1.0 - smoothstep(350.0, 3200.0, camD);
     float nf2 = 1.0 - smoothstep(40.0, 420.0, camD);
     vec4 dA = vec4(0.5), dB = vec4(0.5), dC = vec4(0.5);
-    vec4 dM = texture2D(tDet, p * (1.0 / 233.0) + 0.61);           // ~40 m öbek ölçeği (uzakta da)
+    vec4 dM = mix(vec4(0.5), texture2D(tDet, uvM), tileFade(tileFoot(uvM)));   // ~40 m öbek ölçeği (uzakta da)
     if (nf > 0.0) {
-      dA = mix(vec4(0.5), texture2D(tDet, p * (1.0 / 61.0)), nf);
-      dB = mix(vec4(0.5), texture2D(tDet, pr * (1.0 / 17.0) + 0.37), nf);
+      dA = mix(vec4(0.5), texture2D(tDet, uvA), nf * kA);
+      dB = mix(vec4(0.5), texture2D(tDet, uvB), nf * kB);
     }
-    if (nf2 > 0.0) dC = mix(vec4(0.5), texture2D(tDet, pr * (1.0 / 4.3) + 0.71), nf2);
+    if (nf2 > 0.0) dC = mix(vec4(0.5), texture2D(tDet, uvC), nf2 * kC);
     float macroN = texture2D(tDet, p * (1.0 / 1450.0) + 0.13).a;
     // ---- Malzeme paletleri (doğrusal albedo; yerel Ege peyzajı)
     // maki: koyu, öbekli taçlar + aralarında açık kuru toprak; öbek oranı görüntü yeşilliğinden

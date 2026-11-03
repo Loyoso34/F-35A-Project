@@ -1292,6 +1292,21 @@ düzeltir, eksik sistemleri tamamlar.
   hemen hızlanıyordu); iniş ışıkları ve uyarılar da sıfırlanmıyordu. Yeniden başlatmayla aynı kalkış
   durumu uygulanır.
 - *Dış kamera şeridi:* 10 000 ft/dk'yı aşan dikey hız (ör. −25,950) VS etiketinin üstüne taşıyordu.
+- *Arazide karıncalanma.* Kurak/çıplak zeminde, özellikle alçakta ve sığ bakış açısında yer "televizyon
+  karıncalanması" gibi beneklenip titriyordu. A/B deneyiyle kök neden ayrıldı: türev tabanlı tümsek DEĞİL
+  (piksellerin %1,9'u değişti), ayrıntı atlasının kendisi (düz griyle değiştirince benek tamamen kalkıyor).
+  4,3 / 17 / 61 m'lik döşenen ayrıntı katmanları sığ açıda birkaç piksele sıkışıyor, çalı öbeği ve çatlak
+  gibi dar eşikli karışımlar mip artığını yüksek kontrastlı beneğe çeviriyordu; sönüm yalnızca MESAFEYE
+  bağlıydı. Artık her katman, karosu ekranda en sıkışık ekseninde 32 pikselden küçülünce ortalamasına
+  doğru söner (8 pikselde tamamen; `tileFade`, ekran türevleri). Türevler dallanmanın dışında alınır
+  (GLSL'de dallanma içindeki türevler tanımsızdır). Yakın ayrıntı korunur.
+- *Kalkışın ilk saniyelerinde pistte arazi.* Arazi LOD'u yalnızca görev hazırlığı sinematiğinin kamerasında
+  (Bodrum şehri, ~30 km ötede) ısıtılıyordu; **Fly**'dan sonra ilk karelerde pist çevresinde kaba arazi
+  düğümleri çiziliyor ve yer yer pist kaplamasının ÜSTÜNE çıkıyordu (pistin üzerinde çapraz bir arazi
+  şeridi). Artık kalkış kamerasında görünür düğümler yükleme ekranında kurulur (`prewarmAtSpawn`;
+  hangardan yeniden uçuşta kısa bütçeyle).
+- *Uçuş alanı sınırı.* ±125 km'de fizik konumu sessizce kırpıyordu (uçak görünmez duvara yapışıyordu);
+  artık 8 km önce **AREA LIMIT** uyarısı ve "geri dön" bildirimi verilir.
 - *Görev hazırlığı yerleşimi:* sol alttaki konum etiketi, ipucu satırı ve kaynak yazısı orta boy ekranlarda
   üst üste biniyordu; iPhone SE/8 yatay (375 px) ekranda gün saati satırı panelin altında kırpılıyordu
   (meydan şeması bu aralıkta küçüleceğine büyüyordu). Ayarlar'daki yedi gün saati düğmesi 4 + 3 ızgarada.
@@ -1308,7 +1323,8 @@ sırasıyla en fazla iki satır), kokpit ekranı ve ses aynı durumu okur.
   yanıltıcıydı (600 m'den 25° dalış rahatça toparlanır; tepeye doğru düz uçuşta uyarı çok daha erken
   gerekir). Yüksek yapılar (kule, kale) çarpışma sorgusuyla. İniş düzeninde (takım aşağı, yol açısı > −7°,
   alçalma < 2000 ft/dk) ve 50 ft altında susar. Ses: PULL UP iki yükselen "whoop", TERRAIN iki tonlu ikaz.
-- *LOW FUEL* (< 1200 kg, histerezisli, bildirim + çan), *ENGINE OUT* (yakıt bitti), *LANDING GEAR* (çan).
+- *LOW FUEL* (< 1200 kg, histerezisli, bildirim + çan), *ENGINE OUT* (yakıt bitti), *LANDING GEAR* (çan),
+  *AREA LIMIT* (uçuş alanı kenarına 8 km). Dış kameralarda bildirim satırı iki uyarı hapının altına iner.
 - Doğrulama: gerçek DEM'de LTFE çevresindeki 746 m'lik tepeye düz uçuşta TERRAIN çarpmadan 5,5 s, PULL UP
   2,4 s önce; PULL UP'a 0,6 s'de tam geri çubukla uyan pilot sırtı 69 m payla aşar. Gerçek 10L kalkışı ve
   28R inişinde hiç uyarı yok.
@@ -1325,11 +1341,13 @@ sonra yeniden başlatır.
 basılı kaldıkça ~0,4 s'de kademeli artar, bırakınca hızla merkeze döner.
 
 **Testler.** `systems.mjs` (motor sönmesi, yakıtla davranışın değişmediği, süzülme, uyarıların dalış /
-sırt / kule / ters uçuş / iniş / takımlı dalış durumları, LOW FUEL histerezisi) ve `geoworld.mjs`'e gerçek
+sırt / kule / ters uçuş / iniş / takımlı dalış durumları, LOW FUEL histerezisi, AREA LIMIT) ve `geoworld.mjs`'e gerçek
 arazide uyarı denetimleri eklendi. Tarayıcıda (SwiftShader) doğrulandı: Ctrl+S/D/W/E engellenir,
 sayfadan çıkış onayı uçuşta etkin, Shift+D paneli açmaz, uyarı hapları ve kokpit PULL UP çerçevesi,
 motor sönmesi göstergeleri, Duraklat → Controls → Duraklat akışı, hangarda ses tamamen kısık, yeniden
-uçuşta gaz 0, beş ekran boyutunda görev hazırlığı yerleşimi. **Gerçek iPhone'da ölçülmedi.**
+uçuşta gaz 0, beş ekran boyutunda görev hazırlığı yerleşimi, sahte bir standart kumandayla tüm eşleme
+(ölü bölge dahil), canlı kokpit ekranı, arazi karıncalanmasının önce/sonra görüntüleri. **Gerçek iPhone'da
+ve gerçek bir GPU'da ölçülmedi** (geliştirme ortamı SwiftShader).
 
 ## Yerel test
 
